@@ -70,30 +70,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROUT-01 | Phase TBD | Pending |
-| ROUT-02 | Phase TBD | Pending |
-| ROUT-03 | Phase TBD | Pending |
-| RETR-01 | Phase TBD | Pending |
-| RETR-02 | Phase TBD | Pending |
-| RETR-03 | Phase TBD | Pending |
-| RETR-04 | Phase TBD | Pending |
-| RETR-05 | Phase TBD | Pending |
-| EVID-01 | Phase TBD | Pending |
-| EVID-02 | Phase TBD | Pending |
-| EVID-03 | Phase TBD | Pending |
-| EVID-04 | Phase TBD | Pending |
-| OUTP-01 | Phase TBD | Pending |
-| OUTP-02 | Phase TBD | Pending |
-| OUTP-03 | Phase TBD | Pending |
-| RELY-01 | Phase TBD | Pending |
-| RELY-02 | Phase TBD | Pending |
-| RELY-03 | Phase TBD | Pending |
+| ROUT-01 | Phase 1 | Pending |
+| ROUT-02 | Phase 1 | Pending |
+| ROUT-03 | Phase 1 | Pending |
+| RETR-01 | Phase 2 | Pending |
+| RETR-02 | Phase 2 | Pending |
+| RETR-03 | Phase 2 | Pending |
+| RETR-04 | Phase 2 | Pending |
+| RETR-05 | Phase 2 | Pending |
+| EVID-01 | Phase 3 | Pending |
+| EVID-02 | Phase 3 | Pending |
+| EVID-03 | Phase 3 | Pending |
+| EVID-04 | Phase 3 | Pending |
+| OUTP-01 | Phase 4 | Pending |
+| OUTP-02 | Phase 4 | Pending |
+| OUTP-03 | Phase 4 | Pending |
+| RELY-01 | Phase 5 | Pending |
+| RELY-02 | Phase 5 | Pending |
+| RELY-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-08 after initial definition*
+*Last updated: 2026-04-07 after roadmap creation*
