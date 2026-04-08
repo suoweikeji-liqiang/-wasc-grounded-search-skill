@@ -1,0 +1,115 @@
+[
+  {
+    "name": "policy_basic",
+    "query": "人工智能监管条例与政策通知要点",
+    "expected_route_label": "policy",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator",
+      "standards_body"
+    ],
+    "reason_category": "policy_core"
+  },
+  {
+    "name": "academic_basic",
+    "query": "RAG论文综述与引用趋势研究",
+    "expected_route_label": "academic",
+    "expected_primary_route": "academic",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "academic_metadata",
+      "paper_repository",
+      "citation_index"
+    ],
+    "reason_category": "academic_core"
+  },
+  {
+    "name": "industry_basic",
+    "query": "智能驾驶行业公司市场竞争格局",
+    "expected_route_label": "industry",
+    "expected_primary_route": "industry",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "company_official",
+      "industry_association",
+      "trusted_news"
+    ],
+    "reason_category": "industry_core"
+  },
+  {
+    "name": "mixed_explicit",
+    "query": "自动驾驶政策对行业影响",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": "industry",
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator",
+      "company_official"
+    ],
+    "reason_category": "explicit_cross_domain"
+  },
+  {
+    "name": "mixed_short",
+    "query": "AI政策",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator"
+    ],
+    "reason_category": "short_query"
+  },
+  {
+    "name": "mixed_low_signal",
+    "query": "今天北京天气和空气质量怎么样",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator"
+    ],
+    "reason_category": "low_signal"
+  },
+  {
+    "name": "precedence_policy_over_academic",
+    "query": "政策研究路径评估框架示例说明",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator"
+    ],
+    "reason_category": "precedence_tie_policy_over_academic"
+  },
+  {
+    "name": "precedence_academic_over_industry",
+    "query": "这篇论文行业趋势解读案例分享",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "academic",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "academic_metadata",
+      "paper_repository"
+    ],
+    "reason_category": "precedence_tie_academic_over_industry"
+  },
+  {
+    "name": "mixed_tie_defaults_policy",
+    "query": "请问政策研究路径如何设计实施",
+    "expected_route_label": "mixed",
+    "expected_primary_route": "policy",
+    "expected_supplemental_route": null,
+    "expected_source_families_contains": [
+      "official_government",
+      "regulator",
+      "standards_body"
+    ],
+    "reason_category": "ambiguous_tie_defaults_precedence"
+  }
+]
