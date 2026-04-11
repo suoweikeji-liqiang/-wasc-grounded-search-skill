@@ -128,6 +128,19 @@ def test_map_exception_to_failure_reason_maps_timeout_rate_limited_and_adapter_e
     assert map_exception_to_failure_reason(RuntimeError("boom")) == "adapter_error"
 
 
+def test_map_exception_to_failure_reason_maps_response_status_code_429_to_rate_limited() -> None:
+    class _Response:
+        status_code = 429
+
+    class _ResponseRateLimitError(RuntimeError):
+        response = _Response()
+
+    assert (
+        map_exception_to_failure_reason(_ResponseRateLimitError("response 429"))
+        == "rate_limited"
+    )
+
+
 def test_next_source_for_failure_is_deterministic_for_policy_source() -> None:
     assert (
         next_source_for_failure("policy_official_registry", "no_hits")
@@ -225,3 +238,57 @@ def test_run_retrieval_returns_failure_gaps_when_fallback_chain_exhausted() -> N
         "policy_official_web_allowlist_fallback",
     }
     assert not outcome.results
+
+
+def test_run_retrieval_response_shaped_429_triggers_fallback_execution() -> None:
+    classification = ClassificationResult(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        reason_code="policy_hit",
+        scores={"policy": 5, "academic": 0, "industry": 0},
+    )
+    plan = build_retrieval_plan(classification)
+    events: list[str] = []
+
+    class _Response:
+        status_code = 429
+
+    class _ResponseRateLimitError(RuntimeError):
+        response = _Response()
+
+    async def _first_wave(_: str) -> list[RetrievalHit]:
+        events.append("first:start")
+        await asyncio.sleep(0.01)
+        events.append("first:end:response_429")
+        raise _ResponseRateLimitError("response 429")
+
+    async def _fallback(_: str) -> list[RetrievalHit]:
+        events.append("fallback:start")
+        await asyncio.sleep(0.01)
+        events.append("fallback:end:success")
+        return [_mk_hit("policy_official_web_allowlist_fallback")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="policy source response 429 fallback",
+            adapter_registry={
+                "policy_official_registry": _first_wave,
+                "policy_official_web_allowlist_fallback": _fallback,
+            },
+        )
+    )
+
+    assert events == [
+        "first:start",
+        "first:end:response_429",
+        "fallback:start",
+        "fallback:end:success",
+    ]
+    assert outcome.status == "partial"
+    assert outcome.failure_reason == "rate_limited"
+    assert any(
+        hit.source_id == "policy_official_web_allowlist_fallback"
+        for hit in outcome.results
+    )
