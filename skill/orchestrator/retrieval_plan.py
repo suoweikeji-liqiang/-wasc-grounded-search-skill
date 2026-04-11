@@ -105,8 +105,7 @@ def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[Pl
 
 def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tuple[PlannedSourceStep, ...]:
     first_wave_ids = {step.source.source_id for step in first_wave_steps}
-    fallback_steps: list[PlannedSourceStep] = []
-    seen_fallback_keys: set[tuple[str, str]] = set()
+    fallback_steps_by_key: dict[tuple[str, str], PlannedSourceStep] = {}
 
     for step in first_wave_steps:
         transitions = SOURCE_BACKUP_CHAIN.get(step.source.source_id, {})
@@ -115,12 +114,9 @@ def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tu
                 continue
 
             dedupe_key = (step.source.source_id, target_source_id)
-            if dedupe_key in seen_fallback_keys:
-                continue
-            seen_fallback_keys.add(dedupe_key)
-
-            fallback_steps.append(
-                PlannedSourceStep(
+            existing_step = fallback_steps_by_key.get(dedupe_key)
+            if existing_step is None:
+                fallback_steps_by_key[dedupe_key] = PlannedSourceStep(
                     source=RetrievalSource(
                         source_id=target_source_id,
                         route=step.source.route,
@@ -129,8 +125,18 @@ def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tu
                     fallback_from_source_id=step.source.source_id,
                     trigger_on_failures=(failure_reason,),  # type: ignore[arg-type]
                 )
-            )
-    return tuple(fallback_steps)
+                continue
+
+            if failure_reason not in existing_step.trigger_on_failures:
+                fallback_steps_by_key[dedupe_key] = PlannedSourceStep(
+                    source=existing_step.source,
+                    fallback_from_source_id=existing_step.fallback_from_source_id,
+                    trigger_on_failures=(
+                        *existing_step.trigger_on_failures,
+                        failure_reason,
+                    ),
+                )
+    return tuple(fallback_steps_by_key.values())
 
 
 def build_retrieval_plan(classification: ClassificationResult) -> RetrievalPlan:
