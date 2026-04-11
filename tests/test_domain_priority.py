@@ -10,6 +10,7 @@ from skill.config.retrieval import (
     SUPPLEMENTAL_STRONGEST_SOURCE,
 )
 from skill.retrieval.models import RetrievalHit, derive_credibility_tier
+from skill.retrieval.priority import prioritize_hits
 
 
 def test_policy_route_keeps_fallback_outside_first_wave() -> None:
@@ -92,3 +93,105 @@ def test_industry_tier_adapter_assigns_explicit_credibility_tiers() -> None:
         {"company_official", "industry_association", "trusted_news", "general_web"}
     )
     assert "company_official" in observed_tiers
+
+
+def test_prioritize_hits_policy_domain_first_d15_before_generic_relevance() -> None:
+    hits = [
+        RetrievalHit(
+            source_id="policy_official_web_allowlist_fallback",
+            title="Highly relevant policy summary",
+            url="https://www.gov.cn/zhengce/summary",
+            snippet="Secondary interpretation with many keywords.",
+        ),
+        RetrievalHit(
+            source_id="policy_official_registry",
+            title="Official policy source text",
+            url="https://www.mee.gov.cn/policy/original",
+            snippet="Primary source publication.",
+        ),
+    ]
+
+    ordered = prioritize_hits(
+        domain="policy",
+        hits=hits,
+        primary_route="policy",
+        supplemental_route=None,
+    )
+
+    assert [hit.source_id for hit in ordered] == [
+        "policy_official_registry",
+        "policy_official_web_allowlist_fallback",
+    ]
+
+
+def test_prioritize_hits_academic_excludes_non_scholarly_candidates() -> None:
+    hits = [
+        RetrievalHit(
+            source_id="academic_semantic_scholar",
+            title="Semantic Scholar paper",
+            url="https://www.semanticscholar.org/paper/123",
+            snippet="Scholarly source.",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Generic web page",
+            url="https://example.com/blog",
+            snippet="Non-scholarly source that must be excluded.",
+        ),
+    ]
+
+    ordered = prioritize_hits(
+        domain="academic",
+        hits=hits,
+        primary_route="academic",
+        supplemental_route=None,
+    )
+
+    assert [hit.source_id for hit in ordered] == ["academic_semantic_scholar"]
+
+
+def test_prioritize_hits_industry_tier_then_recency_within_tier() -> None:
+    hits = [
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Trusted News Older",
+            url="https://www.reuters.com/world/2024-01-01/market",
+            snippet="Older trusted-news source.",
+            credibility_tier="trusted_news",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Company Official Update",
+            url="https://www.tesla.com/blog/2025-06-01-update",
+            snippet="Highest credibility tier.",
+            credibility_tier="company_official",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Trusted News Newer",
+            url="https://www.reuters.com/world/2026-02-15/market",
+            snippet="Newer trusted-news source.",
+            credibility_tier="trusted_news",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="General Web Post",
+            url="https://example.net/post",
+            snippet="Lowest credibility tier.",
+            credibility_tier="general_web",
+        ),
+    ]
+
+    ordered = prioritize_hits(
+        domain="industry",
+        hits=hits,
+        primary_route="industry",
+        supplemental_route=None,
+    )
+
+    assert [hit.title for hit in ordered] == [
+        "Company Official Update",
+        "Trusted News Newer",
+        "Trusted News Older",
+        "General Web Post",
+    ]
