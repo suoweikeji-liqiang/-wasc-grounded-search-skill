@@ -14,6 +14,9 @@ def map_exception_to_failure_reason(exc: BaseException) -> RetrievalFailureReaso
         return "timeout"
 
     status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
     if status_code == 429:
         return "rate_limited"
 

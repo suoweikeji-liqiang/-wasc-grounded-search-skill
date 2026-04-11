@@ -286,8 +286,8 @@ def test_run_retrieval_response_shaped_429_triggers_fallback_execution() -> None
         "fallback:start",
         "fallback:end:success",
     ]
-    assert outcome.status == "partial"
-    assert outcome.failure_reason == "rate_limited"
+    assert outcome.status == "success"
+    assert outcome.failure_reason is None
     assert any(
         hit.source_id == "policy_official_web_allowlist_fallback"
         for hit in outcome.results
