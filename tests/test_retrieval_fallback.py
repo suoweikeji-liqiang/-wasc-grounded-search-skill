@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
+
+from skill.api.schema import RetrieveOutcome
 from skill.config.retrieval import DOMAIN_FIRST_WAVE_SOURCES, SOURCE_BACKUP_CHAIN
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
@@ -78,3 +82,23 @@ def test_retrieval_failure_taxonomy_contract() -> None:
         "adapter_error",
     }
     assert statuses == {"success", "partial", "failure_gaps"}
+
+
+def test_retrieve_outcome_failure_gaps_schema_is_strict() -> None:
+    outcome = RetrieveOutcome(
+        status="failure_gaps",
+        failure_reason="adapter_error",
+        gaps=["policy_official_registry"],
+        results=[],
+    )
+    assert outcome.status == "failure_gaps"
+    assert outcome.failure_reason == "adapter_error"
+    assert outcome.gaps == ["policy_official_registry"]
+
+    with pytest.raises(ValidationError):
+        RetrieveOutcome(
+            status="unknown_status",
+            failure_reason="adapter_error",
+            gaps=[],
+            results=[],
+        )
