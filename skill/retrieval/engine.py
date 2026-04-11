@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from skill.orchestrator.retrieval_plan import PlannedSourceStep, RetrievalPlan
+from skill.retrieval.fallback_fsm import (
+    map_exception_to_failure_reason,
+    next_source_for_failure,
+)
 from skill.retrieval.models import (
     RetrievalFailureReason,
     RetrievalHit,
@@ -27,17 +31,7 @@ class RetrievalExecutionOutcome:
     source_results: tuple[SourceExecutionResult, ...]
 
 
-def _map_exception_to_failure_reason(exc: BaseException) -> RetrievalFailureReason:
-    if isinstance(exc, asyncio.TimeoutError):
-        return "timeout"
-
-    status_code = getattr(exc, "status_code", None)
-    if status_code == 429:
-        return "rate_limited"
-    return "adapter_error"
-
-
-def _normalize_hits(raw_hits: list[RetrievalHit], source_id: str) -> tuple[RetrievalHit, ...]:
+def _normalize_hits(raw_hits: list[Any], source_id: str) -> tuple[RetrievalHit, ...]:
     normalized: list[RetrievalHit] = []
     for hit in raw_hits:
         if isinstance(hit, RetrievalHit):
@@ -64,13 +58,12 @@ def _normalize_hits(raw_hits: list[RetrievalHit], source_id: str) -> tuple[Retri
 
 
 async def _run_single_source(
-    step: PlannedSourceStep,
+    source_id: str,
     query: str,
     adapter_registry: Mapping[str, Adapter],
-    semaphore: asyncio.Semaphore,
-    per_source_timeout_seconds: float,
+    timeout_seconds: float,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> SourceExecutionResult:
-    source_id = step.source.source_id
     adapter = adapter_registry.get(source_id)
     if adapter is None:
         return SourceExecutionResult(
@@ -80,19 +73,36 @@ async def _run_single_source(
             gaps=(source_id,),
         )
 
-    async with semaphore:
+    if timeout_seconds <= 0:
+        return SourceExecutionResult(
+            source_id=source_id,
+            status="failure_gaps",
+            failure_reason="timeout",
+            gaps=(source_id,),
+        )
+
+    async def _invoke_adapter() -> list[Any]:
         try:
-            raw_hits = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 adapter(query),
-                timeout=per_source_timeout_seconds,
+                timeout=timeout_seconds,
             )
         except BaseException as exc:
-            return SourceExecutionResult(
-                source_id=source_id,
-                status="failure_gaps",
-                failure_reason=_map_exception_to_failure_reason(exc),
-                gaps=(source_id,),
-            )
+            raise exc
+
+    try:
+        if semaphore is not None:
+            async with semaphore:
+                raw_hits = await _invoke_adapter()
+        else:
+            raw_hits = await _invoke_adapter()
+    except BaseException as exc:
+        return SourceExecutionResult(
+            source_id=source_id,
+            status="failure_gaps",
+            failure_reason=map_exception_to_failure_reason(exc),
+            gaps=(source_id,),
+        )
 
     if not raw_hits:
         return SourceExecutionResult(
@@ -110,51 +120,63 @@ async def _run_single_source(
     )
 
 
-def _build_outcome(
-    ordered_results: tuple[SourceExecutionResult, ...],
-) -> RetrievalExecutionOutcome:
-    hits: list[RetrievalHit] = []
-    gaps: list[str] = []
-    first_failure: RetrievalFailureReason | None = None
-    has_success = False
-    has_failure = False
+async def _run_first_wave(
+    first_wave_steps: tuple[PlannedSourceStep, ...],
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    per_source_timeout_seconds: float,
+    overall_timeout_seconds: float,
+    concurrency_cap: int,
+) -> dict[str, SourceExecutionResult]:
+    semaphore = asyncio.Semaphore(max(1, concurrency_cap))
+    tasks: dict[asyncio.Task[SourceExecutionResult], str] = {}
 
-    for source_result in ordered_results:
-        if source_result.status == "success":
-            has_success = True
-            hits.extend(source_result.hits)
-            continue
-
-        has_failure = True
-        gaps.extend(source_result.gaps)
-        if first_failure is None:
-            first_failure = source_result.failure_reason
-
-    if has_success and not has_failure:
-        return RetrievalExecutionOutcome(
-            status="success",
-            failure_reason=None,
-            gaps=(),
-            results=tuple(hits),
-            source_results=ordered_results,
+    for step in first_wave_steps:
+        source_id = step.source.source_id
+        task = asyncio.create_task(
+            _run_single_source(
+                source_id=source_id,
+                query=query,
+                adapter_registry=adapter_registry,
+                timeout_seconds=per_source_timeout_seconds,
+                semaphore=semaphore,
+            )
         )
+        tasks[task] = source_id
 
-    if has_success and has_failure:
-        return RetrievalExecutionOutcome(
-            status="partial",
-            failure_reason=first_failure,
-            gaps=tuple(dict.fromkeys(gaps)),
-            results=tuple(hits),
-            source_results=ordered_results,
-        )
-
-    return RetrievalExecutionOutcome(
-        status="failure_gaps",
-        failure_reason=first_failure or "adapter_error",
-        gaps=tuple(dict.fromkeys(gaps)),
-        results=(),
-        source_results=ordered_results,
+    done, pending = await asyncio.wait(
+        tuple(tasks.keys()),
+        timeout=max(0.0, overall_timeout_seconds),
     )
+
+    for pending_task in pending:
+        pending_task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    by_source: dict[str, SourceExecutionResult] = {}
+    for done_task in done:
+        source_id = tasks[done_task]
+        try:
+            by_source[source_id] = done_task.result()
+        except BaseException as exc:
+            by_source[source_id] = SourceExecutionResult(
+                source_id=source_id,
+                status="failure_gaps",
+                failure_reason=map_exception_to_failure_reason(exc),
+                gaps=(source_id,),
+            )
+
+    for pending_task in pending:
+        source_id = tasks[pending_task]
+        by_source[source_id] = SourceExecutionResult(
+            source_id=source_id,
+            status="failure_gaps",
+            failure_reason="timeout",
+            gaps=(source_id,),
+        )
+
+    return by_source
 
 
 async def run_retrieval(
@@ -173,61 +195,90 @@ async def run_retrieval(
             source_results=(),
         )
 
-    semaphore = asyncio.Semaphore(max(1, plan.global_concurrency_cap))
-    tasks: dict[asyncio.Task[SourceExecutionResult], str] = {}
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + max(0.0, plan.overall_deadline_seconds)
+    first_wave_results = await _run_first_wave(
+        first_wave_steps=first_wave_steps,
+        query=query,
+        adapter_registry=adapter_registry,
+        per_source_timeout_seconds=max(0.0, plan.per_source_timeout_seconds),
+        overall_timeout_seconds=max(0.0, deadline_at - loop.time()),
+        concurrency_cap=plan.global_concurrency_cap,
+    )
+
+    all_attempt_results: list[SourceExecutionResult] = []
+    final_hits: list[RetrievalHit] = []
+    unresolved_reasons: list[RetrievalFailureReason] = []
+    unresolved_gaps: list[str] = []
 
     for step in first_wave_steps:
-        task = asyncio.create_task(
-            _run_single_source(
-                step=step,
-                query=query,
-                adapter_registry=adapter_registry,
-                semaphore=semaphore,
-                per_source_timeout_seconds=plan.per_source_timeout_seconds,
-            )
-        )
-        tasks[task] = step.source.source_id
-
-    done, pending = await asyncio.wait(
-        tuple(tasks.keys()),
-        timeout=plan.overall_deadline_seconds,
-    )
-
-    for pending_task in pending:
-        pending_task.cancel()
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
-
-    by_source: dict[str, SourceExecutionResult] = {}
-    for done_task in done:
-        source_id = tasks[done_task]
-        try:
-            by_source[source_id] = done_task.result()
-        except BaseException as exc:
-            by_source[source_id] = SourceExecutionResult(
-                source_id=source_id,
-                status="failure_gaps",
-                failure_reason=_map_exception_to_failure_reason(exc),
-                gaps=(source_id,),
-            )
-
-    for pending_task in pending:
-        source_id = tasks[pending_task]
-        by_source[source_id] = SourceExecutionResult(
+        source_id = step.source.source_id
+        primary_result = first_wave_results.get(source_id) or SourceExecutionResult(
             source_id=source_id,
             status="failure_gaps",
-            failure_reason="timeout",
+            failure_reason="adapter_error",
             gaps=(source_id,),
         )
+        all_attempt_results.append(primary_result)
 
-    ordered_results = tuple(
-        by_source.get(step.source.source_id)
-        or SourceExecutionResult(
-            source_id=step.source.source_id,
-            status="failure_gaps",
-            failure_reason="adapter_error",
-            gaps=(step.source.source_id,),
-        )
-        for step in first_wave_steps
+        if primary_result.status == "success":
+            final_hits.extend(primary_result.hits)
+            continue
+
+        chain_gaps: list[str] = list(primary_result.gaps)
+        failure_reason = primary_result.failure_reason or "adapter_error"
+        current_source = source_id
+        visited_sources: set[str] = {source_id}
+        recovered = False
+
+        while True:
+            remaining = deadline_at - loop.time()
+            if remaining <= 0:
+                failure_reason = "timeout"
+                break
+
+            fallback_source_id = next_source_for_failure(current_source, failure_reason)
+            if fallback_source_id is None or fallback_source_id in visited_sources:
+                break
+
+            visited_sources.add(fallback_source_id)
+            fallback_result = await _run_single_source(
+                source_id=fallback_source_id,
+                query=query,
+                adapter_registry=adapter_registry,
+                timeout_seconds=min(plan.per_source_timeout_seconds, remaining),
+            )
+            all_attempt_results.append(fallback_result)
+
+            if fallback_result.status == "success":
+                final_hits.extend(fallback_result.hits)
+                recovered = True
+                break
+
+            chain_gaps.extend(fallback_result.gaps)
+            failure_reason = fallback_result.failure_reason or "adapter_error"
+            current_source = fallback_source_id
+
+        if not recovered:
+            unresolved_reasons.append(failure_reason)
+            unresolved_gaps.extend(chain_gaps)
+
+    deduped_gaps = tuple(dict.fromkeys(unresolved_gaps))
+
+    if final_hits and not unresolved_reasons:
+        status: RetrievalStatus = "success"
+        failure_reason: RetrievalFailureReason | None = None
+    elif final_hits:
+        status = "partial"
+        failure_reason = unresolved_reasons[0]
+    else:
+        status = "failure_gaps"
+        failure_reason = unresolved_reasons[0] if unresolved_reasons else "adapter_error"
+
+    return RetrievalExecutionOutcome(
+        status=status,
+        failure_reason=failure_reason,
+        gaps=deduped_gaps,
+        results=tuple(final_hits),
+        source_results=tuple(all_attempt_results),
     )
-    return _build_outcome(ordered_results=ordered_results)
