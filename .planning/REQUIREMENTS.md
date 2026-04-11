@@ -9,17 +9,17 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Routing
 
-- [ ] **ROUT-01**: User can submit a query and have it classified into policy/regulation, industry information, academic literature, or mixed.
-- [ ] **ROUT-02**: User can get results retrieved from source families that match the detected query type.
-- [ ] **ROUT-03**: User can receive answers without browser automation in the main execution path.
+- [x] **ROUT-01**: User can submit a query and have it classified into policy/regulation, industry information, academic literature, or mixed.
+- [x] **ROUT-02**: User can get results retrieved from source families that match the detected query type.
+- [x] **ROUT-03**: User can receive answers without browser automation in the main execution path.
 
 ### Retrieval
 
-- [ ] **RETR-01**: User can get answers built from multiple retrieval sources executed concurrently with bounded per-source timeouts.
-- [ ] **RETR-02**: User can receive a response even when one or more retrieval sources fail, through deterministic fallback behavior.
-- [ ] **RETR-03**: User can get policy answers prioritized toward authoritative original or official sources.
-- [ ] **RETR-04**: User can get academic answers prioritized toward structured scholarly sources such as Semantic Scholar or arXiv.
-- [ ] **RETR-05**: User can get industry answers synthesized from multiple sources with credibility-aware ranking.
+- [x] **RETR-01**: User can get answers built from multiple retrieval sources executed concurrently with bounded per-source timeouts.
+- [x] **RETR-02**: User can receive a response even when one or more retrieval sources fail, through deterministic fallback behavior.
+- [x] **RETR-03**: User can get policy answers prioritized toward authoritative original or official sources.
+- [x] **RETR-04**: User can get academic answers prioritized toward structured scholarly sources such as Semantic Scholar or arXiv.
+- [x] **RETR-05**: User can get industry answers synthesized from multiple sources with credibility-aware ranking.
 
 ### Evidence
 
@@ -37,7 +37,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Reliability
 
 - [ ] **RELY-01**: User can run the benchmark workload repeatedly with stable completion behavior under the contest runtime constraints.
-- [ ] **RELY-02**: User can evaluate the system with a repeatable 10-task × 5-run benchmark harness that records latency, token usage, and success rate.
+- [ ] **RELY-02**: User can evaluate the system with a repeatable 10-task x 5-run benchmark harness that records latency, token usage, and success rate.
 - [ ] **RELY-03**: User can get responses that respect explicit latency and token budgets enforced by the runtime pipeline.
 
 ## v2 Requirements
@@ -70,14 +70,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROUT-01 | Phase 1 | Pending |
-| ROUT-02 | Phase 1 | Pending |
-| ROUT-03 | Phase 1 | Pending |
-| RETR-01 | Phase 2 | Pending |
-| RETR-02 | Phase 2 | Pending |
-| RETR-03 | Phase 2 | Pending |
-| RETR-04 | Phase 2 | Pending |
-| RETR-05 | Phase 2 | Pending |
+| ROUT-01 | Phase 1 | Complete |
+| ROUT-02 | Phase 1 | Complete |
+| ROUT-03 | Phase 1 | Complete |
+| RETR-01 | Phase 2 | Complete |
+| RETR-02 | Phase 2 | Complete |
+| RETR-03 | Phase 2 | Complete |
+| RETR-04 | Phase 2 | Complete |
+| RETR-05 | Phase 2 | Complete |
 | EVID-01 | Phase 3 | Pending |
 | EVID-02 | Phase 3 | Pending |
 | EVID-03 | Phase 3 | Pending |
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-07 after roadmap creation*
+*Last updated: 2026-04-12 after Phase 2 completion*

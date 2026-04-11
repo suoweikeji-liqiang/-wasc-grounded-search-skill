@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-04-11T16:10:27.860Z"
-last_activity: 2026-04-11 -- Phase 02 planning complete
+status: planning
+stopped_at: Phase 02 complete, ready to plan Phase 3
+last_updated: "2026-04-12T01:43:41.5351537+08:00"
+last_activity: 2026-04-12 -- Phase 02 complete
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 2
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
   percent: 40
 ---
 
@@ -18,25 +18,25 @@ progress:
 
 ## Project Reference
 
-See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-07)
+See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Phase 01 — query-routing-core-path-guardrails
+**Current focus:** Phase 03 - evidence-normalization-&-budgeted-context
 
 ## Current Position
 
-Phase: 2
+Phase: 3
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-04-11 -- Phase 02 planning complete
+Status: Ready to plan
+Last activity: 2026-04-12 -- Phase 02 complete
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░░░░░░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
+- Total plans completed: 6
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -45,6 +45,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 2 | - | - |
+| 02 | 4 | - | - |
 
 **Recent Trend:**
 
@@ -62,10 +63,12 @@ Recent decisions affecting current work:
 
 - [Phase 1]: Keep core path browser-free and route-first to align with WASC stability/cost goals.
 - [Phase 2]: Prioritize domain-aware concurrent retrieval with deterministic fallback before advanced optimization.
+- [Phase 2]: Constrain runtime fallback execution to `RetrievalPlan.fallback_sources` instead of implicit global transitions.
+- [Phase 2]: Apply domain-first ranking before generic relevance in retrieval outputs.
 
 ### Pending Todos
 
-[From .planning/todos/pending/ — ideas captured during sessions]
+[From .planning/todos/pending/ - ideas captured during sessions]
 
 None yet.
 
@@ -73,10 +76,11 @@ None yet.
 
 [Issues that affect future work]
 
-None yet.
+- [Phase 2] `skill/retrieval/engine.py` still catches `BaseException`, so cooperative cancellation can be misreported as adapter failure under external cancellation scenarios.
+- [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
 
 ## Session Continuity
 
-Last session: 2026-04-11T14:06:12.734Z
-Stopped at: Phase 2 context gathered
-Resume file: D:/study/WASC/.planning/phases/02-multi-source-retrieval-by-domain/02-CONTEXT.md
+Last session: 2026-04-12T01:43:41.5351537+08:00
+Stopped at: Phase 02 complete, ready to plan Phase 3
+Resume file: None

@@ -12,62 +12,64 @@ For any benchmark query, the Skill returns a trustworthy, structured answer with
 
 ### Validated
 
-(None yet — ship to validate)
+- Query routing now covers policy/regulation, industry information, academic literature, and mixed queries (validated in Phase 1).
+- Source-family routing now matches detected query type through the browser-free core path (validated in Phase 1).
+- Multi-source retrieval now runs concurrently with bounded timeouts and deterministic fallback (validated in Phase 2).
+- Policy retrieval now prioritizes authoritative official sources (validated in Phase 2).
+- Academic retrieval now prioritizes scholarly sources such as Semantic Scholar and arXiv (validated in Phase 2).
+- Industry retrieval now applies credibility-aware ranking before generic relevance (validated in Phase 2).
 
 ### Active
 
-- [ ] The Skill covers all three benchmark query classes: policy/regulation, industry information, and academic literature.
-- [ ] The Skill prefers lightweight, stable retrieval and processing paths over heavy browser-driven tooling.
+- [ ] The Skill deduplicates, normalizes, and top-K truncates evidence before synthesis.
 - [ ] The Skill produces structured outputs optimized for judging: conclusion, key points, source links, and uncertainty markers where evidence is incomplete.
-- [ ] The Skill avoids Playwright and similar browser automation in the core path.
-- [ ] The project is optimized for WASC scoring rather than general-purpose product breadth.
+- [ ] The Skill keeps browser automation out of the main path across later phases as well.
+- [ ] The project remains optimized for WASC scoring rather than general-purpose product breadth.
 
 ### Out of Scope
 
-- Playwright-based browsing or rendering fallbacks — explicitly excluded to keep the system lighter and more stable.
-- Broad productization beyond the competition submission — focus is on competition performance first.
-- Chat-first agent behavior — the goal is a benchmark-tuned search Skill, not a general conversational agent.
+- Playwright-based browsing or rendering fallbacks: explicitly excluded to keep the system lighter and more stable.
+- Broad productization beyond the competition submission: focus is on competition performance first.
+- Chat-first agent behavior: the goal is a benchmark-tuned search Skill, not a general conversational agent.
 
 ## Context
 
 The repository is being shaped around the WASC April challenge for low-cost, high-precision search. The contest evaluates a fixed benchmark under a constrained environment and rewards strong information accuracy and completeness, plus good response time, stability, token efficiency, and usability. Existing repository documents converge on the same broad direction: classify the query, route to source-appropriate retrieval, perform local reranking/compression, then generate a structured grounded answer.
 
-The intended project should cover policy, industry, and academic questions in one submission rather than specializing in only one domain. The user does not want Playwright in the solution and is not optimizing for long-term product breadth right now; the main goal is to build something that can compete well.
+Phase 1 and Phase 2 are now complete: the project can classify benchmark queries, expose source-family routing without browser automation, execute deterministic multi-source retrieval, and return domain-prioritized retrieval results for policy, academic, and industry paths. The next focus is evidence normalization and bounded context construction ahead of answer synthesis.
 
 ## Constraints
 
-- **Runtime**: Must fit the WASC evaluation environment (`Ubuntu 24.04`, `4 vCPU`, `16 GB RAM`) — required by contest rules.
-- **Model**: Must target `MiniMax-M2.7` as the unified model in evaluation — required by contest rules.
-- **Architecture**: No Playwright/browser automation in the core design — explicit user constraint.
-- **Scope**: Competition-first optimization — tradeoffs should favor benchmark score, not broad product flexibility.
-- **Quality bar**: Must work across policy, industry, and academic queries in one system — explicit product scope.
+- **Runtime**: Must fit the WASC evaluation environment (`Ubuntu 24.04`, `4 vCPU`, `16 GB RAM`) as required by contest rules.
+- **Model**: Must target `MiniMax-M2.7` as the unified model in evaluation as required by contest rules.
+- **Architecture**: No Playwright/browser automation in the core design due to explicit user constraint.
+- **Scope**: Competition-first optimization means tradeoffs should favor benchmark score, not broad product flexibility.
+- **Quality bar**: Must work across policy, industry, and academic queries in one system.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Build a search Skill rather than a chat-heavy agent | Better fit for the competition task and scoring model | — Pending |
-| Cover policy, industry, and academic queries in one submission | Benchmark spans all three areas | — Pending |
-| Prefer a lightweight stable retrieval pipeline | Better tradeoff for stability, speed, and token cost | — Pending |
-| Exclude Playwright/browser automation | User explicitly does not want it; also reduces complexity and runtime risk | — Pending |
-| Optimize for competition score before long-term productization | User priority is to compete well first | — Pending |
+| Build a search Skill rather than a chat-heavy agent | Better fit for the competition task and scoring model | Adopted in Phases 1-2 |
+| Cover policy, industry, and academic queries in one submission | Benchmark spans all three areas | Routing and retrieval paths implemented in Phases 1-2 |
+| Prefer a lightweight stable retrieval pipeline | Better tradeoff for stability, speed, and token cost | Adopted with offline deterministic adapters and bounded runtime controls |
+| Exclude Playwright/browser automation | User explicitly does not want it; also reduces complexity and runtime risk | Preserved through Phases 1-2 |
+| Optimize for competition score before long-term productization | User priority is to compete well first | Still active and guiding later phases |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
+**After each phase transition**:
+1. Move shipped capabilities from Active to Validated.
+2. Log durable implementation decisions that affect later phases.
+3. Add newly discovered requirements for future phases.
+4. Keep the project description aligned with the actual shipped system.
 
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+**After each milestone**:
+1. Review all sections.
+2. Re-check the core value and out-of-scope list.
+3. Update context with the latest system state and remaining roadmap.
 
 ---
-*Last updated: 2026-04-07 after initialization*
+*Last updated: 2026-04-12 after Phase 2*
