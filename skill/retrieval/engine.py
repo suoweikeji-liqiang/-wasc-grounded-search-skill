@@ -10,7 +10,6 @@ from typing import Any
 from skill.orchestrator.retrieval_plan import PlannedSourceStep, RetrievalPlan
 from skill.retrieval.fallback_fsm import (
     map_exception_to_failure_reason,
-    next_source_for_failure,
 )
 from skill.retrieval.models import (
     RetrievalFailureReason,
@@ -205,6 +204,17 @@ async def run_retrieval(
         overall_timeout_seconds=max(0.0, deadline_at - loop.time()),
         concurrency_cap=plan.global_concurrency_cap,
     )
+    allowed_fallback_transitions: dict[tuple[str, RetrievalFailureReason], str] = {}
+    for fallback_step in plan.fallback_sources:
+        fallback_from_source_id = fallback_step.fallback_from_source_id
+        if fallback_from_source_id is None:
+            continue
+        for trigger_reason in fallback_step.trigger_on_failures:
+            transition_key = (fallback_from_source_id, trigger_reason)
+            allowed_fallback_transitions.setdefault(
+                transition_key,
+                fallback_step.source.source_id,
+            )
 
     all_attempt_results: list[SourceExecutionResult] = []
     final_hits: list[RetrievalHit] = []
@@ -237,7 +247,9 @@ async def run_retrieval(
                 failure_reason = "timeout"
                 break
 
-            fallback_source_id = next_source_for_failure(current_source, failure_reason)
+            fallback_source_id = allowed_fallback_transitions.get(
+                (current_source, failure_reason)
+            )
             if fallback_source_id is None or fallback_source_id in visited_sources:
                 break
 
