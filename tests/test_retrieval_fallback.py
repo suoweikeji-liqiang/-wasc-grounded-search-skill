@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,11 @@ from pydantic import ValidationError
 from skill.api.schema import RetrieveOutcome
 from skill.config.retrieval import DOMAIN_FIRST_WAVE_SOURCES, SOURCE_BACKUP_CHAIN
 from skill.orchestrator.intent import ClassificationResult
-from skill.orchestrator.retrieval_plan import build_retrieval_plan
+from skill.orchestrator.retrieval_plan import (
+    PlannedSourceStep,
+    RetrievalSource,
+    build_retrieval_plan,
+)
 from skill.retrieval.engine import run_retrieval
 from skill.retrieval.fallback_fsm import (
     map_exception_to_failure_reason,
@@ -292,3 +297,103 @@ def test_run_retrieval_response_shaped_429_triggers_fallback_execution() -> None
         hit.source_id == "policy_official_web_allowlist_fallback"
         for hit in outcome.results
     )
+
+
+def test_run_retrieval_empty_fallback_sources_skips_fallback_execution() -> None:
+    classification = ClassificationResult(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        reason_code="policy_hit",
+        scores={"policy": 5, "academic": 0, "industry": 0},
+    )
+    base_plan = build_retrieval_plan(classification)
+    plan = replace(base_plan, fallback_sources=())
+    events: list[str] = []
+
+    async def _first_wave(_: str) -> list[RetrievalHit]:
+        events.append("first:start")
+        await asyncio.sleep(0.01)
+        events.append("first:end:no_hits")
+        return []
+
+    async def _fallback(_: str) -> list[RetrievalHit]:
+        events.append("fallback:unexpected")
+        return [_mk_hit("policy_official_web_allowlist_fallback")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="policy source empty fallback",
+            adapter_registry={
+                "policy_official_registry": _first_wave,
+                "policy_official_web_allowlist_fallback": _fallback,
+            },
+        )
+    )
+
+    assert events == [
+        "first:start",
+        "first:end:no_hits",
+    ]
+    assert outcome.status == "failure_gaps"
+    assert outcome.failure_reason == "no_hits"
+    assert outcome.gaps == ("policy_official_registry",)
+    assert not outcome.results
+
+
+def test_run_retrieval_fallback_sources_map_controls_transition_selection() -> None:
+    classification = ClassificationResult(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        reason_code="policy_hit",
+        scores={"policy": 5, "academic": 0, "industry": 0},
+    )
+    base_plan = build_retrieval_plan(classification)
+    custom_fallback = PlannedSourceStep(
+        source=RetrievalSource(
+            source_id="academic_semantic_scholar",
+            route="policy",
+        ),
+        fallback_from_source_id="policy_official_registry",
+        trigger_on_failures=("no_hits",),
+    )
+    plan = replace(base_plan, fallback_sources=(custom_fallback,))
+    events: list[str] = []
+
+    async def _first_wave(_: str) -> list[RetrievalHit]:
+        events.append("first:start")
+        await asyncio.sleep(0.01)
+        events.append("first:end:no_hits")
+        return []
+
+    async def _custom_fallback(_: str) -> list[RetrievalHit]:
+        events.append("fallback:custom")
+        await asyncio.sleep(0.01)
+        return [_mk_hit("academic_semantic_scholar")]
+
+    async def _global_chain_fallback(_: str) -> list[RetrievalHit]:
+        events.append("fallback:global_unexpected")
+        return [_mk_hit("policy_official_web_allowlist_fallback")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="policy source custom fallback map",
+            adapter_registry={
+                "policy_official_registry": _first_wave,
+                "academic_semantic_scholar": _custom_fallback,
+                "policy_official_web_allowlist_fallback": _global_chain_fallback,
+            },
+        )
+    )
+
+    assert events == [
+        "first:start",
+        "first:end:no_hits",
+        "fallback:custom",
+    ]
+    assert outcome.status == "success"
+    assert outcome.failure_reason is None
+    assert any(hit.source_id == "academic_semantic_scholar" for hit in outcome.results)
