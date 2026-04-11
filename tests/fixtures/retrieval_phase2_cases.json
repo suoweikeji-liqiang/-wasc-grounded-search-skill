@@ -1,0 +1,49 @@
+[
+  {
+    "name": "timeout",
+    "route": "policy",
+    "source_id": "policy_official_registry",
+    "failure_reason": "timeout",
+    "expected_fallback_source": "policy_official_web_allowlist_fallback"
+  },
+  {
+    "name": "rate_limited_429",
+    "route": "policy",
+    "source_id": "policy_official_registry",
+    "failure_reason": "rate_limited",
+    "expected_fallback_source": "policy_official_web_allowlist_fallback"
+  },
+  {
+    "name": "no_hits",
+    "route": "policy",
+    "source_id": "policy_official_registry",
+    "failure_reason": "no_hits",
+    "expected_fallback_source": "policy_official_web_allowlist_fallback"
+  },
+  {
+    "name": "adapter_error",
+    "route": "policy",
+    "source_id": "policy_official_registry",
+    "failure_reason": "adapter_error",
+    "expected_fallback_source": null
+  },
+  {
+    "name": "mixed_primary_with_single_supplemental_source",
+    "route_label": "mixed",
+    "primary_route": "academic",
+    "supplemental_route": "industry",
+    "expected_primary_first_wave": [
+      "academic_semantic_scholar",
+      "academic_arxiv"
+    ],
+    "expected_supplemental_first_wave": [
+      "industry_ddgs"
+    ]
+  },
+  {
+    "name": "industry_tier_derivation",
+    "route": "industry",
+    "source_id": "industry_ddgs",
+    "expected_credibility_tier": "trusted_news"
+  }
+]
