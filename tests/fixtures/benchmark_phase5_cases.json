@@ -1,0 +1,52 @@
+[
+  {
+    "case_id": "policy-01",
+    "query": "latest climate order version",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "policy-02",
+    "query": "latest methane registry update",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "policy-03",
+    "query": "industrial emissions guidance effective date",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "academic-01",
+    "query": "grounded search evidence packing paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "academic-02",
+    "query": "evidence normalization benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "academic-03",
+    "query": "latency-aware retrieval paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "industry-01",
+    "query": "semiconductor packaging capacity forecast 2026",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "industry-02",
+    "query": "battery recycling market share 2025",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "mixed-01",
+    "query": "autonomous driving policy impact on industry",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "mixed-02",
+    "query": "AI chip export controls effect on academic research",
+    "expected_route": "mixed"
+  }
+]
