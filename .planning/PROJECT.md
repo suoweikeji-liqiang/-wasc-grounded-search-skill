@@ -18,10 +18,10 @@ For any benchmark query, the Skill returns a trustworthy, structured answer with
 - Policy retrieval now prioritizes authoritative official sources (validated in Phase 2).
 - Academic retrieval now prioritizes scholarly sources such as Semantic Scholar and arXiv (validated in Phase 2).
 - Industry retrieval now applies credibility-aware ranking before generic relevance (validated in Phase 2).
+- Evidence is now deduplicated, normalized, and bounded before synthesis, with explicit policy and academic metadata preserved in canonical evidence outputs (validated in Phase 3).
 
 ### Active
 
-- [ ] The Skill deduplicates, normalizes, and top-K truncates evidence before synthesis.
 - [ ] The Skill produces structured outputs optimized for judging: conclusion, key points, source links, and uncertainty markers where evidence is incomplete.
 - [ ] The Skill keeps browser automation out of the main path across later phases as well.
 - [ ] The project remains optimized for WASC scoring rather than general-purpose product breadth.
@@ -36,7 +36,7 @@ For any benchmark query, the Skill returns a trustworthy, structured answer with
 
 The repository is being shaped around the WASC April challenge for low-cost, high-precision search. The contest evaluates a fixed benchmark under a constrained environment and rewards strong information accuracy and completeness, plus good response time, stability, token efficiency, and usability. Existing repository documents converge on the same broad direction: classify the query, route to source-appropriate retrieval, perform local reranking/compression, then generate a structured grounded answer.
 
-Phase 1 and Phase 2 are now complete: the project can classify benchmark queries, expose source-family routing without browser automation, execute deterministic multi-source retrieval, and return domain-prioritized retrieval results for policy, academic, and industry paths. The next focus is evidence normalization and bounded context construction ahead of answer synthesis.
+Phases 1, 2, and 3 are now complete: the project can classify benchmark queries, expose source-family routing without browser automation, execute deterministic multi-source retrieval, return domain-prioritized retrieval results, and hand off deduplicated, metadata-rich, top-K bounded evidence sets for synthesis. The next focus is structured answer generation with claim-to-source traceability and explicit outcome states.
 
 ## Constraints
 
@@ -54,6 +54,8 @@ Phase 1 and Phase 2 are now complete: the project can classify benchmark queries
 | Cover policy, industry, and academic queries in one submission | Benchmark spans all three areas | Routing and retrieval paths implemented in Phases 1-2 |
 | Prefer a lightweight stable retrieval pipeline | Better tradeoff for stability, speed, and token cost | Adopted with offline deterministic adapters and bounded runtime controls |
 | Exclude Playwright/browser automation | User explicitly does not want it; also reduces complexity and runtime risk | Preserved through Phases 1-2 |
+| Keep observed retrieval metadata separate from normalized completeness markers | Prevents adapters from fabricating normalized state while still feeding canonicalization | Adopted in Phase 3 |
+| Make `EvidencePack.canonical_evidence` the retrieval response boundary | Ensures downstream consumers see deduplicated, reranked, bounded evidence instead of raw prioritized hits | Adopted in Phase 3 |
 | Optimize for competition score before long-term productization | User priority is to compete well first | Still active and guiding later phases |
 
 ## Evolution
@@ -72,4 +74,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Update context with the latest system state and remaining roadmap.
 
 ---
-*Last updated: 2026-04-12 after Phase 2*
+*Last updated: 2026-04-12 after Phase 3*
