@@ -284,3 +284,89 @@ def test_retrieve_response_enforces_outcome_invariants() -> None:
             evidence_clipped=False,
             results=[],
         )
+
+
+def test_policy_adapters_emit_observed_authority_and_date_metadata() -> None:
+    from skill.retrieval.adapters.policy_official_registry import search as registry_search
+    from skill.retrieval.adapters.policy_official_web_allowlist import (
+        search as allowlist_search,
+    )
+
+    registry_hits = asyncio.run(registry_search("official policy bulletin"))
+    allowlist_hits = asyncio.run(allowlist_search("official policy bulletin"))
+    combined_hits = [*registry_hits, *allowlist_hits]
+
+    assert combined_hits
+    assert all(
+        getattr(hit, "authority", None)
+        and (
+            getattr(hit, "publication_date", None)
+            or getattr(hit, "effective_date", None)
+        )
+        for hit in combined_hits
+    )
+    assert any(getattr(hit, "version", None) for hit in combined_hits)
+    assert any(getattr(hit, "jurisdiction", None) for hit in combined_hits)
+
+
+def test_academic_adapters_emit_observed_identifier_metadata() -> None:
+    from skill.retrieval.adapters.academic_arxiv import search as arxiv_search
+    from skill.retrieval.adapters.academic_semantic_scholar import (
+        search as semantic_search,
+    )
+
+    semantic_hits = asyncio.run(semantic_search("evidence normalization"))
+    arxiv_hits = asyncio.run(arxiv_search("evidence normalization"))
+
+    assert semantic_hits
+    assert arxiv_hits
+    assert any(
+        getattr(hit, "doi", None)
+        and getattr(hit, "first_author", None)
+        and getattr(hit, "year", None)
+        and getattr(hit, "evidence_level", None)
+        for hit in semantic_hits
+    )
+    assert any(
+        getattr(hit, "arxiv_id", None)
+        and getattr(hit, "first_author", None)
+        and getattr(hit, "year", None)
+        and getattr(hit, "evidence_level", None)
+        for hit in arxiv_hits
+    )
+
+
+def test_normalize_hits_preserves_observed_metadata_from_mapping_payloads() -> None:
+    from skill.retrieval.engine import _normalize_hits
+
+    hits = _normalize_hits(
+        raw_hits=[
+            {
+                "title": "Observed policy bulletin",
+                "url": "https://www.gov.cn/zhengce/observed-bulletin",
+                "snippet": "Observed metadata fixture",
+                "authority": "State Council",
+                "jurisdiction": "CN",
+                "publication_date": "2026-04-01",
+                "effective_date": "2026-05-01",
+                "version": "2026-04 edition",
+                "doi": "10.1000/example-doi",
+                "arxiv_id": "2604.12345",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ],
+        source_id="policy_official_registry",
+    )
+
+    assert hits[0].authority == "State Council"
+    assert hits[0].jurisdiction == "CN"
+    assert hits[0].publication_date == "2026-04-01"
+    assert hits[0].effective_date == "2026-05-01"
+    assert hits[0].version == "2026-04 edition"
+    assert hits[0].doi == "10.1000/example-doi"
+    assert hits[0].arxiv_id == "2604.12345"
+    assert hits[0].first_author == "Lin"
+    assert hits[0].year == 2026
+    assert hits[0].evidence_level == "peer_reviewed"
