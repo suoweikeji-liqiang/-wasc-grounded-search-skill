@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 current_phase_name: runtime-reliability-benchmark-repeatability
 status: phase_complete
-stopped_at: Completed Phase 5 runtime reliability and benchmark repeatability
-last_updated: "2026-04-12T10:56:50.000Z"
-last_activity: 2026-04-12 -- Phase 5 execution complete
+stopped_at: Recorded milestone v1.0 audit; awaiting release decision on pending tech debt
+last_updated: "2026-04-12T15:30:43.2819615Z"
+last_activity: 2026-04-12 -- Milestone v1.0 audit recorded
 progress:
   total_phases: 5
   completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 17
+  completed_plans: 17
   percent: 100
 ---
 
@@ -22,7 +22,7 @@ progress:
 See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Milestone complete - all Phase 1-5 roadmap work executed
+**Current focus:** Milestone audited - awaiting human UAT closure and/or live MiniMax benchmark decision before archive
 
 ## Current Position
 
@@ -30,8 +30,8 @@ Phase: 05 (runtime-reliability-benchmark-repeatability) - COMPLETE
 Current Phase Name: runtime-reliability-benchmark-repeatability
 Plan: 3/3 complete
 Status: Phase complete
-Last activity: 2026-04-12 -- Phase 5 execution complete
-Last Activity Description: Phase 05 complete
+Last activity: 2026-04-12 -- Milestone v1.0 audit recorded
+Last Activity Description: Milestone audit written; pending release decision
 
 Progress: [####################] 100%
 
@@ -39,7 +39,7 @@ Progress: [####################] 100%
 
 **Velocity:**
 
-- Total plans completed: 20
+- Total plans completed: 17
 - Average duration: -
 - Total execution time: 0.0 hours
 
