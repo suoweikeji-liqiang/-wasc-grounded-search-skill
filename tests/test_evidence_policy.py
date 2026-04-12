@@ -239,3 +239,66 @@ def test_build_raw_record_keeps_policy_metadata_unknown_until_observed() -> None
     assert record.jurisdiction is None
     assert record.jurisdiction_status == "jurisdiction_unknown"
 
+
+def test_canonicalize_policy_records_merges_version_aware_policy_duplicates() -> None:
+    from skill.evidence.policy import canonicalize_policy_records
+
+    canonical_records = canonicalize_policy_records(
+        [
+            _make_policy_raw_record(),
+            _make_policy_raw_record(
+                authority="Ministry of Ecology and Environment",
+                publication_date="2024-02-15",
+                effective_date=None,
+                version=None,
+                version_status="version_missing",
+                jurisdiction=None,
+                jurisdiction_status="jurisdiction_unknown",
+            ),
+        ]
+    )
+
+    assert len(canonical_records) == 1
+    canonical = canonical_records[0]
+    assert canonical.canonical_title == "National Air Quality Rule 2024"
+    assert canonical.canonical_url == "https://www.mee.gov.cn/policy/air-quality-2024"
+    assert canonical.publication_date == "2024-02-15"
+    assert canonical.effective_date == "2024-03-01"
+    assert canonical.version == "2024-02"
+    assert canonical.version_status == "observed"
+    assert canonical.jurisdiction == "CN"
+    assert canonical.jurisdiction_status == "observed"
+    assert len(canonical.raw_records) == 2
+
+
+def test_canonicalize_policy_records_rejects_entries_missing_minimum_metadata() -> None:
+    from skill.evidence.policy import canonicalize_policy_records
+
+    canonical_records = canonicalize_policy_records(
+        [
+            _make_policy_raw_record(
+                authority=None,
+                publication_date=None,
+                effective_date=None,
+            ),
+            _make_policy_raw_record(
+                title="Standalone Notice Without Version",
+                url="https://www.gov.cn/notice/standalone",
+                authority="State Council",
+                publication_date="2024-04-12",
+                effective_date=None,
+                version=None,
+                version_status="version_missing",
+                jurisdiction=None,
+                jurisdiction_status="jurisdiction_unknown",
+            ),
+        ]
+    )
+
+    assert len(canonical_records) == 1
+    assert canonical_records[0].authority == "State Council"
+    assert canonical_records[0].version_status == "version_missing"
+    assert canonical_records[0].jurisdiction_status in {
+        "jurisdiction_inferred",
+        "jurisdiction_unknown",
+    }

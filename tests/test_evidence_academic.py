@@ -161,3 +161,48 @@ def test_heuristic_academic_matches_require_explicit_confidence_marker() -> None
 
     assert canonical.canonical_match_confidence == "heuristic"
     assert canonical.linked_variants[0].canonical_match_confidence == "heuristic"
+
+
+def test_canonicalize_academic_records_prefers_published_variant_and_links_preprint() -> None:
+    from skill.evidence.academic import canonicalize_academic_records
+
+    canonical_records = canonicalize_academic_records(
+        [
+            _make_academic_raw_record(1),
+            _make_academic_raw_record(0),
+        ]
+    )
+
+    assert len(canonical_records) == 1
+    canonical = canonical_records[0]
+    assert canonical.canonical_title == "Evidence Normalization for Retrieval-Augmented Systems"
+    assert canonical.canonical_url == "https://doi.org/10.5555/evidence.2025.10"
+    assert canonical.doi == "10.5555/evidence.2025.10"
+    assert canonical.evidence_level == "peer_reviewed"
+    assert canonical.canonical_match_confidence == "strong_id"
+    assert len(canonical.linked_variants) == 1
+    assert canonical.linked_variants[0].variant_type == "preprint"
+
+
+def test_canonicalize_academic_records_marks_title_author_year_merges_as_heuristic() -> None:
+    from skill.evidence.academic import canonicalize_academic_records
+
+    heuristic = _make_academic_raw_record(2)
+    working_paper = replace(
+        heuristic,
+        source_id="academic_open_repository",
+        title="Grounded Search Evidence Packing Working Paper",
+        url="https://example.org/working-paper",
+        snippet="Working paper variant of the evidence packing research.",
+        evidence_level="preprint",
+        route_role="supplemental",
+    )
+
+    canonical_records = canonicalize_academic_records([heuristic, working_paper])
+
+    assert len(canonical_records) == 1
+    canonical = canonical_records[0]
+    assert canonical.canonical_match_confidence == "heuristic"
+    assert canonical.evidence_level == "preprint"
+    assert len(canonical.linked_variants) == 1
+    assert canonical.linked_variants[0].canonical_match_confidence == "heuristic"
