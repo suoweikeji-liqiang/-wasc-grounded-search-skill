@@ -110,4 +110,5 @@ class RetrieveResponse(BaseModel):
     status: RetrievalStatus
     failure_reason: RetrievalFailureReason | None = None
     gaps: list[str] = Field(default_factory=list)
+    evidence_clipped: bool = False
     results: list[RetrieveResultItem] = Field(default_factory=list)
