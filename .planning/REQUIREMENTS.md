@@ -30,9 +30,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Output
 
-- [ ] **OUTP-01**: User can receive a structured result containing a conclusion, key points, source links, and uncertainty or gaps.
-- [ ] **OUTP-02**: User can trace each key factual claim back to at least one cited source or quoted evidence unit.
-- [ ] **OUTP-03**: User can distinguish between retrieval failure, insufficient evidence, and successful grounded answers.
+- [x] **OUTP-01**: User can receive a structured result containing a conclusion, key points, source links, and uncertainty or gaps.
+- [x] **OUTP-02**: User can trace each key factual claim back to at least one cited source or quoted evidence unit.
+- [x] **OUTP-03**: User can distinguish between retrieval failure, insufficient evidence, and successful grounded answers.
 
 ### Reliability
 
@@ -82,9 +82,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVID-02 | Phase 3 | Complete |
 | EVID-03 | Phase 3 | Complete |
 | EVID-04 | Phase 3 | Complete |
-| OUTP-01 | Phase 4 | Pending |
-| OUTP-02 | Phase 4 | Pending |
-| OUTP-03 | Phase 4 | Pending |
+| OUTP-01 | Phase 4 | Complete |
+| OUTP-02 | Phase 4 | Complete |
+| OUTP-03 | Phase 4 | Complete |
 | RELY-01 | Phase 5 | Pending |
 | RELY-02 | Phase 5 | Pending |
 | RELY-03 | Phase 5 | Pending |
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-12 after Phase 3 completion*
+*Last updated: 2026-04-12 after Phase 4 completion*

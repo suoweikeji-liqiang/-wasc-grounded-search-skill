@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Query Routing & Core Path Guardrails** - Users get correctly typed queries and source-family routing without browser automation.
 - [x] **Phase 2: Multi-Source Retrieval by Domain** - Users receive resilient concurrent retrieval with domain-aware source prioritization.
 - [x] **Phase 3: Evidence Normalization & Budgeted Context** - Users get deduplicated, normalized, top-K evidence prepared for synthesis.
-- [ ] **Phase 4: Grounded Structured Answer Generation** - Users receive structured answers with claim-to-source traceability and explicit outcome states.
+- [x] **Phase 4: Grounded Structured Answer Generation** - Users receive structured answers with claim-to-source traceability and explicit outcome states.
 - [ ] **Phase 5: Runtime Reliability & Benchmark Repeatability** - Users can run stable benchmark evaluations with enforced latency/token budgets.
 
 ## Phase Details
@@ -75,11 +75,11 @@ Plans:
   1. User can receive output that always includes conclusion, key points, source links, and uncertainty/gap notes.
   2. User can trace each key factual claim to at least one cited source or quoted evidence unit.
   3. User can clearly distinguish whether the result is a grounded success, insufficient evidence case, or retrieval failure case.
-**Plans**: 3 plans (0/3 complete)
+**Plans**: 3 plans (3/3 complete)
 Plans:
-- [ ] 04-01-PLAN.md - Lock answer contracts, citation identifiers, and explicit answer-state taxonomy before model integration.
-- [ ] 04-02-PLAN.md - Implement strict prompt building, MiniMax-compatible structured generation, fail-closed citation checking, and deterministic uncertainty notes.
-- [ ] 04-03-PLAN.md - Integrate grounded synthesis into the browser-free `/answer` path with end-to-end orchestration and endpoint coverage.
+- [x] 04-01-PLAN.md - Lock answer contracts, citation identifiers, and explicit answer-state taxonomy before model integration.
+- [x] 04-02-PLAN.md - Implement strict prompt building, MiniMax-compatible structured generation, fail-closed citation checking, and deterministic uncertainty notes.
+- [x] 04-03-PLAN.md - Integrate grounded synthesis into the browser-free `/answer` path with end-to-end orchestration and endpoint coverage.
 
 ### Phase 5: Runtime Reliability & Benchmark Repeatability
 **Goal**: Users can evaluate the system repeatedly under WASC constraints with predictable completion, budget compliance, and measurable performance.
@@ -101,5 +101,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Query Routing & Core Path Guardrails | 2/2 | Complete | 2026-04-11 |
 | 2. Multi-Source Retrieval by Domain | 4/4 | Complete | 2026-04-12 |
 | 3. Evidence Normalization & Budgeted Context | 5/5 | Complete | 2026-04-12 |
-| 4. Grounded Structured Answer Generation | 0/3 | Planned | - |
+| 4. Grounded Structured Answer Generation | 3/3 | Complete | 2026-04-12 |
 | 5. Runtime Reliability & Benchmark Repeatability | 0/TBD | Not started | - |
