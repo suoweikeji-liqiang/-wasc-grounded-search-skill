@@ -1,0 +1,151 @@
+{
+  "grounded_policy_success": {
+    "query": "latest climate order version",
+    "route_label": "policy",
+    "primary_route": "policy",
+    "supplemental_route": null,
+    "retrieval_status": "success",
+    "failure_reason": null,
+    "gaps": [],
+    "canonical_evidence": [
+      {
+        "evidence_id": "policy-1",
+        "title": "Climate Order 2026",
+        "url": "https://www.gov.cn/policy/climate-order-2026",
+        "source_record_id": "policy-1-slice-1",
+        "quote_text": "The Climate Order takes effect on May 1, 2026."
+      },
+      {
+        "evidence_id": "policy-2",
+        "title": "Implementation Bulletin",
+        "url": "https://www.mee.gov.cn/policy/implementation-bulletin",
+        "source_record_id": "policy-2-slice-1",
+        "quote_text": "Provincial reporting begins within 30 days of effectiveness."
+      }
+    ],
+    "answer": {
+      "conclusion": "The 2026 Climate Order is in force from May 1, 2026 with follow-on reporting duties.",
+      "key_points": [
+        {
+          "key_point_id": "kp-1",
+          "statement": "The Climate Order takes effect on May 1, 2026.",
+          "citations": [
+            {
+              "evidence_id": "policy-1",
+              "source_record_id": "policy-1-slice-1",
+              "source_url": "https://www.gov.cn/policy/climate-order-2026",
+              "quote_text": "The Climate Order takes effect on May 1, 2026."
+            }
+          ]
+        },
+        {
+          "key_point_id": "kp-2",
+          "statement": "Provincial reporting starts within 30 days.",
+          "citations": [
+            {
+              "evidence_id": "policy-2",
+              "source_record_id": "policy-2-slice-1",
+              "source_url": "https://www.mee.gov.cn/policy/implementation-bulletin",
+              "quote_text": "Provincial reporting begins within 30 days of effectiveness."
+            }
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "evidence_id": "policy-1",
+          "title": "Climate Order 2026",
+          "url": "https://www.gov.cn/policy/climate-order-2026"
+        },
+        {
+          "evidence_id": "policy-2",
+          "title": "Implementation Bulletin",
+          "url": "https://www.mee.gov.cn/policy/implementation-bulletin"
+        }
+      ],
+      "uncertainty_notes": [],
+      "gaps": []
+    }
+  },
+  "academic_insufficient_evidence": {
+    "query": "grounded evidence packing paper",
+    "route_label": "academic",
+    "primary_route": "academic",
+    "supplemental_route": null,
+    "retrieval_status": "partial",
+    "failure_reason": null,
+    "gaps": [
+      "Only one peer-reviewed source was retained."
+    ],
+    "canonical_evidence": [
+      {
+        "evidence_id": "paper-1",
+        "title": "Grounded Search Evidence Packing",
+        "url": "https://doi.org/10.1000/evidence-packing",
+        "source_record_id": "paper-1-slice-1",
+        "quote_text": "The paper proposes evidence packing with bounded context windows.",
+        "canonical_match_confidence": "heuristic"
+      }
+    ],
+    "answer": {
+      "conclusion": "Evidence packing appears to reduce context size, but support is incomplete.",
+      "key_points": [
+        {
+          "key_point_id": "kp-1",
+          "statement": "The paper proposes bounded evidence packing.",
+          "citations": [
+            {
+              "evidence_id": "paper-1",
+              "source_record_id": "paper-1-slice-1",
+              "source_url": "https://doi.org/10.1000/evidence-packing",
+              "quote_text": "The paper proposes evidence packing with bounded context windows."
+            }
+          ]
+        },
+        {
+          "key_point_id": "kp-2",
+          "statement": "The method improves benchmark accuracy across all domains.",
+          "citations": []
+        }
+      ],
+      "sources": [
+        {
+          "evidence_id": "paper-1",
+          "title": "Grounded Search Evidence Packing",
+          "url": "https://doi.org/10.1000/evidence-packing"
+        }
+      ],
+      "uncertainty_notes": [
+        "Academic match heuristic: canonical merge was heuristic."
+      ],
+      "gaps": [
+        "Only one peer-reviewed source was retained."
+      ]
+    }
+  },
+  "retrieval_failure_case": {
+    "query": "latest methane registry update",
+    "route_label": "policy",
+    "primary_route": "policy",
+    "supplemental_route": null,
+    "retrieval_status": "failure_gaps",
+    "failure_reason": "timeout",
+    "gaps": [
+      "Official registry timed out.",
+      "Fallback web allowlist returned no usable hits."
+    ],
+    "canonical_evidence": [],
+    "answer": {
+      "conclusion": "",
+      "key_points": [],
+      "sources": [],
+      "uncertainty_notes": [
+        "Retrieval gaps: Official registry timed out."
+      ],
+      "gaps": [
+        "Official registry timed out.",
+        "Fallback web allowlist returned no usable hits."
+      ]
+    }
+  }
+}

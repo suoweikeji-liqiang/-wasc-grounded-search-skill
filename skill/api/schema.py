@@ -12,6 +12,7 @@ from skill.evidence.models import (
     RouteRole,
 )
 from skill.retrieval.models import RetrievalFailureReason, RetrievalStatus
+from skill.synthesis.models import AnswerStatus
 
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
@@ -48,6 +49,22 @@ class RouteResponse(BaseModel):
 
 class RetrieveRequest(BaseModel):
     """Incoming retrieval request payload."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    query: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("query")
+    @classmethod
+    def validate_query_not_blank(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("query must be non-empty after trimming")
+        return normalized_value
+
+
+class AnswerRequest(BaseModel):
+    """Incoming grounded-answer request payload."""
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
@@ -127,6 +144,37 @@ class RetrieveCanonicalEvidenceItem(BaseModel):
     linked_variants: list[RetrieveLinkedVariantItem] = Field(default_factory=list)
 
 
+class AnswerCitationItem(BaseModel):
+    """Evidence-bound citation for a final answer key point."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    quote_text: str = Field(min_length=1)
+
+
+class AnswerKeyPointItem(BaseModel):
+    """Single key point in the final grounded answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key_point_id: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    citations: list[AnswerCitationItem] = Field(default_factory=list)
+
+
+class AnswerSourceItem(BaseModel):
+    """Deduplicated cited source in the final answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+
+
 class RetrieveOutcome(BaseModel):
     """Structured retrieval outcome envelope."""
 
@@ -168,3 +216,22 @@ class RetrieveResponse(RetrieveOutcome):
     canonical_evidence: list[RetrieveCanonicalEvidenceItem] = Field(default_factory=list)
     evidence_clipped: bool = False
     evidence_pruned: bool = False
+
+
+class AnswerResponse(BaseModel):
+    """Final grounded-answer response contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer_status: AnswerStatus
+    retrieval_status: RetrievalStatus
+    failure_reason: RetrievalFailureReason | None = None
+    route_label: RouteLabel
+    primary_route: ConcreteRoute
+    supplemental_route: ConcreteRoute | None
+    browser_automation: Literal["disabled"]
+    conclusion: str
+    key_points: list[AnswerKeyPointItem] = Field(default_factory=list)
+    sources: list[AnswerSourceItem] = Field(default_factory=list)
+    uncertainty_notes: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
