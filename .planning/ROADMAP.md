@@ -75,7 +75,11 @@ Plans:
   1. User can receive output that always includes conclusion, key points, source links, and uncertainty/gap notes.
   2. User can trace each key factual claim to at least one cited source or quoted evidence unit.
   3. User can clearly distinguish whether the result is a grounded success, insufficient evidence case, or retrieval failure case.
-**Plans**: TBD
+**Plans**: 3 plans (0/3 complete)
+Plans:
+- [ ] 04-01-PLAN.md - Lock answer contracts, citation identifiers, and explicit answer-state taxonomy before model integration.
+- [ ] 04-02-PLAN.md - Implement strict prompt building, MiniMax-compatible structured generation, fail-closed citation checking, and deterministic uncertainty notes.
+- [ ] 04-03-PLAN.md - Integrate grounded synthesis into the browser-free `/answer` path with end-to-end orchestration and endpoint coverage.
 
 ### Phase 5: Runtime Reliability & Benchmark Repeatability
 **Goal**: Users can evaluate the system repeatedly under WASC constraints with predictable completion, budget compliance, and measurable performance.
@@ -97,5 +101,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Query Routing & Core Path Guardrails | 2/2 | Complete | 2026-04-11 |
 | 2. Multi-Source Retrieval by Domain | 4/4 | Complete | 2026-04-12 |
 | 3. Evidence Normalization & Budgeted Context | 5/5 | Complete | 2026-04-12 |
-| 4. Grounded Structured Answer Generation | 0/TBD | Not started | - |
+| 4. Grounded Structured Answer Generation | 0/3 | Planned | - |
 | 5. Runtime Reliability & Benchmark Repeatability | 0/TBD | Not started | - |
