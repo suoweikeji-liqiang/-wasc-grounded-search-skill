@@ -50,7 +50,8 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
 
 
 def _default_model_client() -> MiniMaxTextClient:
-    return MiniMaxTextClient(api_key=os.getenv("MINIMAX_API_KEY", ""))
+    api_key = os.getenv("MINIMAX_API_KEY", "") or os.getenv("MINIMAX_KEY", "")
+    return MiniMaxTextClient(api_key=api_key)
 
 
 @app.post("/route", response_model=RouteResponse)

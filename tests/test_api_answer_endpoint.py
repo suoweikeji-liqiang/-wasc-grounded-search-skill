@@ -111,3 +111,14 @@ def test_answer_api_endpoint_returns_retrieval_failure(monkeypatch) -> None:
     assert payload["gaps"]
     assert payload["key_points"] == []
     assert payload["sources"] == []
+
+
+def test_default_model_client_accepts_legacy_minimax_key_name(monkeypatch) -> None:
+    import skill.api.entry as api_entry
+
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.setenv("MINIMAX_KEY", "legacy-key")
+
+    client = api_entry._default_model_client()
+
+    assert client.api_key == "legacy-key"

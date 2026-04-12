@@ -208,6 +208,91 @@ def test_generate_answer_draft_rejects_non_object_citation_items() -> None:
         generate_answer_draft("prompt text", model_client=model_client)
 
 
+def test_generate_answer_draft_coerces_nullable_and_string_list_fields() -> None:
+    model_client = _FakeModelClient(
+        {
+            "conclusion": "Grounded answer with light drift.",
+            "key_points": [
+                {
+                    "key_point_id": "kp-1",
+                    "statement": "The Climate Order takes effect on May 1, 2026.",
+                    "citations": [
+                        {
+                            "evidence_id": "policy-1",
+                            "source_record_id": "policy-1-slice-1",
+                            "source_url": "https://www.gov.cn/policy/climate-order-2026",
+                            "quote_text": "The Climate Order takes effect on May 1, 2026.",
+                        }
+                    ],
+                }
+            ],
+            "sources": [
+                {
+                    "evidence_id": "policy-1",
+                    "title": "Climate Order 2026",
+                    "url": "https://www.gov.cn/policy/climate-order-2026",
+                }
+            ],
+            "uncertainty_notes": "Evidence relevance is limited.",
+            "gaps": None,
+        }
+    )
+
+    draft = generate_answer_draft("prompt text", model_client=model_client)
+
+    assert draft.uncertainty_notes == ["Evidence relevance is limited."]
+    assert draft.gaps == []
+
+
+def test_generate_answer_draft_extracts_json_from_wrapped_text() -> None:
+    class _WrappedTextClient:
+        def generate_text(self, prompt: str) -> str:
+            return (
+                "Here is the structured answer:\n"
+                "```json\n"
+                '{"conclusion":"ok","key_points":[],"sources":[],"uncertainty_notes":[]}\n'
+                "```"
+            )
+
+    draft = generate_answer_draft("prompt text", model_client=_WrappedTextClient())
+
+    assert draft.conclusion == "ok"
+    assert draft.key_points == []
+    assert draft.sources == []
+    assert draft.uncertainty_notes == []
+
+
+def test_generate_answer_draft_ignores_malformed_source_items() -> None:
+    model_client = _FakeModelClient(
+        {
+            "conclusion": "Grounded answer with malformed sources.",
+            "key_points": [
+                {
+                    "key_point_id": "kp-1",
+                    "statement": "The Climate Order takes effect on May 1, 2026.",
+                    "citations": [
+                        {
+                            "evidence_id": "policy-1",
+                            "source_record_id": "policy-1-slice-1",
+                            "source_url": "https://www.gov.cn/policy/climate-order-2026",
+                            "quote_text": "The Climate Order takes effect on May 1, 2026.",
+                        }
+                    ],
+                }
+            ],
+            "sources": [
+                {"evidence_id": "policy-1"},
+                "not-an-object",
+            ],
+            "uncertainty_notes": [],
+        }
+    )
+
+    draft = generate_answer_draft("prompt text", model_client=model_client)
+
+    assert draft.sources == []
+
+
 def test_minimax_text_client_defaults_to_competition_model() -> None:
     client = MiniMaxTextClient(api_key="test-key")
     assert client.model == "MiniMax-M2.7"
@@ -251,8 +336,8 @@ def test_minimax_text_client_calls_openai_compatible_api(monkeypatch) -> None:
     client = MiniMaxTextClient(api_key="test-key")
     response_text = client.generate_text("prompt text")
 
-    assert observed["url"] == "https://api.minimax.io/v1/chat/completions"
-    assert observed["timeout"] == 30.0
+    assert observed["url"] == "https://api.minimaxi.com/v1/chat/completions"
+    assert observed["timeout"] == 120.0
     assert observed["authorization"] == "Bearer test-key"
     assert observed["content_type"] == "application/json"
     assert observed["payload"] == {

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from json import JSONDecodeError
+from typing import Any
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.request import Request, urlopen
@@ -10,6 +12,43 @@ from urllib.request import Request, urlopen
 from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
 
 _SYSTEM_PROMPT = "You are a grounded answer generator. Return valid JSON only."
+
+
+def _extract_json_object(raw_text: str) -> str:
+    text = raw_text.strip()
+    if not text:
+        raise ValueError("Generator output was empty")
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            text = "\n".join(lines[1:-1]).strip()
+            if text.lower().startswith("json"):
+                text = text[4:].lstrip()
+
+    try:
+        json.loads(text)
+        return text
+    except JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("Generator output did not contain a JSON object")
+    candidate = text[start : end + 1]
+    json.loads(candidate)
+    return candidate
+
+
+def _coerce_string_list(value: Any, *, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    raise ValueError(f"{field_name} must be a list")
 
 
 class ModelClient(Protocol):
@@ -25,8 +64,8 @@ class MiniMaxTextClient:
 
     api_key: str
     model: str = "MiniMax-M2.7"
-    base_url: str = "https://api.minimax.io/v1"
-    timeout_seconds: float = 30.0
+    base_url: str = "https://api.minimaxi.com/v1"
+    timeout_seconds: float = 120.0
 
     def generate_text(self, prompt: str) -> str:
         if not self.api_key.strip():
@@ -113,24 +152,22 @@ def generate_answer_draft(
 ) -> StructuredAnswerDraft:
     """Generate and strictly parse a structured answer draft."""
     raw_text = model_client.generate_text(prompt)
-    payload = json.loads(raw_text)
+    payload = json.loads(_extract_json_object(raw_text))
     if not isinstance(payload, dict):
         raise ValueError("Generator output must be a JSON object")
 
     key_points_payload = _require_field(payload, "key_points")
     sources_payload = _require_field(payload, "sources")
-    uncertainty_payload = _require_field(payload, "uncertainty_notes")
-    gaps_payload = payload.get("gaps", [])
+    uncertainty_payload = _coerce_string_list(
+        _require_field(payload, "uncertainty_notes"),
+        field_name="uncertainty_notes",
+    )
+    gaps_payload = _coerce_string_list(payload.get("gaps", []), field_name="gaps")
 
     if not isinstance(key_points_payload, list):
         raise ValueError("key_points must be a list")
     if not isinstance(sources_payload, list):
         raise ValueError("sources must be a list")
-    if not isinstance(uncertainty_payload, list):
-        raise ValueError("uncertainty_notes must be a list")
-    if not isinstance(gaps_payload, list):
-        raise ValueError("gaps must be a list")
-
     key_points: list[KeyPoint] = []
     for item in key_points_payload:
         if not isinstance(item, dict):
@@ -140,13 +177,16 @@ def generate_answer_draft(
     sources: list[SourceReference] = []
     for item in sources_payload:
         if not isinstance(item, dict):
-            raise ValueError("sources items must be JSON objects")
-        sources.append(_parse_source(item))
+            continue
+        try:
+            sources.append(_parse_source(item))
+        except ValueError:
+            continue
 
     return StructuredAnswerDraft(
         conclusion=str(_require_field(payload, "conclusion")),
         key_points=key_points,
         sources=sources,
-        uncertainty_notes=[str(item) for item in uncertainty_payload],
-        gaps=[str(item) for item in gaps_payload],
+        uncertainty_notes=uncertainty_payload,
+        gaps=gaps_payload,
     )
