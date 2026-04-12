@@ -58,7 +58,13 @@ def _completeness_score(record: CanonicalEvidence) -> float:
 
 
 def _authority_score(record: CanonicalEvidence) -> float:
-    score = _CREDIBILITY_SCORES.get(record.raw_records[0].credibility_tier or "", 0.0)
+    score = max(
+        (
+            _CREDIBILITY_SCORES.get(raw_record.credibility_tier or "", 0.0)
+            for raw_record in record.raw_records
+        ),
+        default=0.0,
+    )
     score += _EVIDENCE_LEVEL_SCORES.get(record.evidence_level or "", 0.0)
     if record.canonical_match_confidence == "strong_id":
         score += 1.0

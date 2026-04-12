@@ -90,7 +90,9 @@ def _trim_lowest_scoring_slice(records: list[CanonicalEvidence]) -> bool:
         for idx, slice_ in enumerate(record.retained_slices)
         if idx != lowest_slice_index
     )
-    records[record_index] = _with_updated_tokens(replace(record, retained_slices=updated_slices))
+    records[record_index] = score_evidence_records(
+        [_with_updated_tokens(replace(record, retained_slices=updated_slices))]
+    )[0]
     return True
 
 

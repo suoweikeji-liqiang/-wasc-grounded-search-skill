@@ -136,3 +136,33 @@ def test_collapse_evidence_records_rejects_event_level_over_merging() -> None:
         "https://acme.com/news/battery-plant-hunan",
         "https://supplier.example.com/news/hunan-battery-plant",
     }
+
+
+def test_collapse_evidence_records_keeps_unique_ids_for_same_host_same_title_articles() -> None:
+    from skill.evidence.dedupe import collapse_evidence_records
+
+    first_story = _record_from_payload(
+        {
+            "source_id": "industry_company_news",
+            "title": "Quarterly Update",
+            "url": "https://acme.com/news/q1-update",
+            "snippet": "Acme reported battery output growth in the first quarter.",
+            "credibility_tier": "company_official",
+            "route_role": "primary",
+        }
+    )
+    second_story = _record_from_payload(
+        {
+            "source_id": "industry_company_news_2",
+            "title": "Quarterly Update",
+            "url": "https://acme.com/news/q2-update",
+            "snippet": "Leadership announced a board transition and a new audit committee chair.",
+            "credibility_tier": "company_official",
+            "route_role": "primary",
+        }
+    )
+
+    canonical_records = collapse_evidence_records([first_story, second_story])
+
+    assert len(canonical_records) == 2
+    assert len({record.evidence_id for record in canonical_records}) == 2

@@ -53,9 +53,11 @@ def _infer_jurisdiction(records: list[RawEvidenceRecord]) -> tuple[str | None, s
             return record.jurisdiction, "observed"
 
     for record in records:
-        hostname = urlparse(record.url).hostname or ""
-        if hostname.endswith(".gov.cn") or hostname.endswith(".gov"):
+        hostname = (urlparse(record.url).hostname or "").lower()
+        if hostname.endswith(".gov.cn"):
             return "CN", "jurisdiction_inferred"
+        if hostname.endswith(".gov"):
+            return "US", "jurisdiction_inferred"
 
     return None, "jurisdiction_unknown"
 

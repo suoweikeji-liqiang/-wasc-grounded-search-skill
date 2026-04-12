@@ -235,3 +235,96 @@ def test_build_evidence_pack_reserves_one_supplemental_item_for_mixed_queries() 
         "supplemental-support",
     ]
     assert pack.clipped is True
+
+
+def test_score_evidence_records_are_stable_when_raw_record_order_changes() -> None:
+    from skill.evidence.score import score_evidence_records
+
+    high_credibility = _make_raw_record(
+        source_id="industry_company",
+        title="Industry Merger",
+        url="https://company.example/merger",
+        snippet="Company confirms the merger details.",
+        credibility_tier="company_official",
+        route_role="primary",
+        token_estimate=5,
+    )
+    low_credibility = _make_raw_record(
+        source_id="industry_blog",
+        title="Industry Merger",
+        url="https://blog.example/merger",
+        snippet="Blog commentary on the merger.",
+        credibility_tier="industry_news",
+        route_role="primary",
+        token_estimate=4,
+    )
+    slices = (
+        EvidenceSlice(
+            text="Company confirms the merger details.",
+            source_record_id=high_credibility.source_id,
+            source_span="snippet",
+            score=0.9,
+            token_estimate=5,
+        ),
+    )
+    merged = CanonicalEvidence(
+        evidence_id="industry-merged",
+        domain="industry",
+        canonical_title="Industry Merger",
+        canonical_url=high_credibility.url,
+        raw_records=(high_credibility, low_credibility),
+        retained_slices=slices,
+        linked_variants=(),
+        authority=None,
+        jurisdiction=None,
+        jurisdiction_status=None,
+        publication_date=None,
+        effective_date=None,
+        version=None,
+        version_status=None,
+        evidence_level=None,
+        canonical_match_confidence=None,
+        doi=None,
+        arxiv_id=None,
+        first_author=None,
+        year=None,
+        route_role="primary",
+        token_estimate=0,
+    )
+
+    reversed_merged = replace(merged, raw_records=(low_credibility, high_credibility))
+
+    scored = score_evidence_records([merged])[0]
+    reversed_scored = score_evidence_records([reversed_merged])[0]
+
+    assert getattr(scored, "total_score") == getattr(reversed_scored, "total_score")
+
+
+def test_build_evidence_pack_keeps_trimmed_high_value_record_over_weaker_one() -> None:
+    from skill.evidence.pack import build_evidence_pack
+    from skill.evidence.score import score_evidence_records
+
+    strong = _make_canonical(
+        evidence_id="strong-record",
+        route_role="primary",
+        credibility_tier="official_government",
+        authority="Regulator",
+        publication_date="2024-03-01",
+        slice_specs=(
+            ("strong-high", 0.95, 4),
+            ("strong-low", 0.10, 2),
+        ),
+    )
+    weak = _make_canonical(
+        evidence_id="weak-record",
+        route_role="primary",
+        credibility_tier="industry_news",
+        slice_specs=(("weak", 0.20, 3),),
+    )
+
+    ranked = score_evidence_records([weak, strong])
+    pack = build_evidence_pack(ranked, token_budget=4, top_k=2)
+
+    assert pack.clipped is True
+    assert [record.evidence_id for record in pack.canonical_evidence] == ["strong-record"]
+    assert [slice_.text for slice_ in pack.canonical_evidence[0].retained_slices] == ["strong-high"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+import hashlib
 import re
 from urllib.parse import urlparse
 
@@ -94,10 +95,11 @@ def _build_industry_canonical(group: _IndustryGroup) -> CanonicalEvidence:
     canonical_title = _canonical_industry_title(group.records)
     host = group.host or "unknown-host"
     title_key = _normalize_text(canonical_title).replace(" ", "-")
+    url_key = hashlib.sha1(first_seen.url.encode("utf-8")).hexdigest()[:10]
 
     # Preserve raw_hits provenance in CanonicalEvidence.raw_records.
     return CanonicalEvidence(
-        evidence_id=f"industry:{host}:{title_key}",
+        evidence_id=f"industry:{host}:{title_key}:{url_key}",
         domain="industry",
         canonical_title=canonical_title,
         canonical_url=first_seen.url,

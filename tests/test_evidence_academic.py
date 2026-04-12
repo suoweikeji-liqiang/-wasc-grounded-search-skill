@@ -206,3 +206,59 @@ def test_canonicalize_academic_records_marks_title_author_year_merges_as_heurist
     assert canonical.evidence_level == "preprint"
     assert len(canonical.linked_variants) == 1
     assert canonical.linked_variants[0].canonical_match_confidence == "heuristic"
+
+
+def test_canonicalize_academic_records_keeps_mixed_confidence_merges_heuristic() -> None:
+    from skill.evidence.academic import canonicalize_academic_records
+
+    doi_backed = _make_academic_raw_record(0)
+    metadata_only = replace(
+        _make_academic_raw_record(2),
+        title=doi_backed.title,
+        first_author=doi_backed.first_author,
+        year=doi_backed.year,
+        doi=None,
+        arxiv_id=None,
+        evidence_level="metadata_only",
+        source_id="academic_openalex",
+        url="https://openalex.org/work/W123456789",
+    )
+
+    canonical_records = canonicalize_academic_records([doi_backed, metadata_only])
+
+    assert len(canonical_records) == 1
+    canonical = canonical_records[0]
+    assert canonical.canonical_match_confidence == "heuristic"
+    assert len(canonical.linked_variants) == 1
+    assert canonical.linked_variants[0].source_id == "academic_openalex"
+    assert canonical.linked_variants[0].canonical_match_confidence == "heuristic"
+
+
+def test_canonicalize_academic_records_uses_unique_source_ids_without_scholarly_ids() -> None:
+    from skill.evidence.academic import canonicalize_academic_records
+
+    source_only_a = replace(
+        _make_academic_raw_record(2),
+        source_id="academic_catalog_a",
+        title="Repeated Title",
+        url="https://catalog-a.example/paper",
+        doi=None,
+        arxiv_id=None,
+        first_author=None,
+        year=None,
+    )
+    source_only_b = replace(
+        _make_academic_raw_record(2),
+        source_id="academic_catalog_b",
+        title="Repeated Title",
+        url="https://catalog-b.example/paper",
+        doi=None,
+        arxiv_id=None,
+        first_author=None,
+        year=None,
+    )
+
+    canonical_records = canonicalize_academic_records([source_only_a, source_only_b])
+
+    assert len(canonical_records) == 2
+    assert len({record.evidence_id for record in canonical_records}) == 2

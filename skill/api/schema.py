@@ -98,17 +98,11 @@ class RetrieveOutcome(BaseModel):
         return value
 
 
-class RetrieveResponse(BaseModel):
+class RetrieveResponse(RetrieveOutcome):
     """Retrieval response contract aligned with structured gap reporting."""
-
-    model_config = ConfigDict(extra="forbid")
 
     route_label: RouteLabel
     primary_route: ConcreteRoute
     supplemental_route: ConcreteRoute | None
     browser_automation: Literal["disabled"]
-    status: RetrievalStatus
-    failure_reason: RetrievalFailureReason | None = None
-    gaps: list[str] = Field(default_factory=list)
     evidence_clipped: bool = False
-    results: list[RetrieveResultItem] = Field(default_factory=list)

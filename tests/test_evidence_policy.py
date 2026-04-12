@@ -302,3 +302,27 @@ def test_canonicalize_policy_records_rejects_entries_missing_minimum_metadata() 
         "jurisdiction_inferred",
         "jurisdiction_unknown",
     }
+
+
+def test_canonicalize_policy_records_infers_us_for_dot_gov_hosts() -> None:
+    from skill.evidence.policy import canonicalize_policy_records
+
+    canonical_records = canonicalize_policy_records(
+        [
+            _make_policy_raw_record(
+                authority="Environmental Protection Agency",
+                title="EPA Rule Bulletin",
+                url="https://www.epa.gov/rule/bulletin",
+                publication_date="2024-04-12",
+                effective_date=None,
+                version=None,
+                version_status="version_missing",
+                jurisdiction=None,
+                jurisdiction_status="jurisdiction_unknown",
+            )
+        ]
+    )
+
+    assert len(canonical_records) == 1
+    assert canonical_records[0].jurisdiction == "US"
+    assert canonical_records[0].jurisdiction_status == "jurisdiction_inferred"

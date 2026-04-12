@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -112,19 +113,66 @@ def _group_key_type(aliases: set[tuple[str, ...]]) -> str:
     return "source"
 
 
+def _strong_aliases(record: RawEvidenceRecord) -> set[tuple[str, ...]]:
+    return {
+        alias
+        for alias in _academic_aliases(record)
+        if alias[0] in {"doi", "arxiv"}
+    }
+
+
+def _match_confidence(canonical_source: RawEvidenceRecord, record: RawEvidenceRecord) -> str:
+    if _strong_aliases(canonical_source) & _strong_aliases(record):
+        return "strong_id"
+    return "heuristic"
+
+
+def _canonical_group_confidence(
+    canonical_source: RawEvidenceRecord,
+    records: list[RawEvidenceRecord],
+) -> str:
+    other_records = [
+        record
+        for record in records
+        if record.source_id != canonical_source.source_id or record.url != canonical_source.url
+    ]
+    if not other_records:
+        return "strong_id" if _strong_aliases(canonical_source) else "heuristic"
+    if all(_match_confidence(canonical_source, record) == "strong_id" for record in other_records):
+        return "strong_id"
+    return "heuristic"
+
+
+def _stable_identifier(
+    canonical_source: RawEvidenceRecord,
+    aliases: set[tuple[str, ...]],
+    key_type: str,
+) -> str:
+    if key_type == "doi":
+        return next(alias[1] for alias in sorted(aliases) if alias[0] == "doi")
+    if key_type == "arxiv":
+        return next(alias[1] for alias in sorted(aliases) if alias[0] == "arxiv")
+    if key_type == "heuristic":
+        heuristic_alias = next(alias for alias in sorted(aliases) if alias[0] == "heuristic")
+        return "-".join(heuristic_alias[1:])
+    source_key = f"{canonical_source.source_id}:{canonical_source.url}".encode("utf-8")
+    return hashlib.sha1(source_key).hexdigest()[:12]
+
+
 def _merge_academic_group(records: list[RawEvidenceRecord], aliases: set[tuple[str, ...]]) -> CanonicalEvidence:
     prioritized_records = sorted(records, key=_academic_priority, reverse=True)
     canonical_source = prioritized_records[0]
-    confidence = _group_confidence(aliases)
+    confidence = _canonical_group_confidence(canonical_source, prioritized_records)
     key_type = _group_key_type(aliases)
+    stable_identifier = _stable_identifier(canonical_source, aliases, key_type)
     linked_variants = tuple(
-        _linked_variant(record, confidence)
+        _linked_variant(record, _match_confidence(canonical_source, record))
         for record in prioritized_records
         if record.source_id != canonical_source.source_id or record.url != canonical_source.url
     )
 
     return CanonicalEvidence(
-        evidence_id=f"academic:{key_type}:{_normalize_academic_text(canonical_source.title).replace(' ', '-')}",
+        evidence_id=f"academic:{key_type}:{stable_identifier}",
         domain="academic",
         canonical_title=canonical_source.title,
         canonical_url=canonical_source.url,

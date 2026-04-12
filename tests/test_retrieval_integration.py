@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -255,3 +256,31 @@ def test_retrieve_api_endpoint_routes_through_execute_retrieval_pipeline(monkeyp
     assert "total_token_estimate" not in payload
     assert "token_budget" not in payload
     assert observed
+
+
+def test_retrieve_response_enforces_outcome_invariants() -> None:
+    with pytest.raises(ValueError, match="failure_reason"):
+        RetrieveResponse(
+            route_label="policy",
+            primary_route="policy",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason="timeout",
+            gaps=[],
+            evidence_clipped=False,
+            results=[],
+        )
+
+    with pytest.raises(ValueError, match="gaps"):
+        RetrieveResponse(
+            route_label="policy",
+            primary_route="policy",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="failure_gaps",
+            failure_reason=None,
+            gaps=[],
+            evidence_clipped=False,
+            results=[],
+        )
