@@ -1,6 +1,6 @@
 ---
 phase: 04-grounded-structured-answer-generation
-verified: 2026-04-12T08:43:58Z
+verified: 2026-04-12T09:09:07Z
 status: human_needed
 score: 12/12 must-haves verified
 overrides_applied: 0
@@ -9,9 +9,9 @@ overrides_applied: 0
 # Phase 4: Grounded Structured Answer Generation Verification Report
 
 **Phase Goal:** Users can receive judge-optimized structured answers where factual claims are source-traceable and answer state is explicit.
-**Verified:** 2026-04-12T08:43:58Z
+**Verified:** 2026-04-12T09:09:07Z
 **Status:** human_needed
-**Re-verification:** Yes - after hardening the MiniMax client boundary and strict JSON parser
+**Re-verification:** Yes - after hardening the China MiniMax endpoint boundary and live-output parser tolerance
 
 ## Goal Achievement
 
@@ -43,7 +43,7 @@ overrides_applied: 0
 | `skill/api/schema.py` | Public answer request/response schema | VERIFIED | Adds `AnswerRequest`, `AnswerResponse`, and strict nested citation/key-point/source models. |
 | `tests/fixtures/answer_phase4_cases.json` | Grounded, insufficient, and retrieval-failure fixtures | VERIFIED | Contains the three named Phase 4 fixtures used by unit and integration coverage. |
 | `skill/synthesis/prompt.py` | Prompt serialization for bounded canonical evidence | VERIFIED | Serializes evidence IDs, retained-slice IDs, and route metadata into the grounded prompt. |
-| `skill/synthesis/generator.py` | MiniMax-compatible client boundary plus strict JSON parsing | VERIFIED | Implements `MiniMaxTextClient` against the official OpenAI-compatible `/v1/chat/completions` shape and rejects malformed non-object parse items. |
+| `skill/synthesis/generator.py` | MiniMax-compatible client boundary plus strict JSON parsing | VERIFIED | Implements `MiniMaxTextClient` against the official China OpenAI-compatible `/v1/chat/completions` shape and tolerates wrapped JSON plus advisory-field drift without weakening citation checks. |
 | `skill/synthesis/citation_check.py` | Fail-closed validation of answer citations | VERIFIED | Exports `validate_answer_citations(...)` and `CitationCheckResult`. |
 | `skill/synthesis/uncertainty.py` | Deterministic uncertainty-note builder | VERIFIED | Emits note prefixes from observable retrieval/evidence conditions. |
 | `skill/synthesis/orchestrate.py` | Retrieve -> synthesize -> validate -> answer pipeline | VERIFIED | Rehydrates canonical evidence, short-circuits retrieval failure, and shapes the final answer payload. |
@@ -69,12 +69,12 @@ overrides_applied: 0
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| Phase 4 answer suite stays green after MiniMax-client hardening | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q` | `26 passed in 0.95s` | PASS |
-| Repository-wide suite stays green | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest -q` | `123 passed in 1.55s` | PASS |
+| Phase 4 answer suite stays green after MiniMax-client hardening | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q` | `30 passed in 0.80s` | PASS |
+| Repository-wide suite stays green | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest -q` | `127 passed in 1.35s` | PASS |
 | Phase artifact gate | `node .../gsd-tools.cjs verify artifacts <04-0X-PLAN.md>` | `12/12` artifacts passed across plans `04-01`..`04-03` | PASS |
 | Phase key-link gate | `node .../gsd-tools.cjs verify key-links <04-0X-PLAN.md>` | `9/9` key links verified across plans `04-01`..`04-03` | PASS |
 | Post-execution schema drift gate | `node .../gsd-tools.cjs verify schema-drift 04` | `drift_detected: false` | PASS |
-| Live MiniMax smoke | Environment check for `MINIMAX_API_KEY` / `.env` | Credentials not present in the current workspace, so no live `/answer` smoke could be executed here | HUMAN |
+| Live MiniMax smoke through `/answer` | `.env`-backed `/answer` requests with the official China endpoint | Policy smoke returned HTTP 200 with `insufficient_evidence`; academic smoke returned HTTP 200 with `grounded_success`; both payloads preserved the required citation-field shape and no internal telemetry leaked | PASS |
 
 ## Requirements Coverage
 
@@ -105,12 +105,7 @@ None confirmed. Targeted scans across the Phase 4 source and test files found no
 
 ## Human Verification Required
 
-### 1. Live MiniMax `/answer` Smoke
-**Test:** Configure `MINIMAX_API_KEY`, then run one policy query and one academic query through the real `/answer` endpoint.
-**Expected:** Each response is valid structured JSON, every returned key point cites an existing `evidence_id` plus `source_record_id`, and the endpoint does not crash on the live model path.
-**Why human:** This environment has no MiniMax credentials configured, so the external-service path could not be exercised here.
-
-### 2. Conclusion Honesty Across Outcome States
+### 1. Conclusion Honesty Across Outcome States
 **Test:** Review one real grounded-success response, one insufficient-evidence response, and one retrieval-failure response from the live model-backed endpoint.
 **Expected:** The conclusion language matches `answer_status`, uncertainty notes stay honest, and unsupported claims are not overstated.
 **Why human:** The final wording is model-authored and requires semantic judgment, not just schema validation.
@@ -119,10 +114,9 @@ None confirmed. Targeted scans across the Phase 4 source and test files found no
 
 **No automated or code-level gaps found.** Phase 4's planned must-haves are implemented, wired, and covered by passing tests.
 
-Phase completion is still waiting on two human checks:
+Phase completion is still waiting on one human check:
 
-1. Live MiniMax smoke through the real `/answer` path after credentials are configured.
-2. Human judgment over conclusion honesty across the three answer states.
+1. Human judgment over conclusion honesty across the answer states.
 
 ## Verification Metadata
 
@@ -130,12 +124,12 @@ Phase completion is still waiting on two human checks:
 **Must-haves source:** `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md`, and `.planning/ROADMAP.md`
 **Artifact checks:** `12/12` plan-declared artifacts passed via `gsd-tools verify artifacts`
 **Link checks:** `9/9` plan-declared key links verified via `gsd-tools verify key-links`
-**Automated checks:** Phase 4 answer suite passed (`26 passed in 0.95s`); repository-wide suite passed (`123 passed in 1.55s`)
+**Automated checks:** Phase 4 answer suite passed (`30 passed in 0.80s`); repository-wide suite passed (`127 passed in 1.35s`)
 **Code review:** `04-REVIEW.md` status `clean`
 **Schema drift gate:** `drift_detected: false`
-**Human checks required:** `2`
+**Human checks required:** `1`
 
 ---
 
-_Verified: 2026-04-12T08:43:58Z_
+_Verified: 2026-04-12T09:09:07Z_
 _Verifier: Codex (manual goal-backward verification refresh)_

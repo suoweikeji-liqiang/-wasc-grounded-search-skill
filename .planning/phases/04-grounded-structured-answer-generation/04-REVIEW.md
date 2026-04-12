@@ -1,6 +1,6 @@
 ---
 phase: 04-grounded-structured-answer-generation
-reviewed: 2026-04-12T08:42:23Z
+reviewed: 2026-04-12T09:09:07Z
 depth: standard
 files_reviewed: 17
 files_reviewed_list:
@@ -30,7 +30,7 @@ status: clean
 ---
 # Phase 04: Code Review Report
 
-**Reviewed:** 2026-04-12T08:42:23Z
+**Reviewed:** 2026-04-12T09:09:07Z
 **Depth:** standard
 **Files Reviewed:** 17
 **Status:** clean
@@ -41,13 +41,14 @@ Reviewed the full Phase 4 delta across answer contracts, prompt/generation helpe
 
 - Internal and public answer contracts line up with the Phase 4 must-haves: structured conclusion/key-points/sources/uncertainty/gaps, explicit answer-status taxonomy, and evidence-bound citations.
 - `execute_answer_pipeline(...)` starts from the retrieval boundary, gates grounded success on citation validation, and keeps only validated key points plus cited-source references in the final payload.
-- The post-implementation hardening in `skill/synthesis/generator.py` now turns `MiniMaxTextClient` into a real OpenAI-compatible `/v1/chat/completions` client boundary and rejects malformed non-object citation items instead of silently dropping them.
-- Fresh verification on the reviewed code passed both the focused Phase 4 suite (`26 passed`) and the repository-wide suite (`123 passed`).
+- The post-implementation hardening in `skill/synthesis/generator.py` now points the default MiniMax client at the official China OpenAI-compatible endpoint, raises the default read timeout for real synthesis prompts, extracts wrapped JSON payloads, and tolerates advisory-field drift (`gaps`, `uncertainty_notes`, malformed `sources`) without weakening citation enforcement.
+- `skill/api/entry.py` now accepts both `MINIMAX_API_KEY` and the repo's existing `.env` naming `MINIMAX_KEY`, which unblocked live smoke execution against the actual model path.
+- Fresh verification on the reviewed code passed both the focused Phase 4 suite (`30 passed`) and the repository-wide suite (`127 passed`).
 
 No confirmed bugs, security regressions, or phase-scoped code-quality issues remain in the reviewed file set.
 
 ---
 
-_Reviewed: 2026-04-12T08:42:23Z_
+_Reviewed: 2026-04-12T09:09:07Z_
 _Reviewer: Codex (manual phase review refresh)_
 _Depth: standard_
