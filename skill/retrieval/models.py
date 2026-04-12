@@ -23,6 +23,16 @@ class RetrievalHit:
     url: str
     snippet: str
     credibility_tier: str | None = None
+    authority: str | None = None
+    jurisdiction: str | None = None
+    publication_date: str | None = None
+    effective_date: str | None = None
+    version: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    first_author: str | None = None
+    year: int | None = None
+    evidence_level: str | None = None
 
     def __post_init__(self) -> None:
         if self.credibility_tier is None:

@@ -2,26 +2,36 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from skill.retrieval.models import RetrievalHit
 
 _SOURCE_ID = "academic_arxiv"
-_FIXTURES: tuple[dict[str, str], ...] = (
+_FIXTURES: tuple[dict[str, Any], ...] = (
     {
-        "title": "Efficient retrieval augmentation for compact language models",
+        "title": "Evidence normalization for retrieval grounded systems preprint",
         "url": "https://arxiv.org/abs/2604.12345",
-        "snippet": "Preprint describing retrieval-grounded generation methods.",
+        "snippet": "Preprint variant of the evidence normalization study before journal publication.",
+        "arxiv_id": "2604.12345",
+        "first_author": "Lin",
+        "year": 2025,
+        "evidence_level": "preprint",
     },
     {
         "title": "Multi-source evidence ranking with constrained latency",
         "url": "https://arxiv.org/abs/2603.54321",
         "snippet": "Latency-aware retrieval strategy for benchmark-oriented QA.",
+        "arxiv_id": "2603.54321",
+        "first_author": "Garcia",
+        "year": 2026,
+        "evidence_level": "preprint",
     },
 )
 
 
-def _score(query: str, fixture: dict[str, str]) -> int:
+def _score(query: str, fixture: dict[str, Any]) -> int:
     tokens = [token for token in query.lower().split() if token]
-    haystack = " ".join((fixture["title"], fixture["snippet"])).lower()
+    haystack = " ".join((str(fixture["title"]), str(fixture["snippet"]))).lower()
     return sum(1 for token in tokens if token in haystack)
 
 
@@ -35,9 +45,13 @@ async def search(query: str) -> list[RetrievalHit]:
     return [
         RetrievalHit(
             source_id=_SOURCE_ID,
-            title=item["title"],
-            url=item["url"],
-            snippet=item["snippet"],
+            title=str(item["title"]),
+            url=str(item["url"]),
+            snippet=str(item["snippet"]),
+            arxiv_id=str(item["arxiv_id"]),
+            first_author=str(item["first_author"]),
+            year=int(item["year"]),
+            evidence_level=str(item["evidence_level"]),
         )
         for item in ranked
     ]

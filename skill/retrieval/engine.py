@@ -21,6 +21,20 @@ from skill.retrieval.models import (
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 
 
+def _optional_str_field(hit: Mapping[str, Any], field_name: str) -> str | None:
+    value = hit.get(field_name)
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def _optional_int_field(hit: Mapping[str, Any], field_name: str) -> int | None:
+    value = hit.get(field_name)
+    if value in (None, ""):
+        return None
+    return int(value)
+
+
 @dataclass(frozen=True)
 class RetrievalExecutionOutcome:
     status: RetrievalStatus
@@ -46,11 +60,17 @@ def _normalize_hits(raw_hits: list[Any], source_id: str) -> tuple[RetrievalHit, 
                 title=str(hit["title"]),
                 url=str(hit["url"]),
                 snippet=str(hit["snippet"]),
-                credibility_tier=(
-                    str(hit["credibility_tier"])
-                    if hit.get("credibility_tier") is not None
-                    else None
-                ),
+                credibility_tier=_optional_str_field(hit, "credibility_tier"),
+                authority=_optional_str_field(hit, "authority"),
+                jurisdiction=_optional_str_field(hit, "jurisdiction"),
+                publication_date=_optional_str_field(hit, "publication_date"),
+                effective_date=_optional_str_field(hit, "effective_date"),
+                version=_optional_str_field(hit, "version"),
+                doi=_optional_str_field(hit, "doi"),
+                arxiv_id=_optional_str_field(hit, "arxiv_id"),
+                first_author=_optional_str_field(hit, "first_author"),
+                year=_optional_int_field(hit, "year"),
+                evidence_level=_optional_str_field(hit, "evidence_level"),
             )
         )
     return tuple(normalized)
