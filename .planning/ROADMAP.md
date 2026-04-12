@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Multi-Source Retrieval by Domain** - Users receive resilient concurrent retrieval with domain-aware source prioritization.
 - [x] **Phase 3: Evidence Normalization & Budgeted Context** - Users get deduplicated, normalized, top-K evidence prepared for synthesis.
 - [x] **Phase 4: Grounded Structured Answer Generation** - Users receive structured answers with claim-to-source traceability and explicit outcome states.
-- [ ] **Phase 5: Runtime Reliability & Benchmark Repeatability** - Users can run stable benchmark evaluations with enforced latency/token budgets.
+- [x] **Phase 5: Runtime Reliability & Benchmark Repeatability** - Users can run stable benchmark evaluations with enforced latency/token budgets.
 
 ## Phase Details
 
@@ -89,7 +89,11 @@ Plans:
   1. User can run benchmark workloads repeatedly with stable completion behavior under contest runtime constraints.
   2. User can execute a repeatable 10-task x 5-run harness and obtain recorded latency, token usage, and success-rate metrics.
   3. User can verify responses consistently respect configured latency and token budgets during runtime.
-**Plans**: TBD
+**Plans**: 3 plans (3/3 complete)
+Plans:
+- [x] 05-01-PLAN.md - Introduce request-scoped runtime budgets, internal runtime traces, deterministic budget enforcement, and cancellation-safe retrieval behavior on `/answer`.
+- [x] 05-02-PLAN.md - Build the locked 10-case benchmark harness, strict run-record/report contracts, and the benchmark CLI.
+- [x] 05-03-PLAN.md - Add grouped repeatability evaluation and live `/answer` benchmark regressions for the 10x5 suite.
 
 ## Progress
 
@@ -102,4 +106,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Multi-Source Retrieval by Domain | 4/4 | Complete | 2026-04-12 |
 | 3. Evidence Normalization & Budgeted Context | 5/5 | Complete | 2026-04-12 |
 | 4. Grounded Structured Answer Generation | 3/3 | Complete | 2026-04-12 |
-| 5. Runtime Reliability & Benchmark Repeatability | 0/TBD | Not started | - |
+| 5. Runtime Reliability & Benchmark Repeatability | 3/3 | Complete | 2026-04-12 |

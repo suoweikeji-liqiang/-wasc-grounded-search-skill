@@ -36,9 +36,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Reliability
 
-- [ ] **RELY-01**: User can run the benchmark workload repeatedly with stable completion behavior under the contest runtime constraints.
-- [ ] **RELY-02**: User can evaluate the system with a repeatable 10-task x 5-run benchmark harness that records latency, token usage, and success rate.
-- [ ] **RELY-03**: User can get responses that respect explicit latency and token budgets enforced by the runtime pipeline.
+- [x] **RELY-01**: User can run the benchmark workload repeatedly with stable completion behavior under the contest runtime constraints.
+- [x] **RELY-02**: User can evaluate the system with a repeatable 10-task x 5-run benchmark harness that records latency, token usage, and success rate.
+- [x] **RELY-03**: User can get responses that respect explicit latency and token budgets enforced by the runtime pipeline.
 
 ## v2 Requirements
 
@@ -85,9 +85,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OUTP-01 | Phase 4 | Complete |
 | OUTP-02 | Phase 4 | Complete |
 | OUTP-03 | Phase 4 | Complete |
-| RELY-01 | Phase 5 | Pending |
-| RELY-02 | Phase 5 | Pending |
-| RELY-03 | Phase 5 | Pending |
+| RELY-01 | Phase 5 | Complete |
+| RELY-02 | Phase 5 | Complete |
+| RELY-03 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 18 total
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-12 after Phase 4 completion*
+*Last updated: 2026-04-12 after Phase 5 completion*

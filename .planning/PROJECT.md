@@ -22,6 +22,9 @@ For any benchmark query, the Skill returns a trustworthy, structured answer with
 - Grounded answers now ship through a dedicated browser-free `/answer` path with conclusion, key points, cited sources, uncertainty notes, and explicit gaps (validated in Phase 4).
 - Final answer state is now explicit and separate from retrieval status: `grounded_success`, `insufficient_evidence`, or `retrieval_failure` (validated in Phase 4).
 - Claim citations are now bound to canonical evidence plus retained-slice identifiers, and grounded success is gated by citation validation instead of raw model output (validated in Phase 4).
+- `/answer` now runs under one request-scoped runtime budget with explicit latency and token-compliance tracing kept internal to the benchmark path (validated in Phase 5).
+- The project now ships a locked 10-case x 5-run benchmark harness with ordered JSONL/CSV/summary artifacts and grouped repeatability evaluation (validated in Phase 5).
+- Benchmark telemetry remains internal while the public answer contract stays clean and repeatable under deterministic offline benchmark execution (validated in Phase 5).
 
 ### Active
 
@@ -38,7 +41,7 @@ For any benchmark query, the Skill returns a trustworthy, structured answer with
 
 The repository is being shaped around the WASC April challenge for low-cost, high-precision search. The contest evaluates a fixed benchmark under a constrained environment and rewards strong information accuracy and completeness, plus good response time, stability, token efficiency, and usability. Existing repository documents converge on the same broad direction: classify the query, route to source-appropriate retrieval, perform local reranking/compression, then generate a structured grounded answer.
 
-Phases 1, 2, 3, and 4 are now complete: the project can classify benchmark queries, expose source-family routing without browser automation, execute deterministic multi-source retrieval, return domain-prioritized retrieval results, hand off deduplicated, metadata-rich, top-K bounded evidence sets for synthesis, and produce grounded structured answers through the `/answer` path. The next focus is runtime reliability and benchmark repeatability under WASC constraints.
+Phases 1 through 5 are now complete: the project can classify benchmark queries, expose source-family routing without browser automation, execute deterministic multi-source retrieval, return domain-prioritized retrieval results, hand off deduplicated, metadata-rich, top-K bounded evidence sets for synthesis, produce grounded structured answers through the `/answer` path, and run repeatable benchmark evaluations with explicit runtime-budget governance and internal compliance telemetry.
 
 ## Constraints
 
@@ -60,6 +63,8 @@ Phases 1, 2, 3, and 4 are now complete: the project can classify benchmark queri
 | Make `EvidencePack.canonical_evidence` the retrieval response boundary | Ensures downstream consumers see deduplicated, reranked, bounded evidence instead of raw prioritized hits | Adopted in Phase 3 |
 | Separate answer status from retrieval status and gate grounded success on citation validation | Retrieval success alone does not prove the final answer is grounded | Adopted in Phase 4 |
 | Use the China MiniMax OpenAI-compatible endpoint behind a thin client boundary | Matches the real deployment environment while keeping synthesis tests offline and deterministic | Adopted in Phase 4 |
+| Keep runtime-budget telemetry internal while benchmarking the live `/answer` path | Reliability metrics are required for evaluation, but the public API contract should stay clean | Adopted in Phase 5 |
+| Define repeatability from grouped benchmark-run invariants instead of averages alone | Stable competition behavior depends on per-case consistency, not just aggregate latency | Adopted in Phase 5 |
 | Optimize for competition score before long-term productization | User priority is to compete well first | Still active and guiding later phases |
 
 ## Evolution
@@ -78,4 +83,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Update context with the latest system state and remaining roadmap.
 
 ---
-*Last updated: 2026-04-12 after Phase 4*
+*Last updated: 2026-04-12 after Phase 5*

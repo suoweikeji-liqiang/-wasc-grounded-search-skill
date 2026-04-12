@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 4 complete, Phase 5 ready to plan
-last_updated: "2026-04-12T09:09:07Z"
-last_activity: 2026-04-12 -- Phase 04 marked complete
+current_phase_name: runtime-reliability-benchmark-repeatability
+status: phase_complete
+stopped_at: Completed Phase 5 runtime reliability and benchmark repeatability
+last_updated: "2026-04-12T10:56:50.000Z"
+last_activity: 2026-04-12 -- Phase 5 execution complete
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  completed_phases: 5
+  total_plans: 20
+  completed_plans: 20
   percent: 100
 ---
 
@@ -21,16 +22,16 @@ progress:
 See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Phase 05 - runtime-reliability-&-benchmark-repeatability
+**Current focus:** Milestone complete - all Phase 1-5 roadmap work executed
 
 ## Current Position
 
-Phase: 05 (runtime-reliability-&-benchmark-repeatability) - READY TO PLAN
-Current Phase Name: runtime-reliability-&-benchmark-repeatability
-Plan: Not started
-Status: Ready to plan Phase 05
-Last activity: 2026-04-12 -- Phase 04 marked complete
-Last Activity Description: Phase 04 marked complete
+Phase: 05 (runtime-reliability-benchmark-repeatability) - COMPLETE
+Current Phase Name: runtime-reliability-benchmark-repeatability
+Plan: 3/3 complete
+Status: Phase complete
+Last activity: 2026-04-12 -- Phase 5 execution complete
+Last Activity Description: Phase 05 complete
 
 Progress: [####################] 100%
 
@@ -38,7 +39,7 @@ Progress: [####################] 100%
 
 **Velocity:**
 
-- Total plans completed: 14
+- Total plans completed: 20
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -50,6 +51,7 @@ Progress: [####################] 100%
 | 02 | 4 | - | - |
 | 03 | 5 | - | - |
 | 04 | 3 | - | - |
+| 05 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -72,6 +74,8 @@ Recent decisions affecting current work:
 - [Phase 3] Make `EvidencePack.canonical_evidence` the retrieval response boundary so downstream synthesis sees deduplicated, bounded evidence.
 - [Phase 4] Separate final answer status from retrieval status and gate grounded success on citation validation.
 - [Phase 4] Use the China MiniMax OpenAI-compatible endpoint behind a thin client boundary and keep parser tolerance limited to advisory-field drift.
+- [Phase 5] Keep runtime-budget telemetry internal on app state and benchmark artifacts rather than exposing it through the public answer schema.
+- [Phase 5] Define repeatability from grouped benchmark-run invariants instead of aggregate averages alone.
 
 ### Pending Todos
 
@@ -84,11 +88,11 @@ None yet.
 [Issues that affect future work]
 
 - [Phase 4] `04-HUMAN-UAT.md` still has one pending human judgment item on whether live conclusion wording is fully aligned with `answer_status`.
-- [Phase 2] `skill/retrieval/engine.py` still catches `BaseException`, so cooperative cancellation can be misreported as adapter failure under external cancellation scenarios.
+- [Phase 5] A real MiniMax-backed benchmark sweep is still advisable before submission, even though the offline benchmark and repeatability suites are green.
 - [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
 
 ## Session Continuity
 
-Last session: 2026-04-12T09:09:07Z
-Stopped at: Phase 5 ready to plan
+Last session: 2026-04-12T18:56:50+08:00
+Stopped at: Phase 5 complete
 Resume file: None
