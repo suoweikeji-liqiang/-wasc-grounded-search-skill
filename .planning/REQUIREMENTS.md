@@ -23,10 +23,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Evidence
 
-- [ ] **EVID-01**: User can receive answers whose cited evidence is deduplicated and reranked before synthesis.
-- [ ] **EVID-02**: User can receive policy answers that include source authority, effective date or publication date, and version or jurisdiction when available.
-- [ ] **EVID-03**: User can receive academic answers that normalize duplicate/preprint/published records into a canonical citation set.
-- [ ] **EVID-04**: User can receive answers that keep only a bounded top-K evidence set to control token cost.
+- [x] **EVID-01**: User can receive answers whose cited evidence is deduplicated and reranked before synthesis.
+- [x] **EVID-02**: User can receive policy answers that include source authority, effective date or publication date, and version or jurisdiction when available.
+- [x] **EVID-03**: User can receive academic answers that normalize duplicate/preprint/published records into a canonical citation set.
+- [x] **EVID-04**: User can receive answers that keep only a bounded top-K evidence set to control token cost.
 
 ### Output
 
@@ -78,10 +78,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RETR-03 | Phase 2 | Complete |
 | RETR-04 | Phase 2 | Complete |
 | RETR-05 | Phase 2 | Complete |
-| EVID-01 | Phase 3 | Pending |
-| EVID-02 | Phase 3 | Pending |
-| EVID-03 | Phase 3 | Pending |
-| EVID-04 | Phase 3 | Pending |
+| EVID-01 | Phase 3 | Complete |
+| EVID-02 | Phase 3 | Complete |
+| EVID-03 | Phase 3 | Complete |
+| EVID-04 | Phase 3 | Complete |
 | OUTP-01 | Phase 4 | Pending |
 | OUTP-02 | Phase 4 | Pending |
 | OUTP-03 | Phase 4 | Pending |
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-12 after Phase 2 completion*
+*Last updated: 2026-04-12 after Phase 3 completion*
