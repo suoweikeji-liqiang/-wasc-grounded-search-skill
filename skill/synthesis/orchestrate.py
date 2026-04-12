@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import time
+import uuid
 from collections.abc import Mapping
+from dataclasses import replace
 
-from skill.api.schema import AnswerResponse, RetrieveCanonicalEvidenceItem
+from skill.api.schema import AnswerResponse, RetrieveCanonicalEvidenceItem, RetrieveResponse
 from skill.evidence.models import CanonicalEvidence, EvidenceSlice, LinkedVariant, RawEvidenceRecord
+from skill.orchestrator.budget import (
+    AnswerExecutionResult,
+    RuntimeBudget,
+    RuntimeTrace,
+)
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
 from skill.synthesis.citation_check import validate_answer_citations
@@ -17,6 +25,28 @@ from skill.synthesis.uncertainty import build_uncertainty_notes
 
 def _estimate_tokens(text: str) -> int:
     return len(text.split())
+
+
+def _estimate_evidence_tokens(canonical_evidence: tuple[CanonicalEvidence, ...]) -> int:
+    total = 0
+    for record in canonical_evidence:
+        if record.retained_slices:
+            total += sum(max(1, slice_.token_estimate) for slice_ in record.retained_slices)
+            continue
+        total += max(1, _estimate_tokens(record.canonical_title))
+    return total
+
+
+def _estimate_response_tokens(response: AnswerResponse) -> int:
+    total = _estimate_tokens(response.conclusion)
+    total += sum(_estimate_tokens(key_point.statement) for key_point in response.key_points)
+    total += sum(
+        _estimate_tokens(citation.quote_text)
+        for key_point in response.key_points
+        for citation in key_point.citations
+    )
+    total += sum(_estimate_tokens(note) for note in response.uncertainty_notes)
+    return total
 
 
 def _rehydrate_canonical_evidence(
@@ -152,55 +182,69 @@ def _dedupe_sources(
     return deduped
 
 
-async def execute_answer_pipeline(
-    plan,
-    query: str,
-    adapter_registry: Mapping[str, Adapter],
-    model_client: ModelClient,
+def _build_retrieval_failure_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
 ) -> AnswerResponse:
-    """Compose retrieval, generation, citation validation, and answer-state shaping."""
-    retrieval_response = await execute_retrieval_pipeline(
-        plan=plan,
-        query=query,
-        adapter_registry=adapter_registry,
-    )
-    canonical_evidence = tuple(
-        _rehydrate_canonical_evidence(item)
-        for item in retrieval_response.canonical_evidence
-    )
-
-    if retrieval_response.status == "failure_gaps" and not canonical_evidence:
-        uncertainty_notes = build_uncertainty_notes(
-            retrieval_status=retrieval_response.status,
-            gaps=tuple(retrieval_response.gaps),
-            evidence_clipped=retrieval_response.evidence_clipped,
-            evidence_pruned=retrieval_response.evidence_pruned,
-            canonical_evidence=canonical_evidence,
-            citation_issues=(),
-        )
-        return AnswerResponse(
-            answer_status="retrieval_failure",
-            retrieval_status=retrieval_response.status,
-            failure_reason=retrieval_response.failure_reason,
-            route_label=retrieval_response.route_label,
-            primary_route=retrieval_response.primary_route,
-            supplemental_route=retrieval_response.supplemental_route,
-            browser_automation="disabled",
-            conclusion="Retrieval failed before a grounded answer could be produced.",
-            key_points=[],
-            sources=[],
-            uncertainty_notes=list(uncertainty_notes),
-            gaps=list(retrieval_response.gaps),
-        )
-
-    prompt = build_grounded_answer_prompt(
-        query=query,
-        canonical_evidence=canonical_evidence,
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
         evidence_clipped=retrieval_response.evidence_clipped,
         evidence_pruned=retrieval_response.evidence_pruned,
-        retrieval_gaps=tuple(retrieval_response.gaps),
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
     )
-    draft = generate_answer_draft(prompt, model_client=model_client)
+    return AnswerResponse(
+        answer_status="retrieval_failure",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion="Retrieval failed before a grounded answer could be produced.",
+        key_points=[],
+        sources=[],
+        uncertainty_notes=list(uncertainty_notes),
+        gaps=list(retrieval_response.gaps),
+    )
+
+
+def _build_budget_enforced_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    reason: str,
+) -> AnswerResponse:
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
+    )
+    return AnswerResponse(
+        answer_status="insufficient_evidence",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion="Available runtime budget was insufficient to complete grounded synthesis.",
+        key_points=[],
+        sources=[],
+        uncertainty_notes=[f"Budget enforcement: {reason}", *uncertainty_notes],
+        gaps=list(retrieval_response.gaps),
+    )
+
+
+def _build_answer_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    draft,
+) -> AnswerResponse:
     citation_result = validate_answer_citations(draft, canonical_evidence)
     answer_status = determine_answer_status(
         retrieval_status=retrieval_response.status,
@@ -260,3 +304,203 @@ async def execute_answer_pipeline(
         uncertainty_notes=list(uncertainty_notes),
         gaps=list(retrieval_response.gaps),
     )
+
+
+def _build_runtime_trace(
+    *,
+    request_id: str,
+    response: AnswerResponse,
+    retrieval_elapsed_seconds: float,
+    synthesis_elapsed_seconds: float,
+    evidence_token_estimate: int,
+    answer_token_estimate: int | None,
+    runtime_budget: RuntimeBudget,
+    budget_exhausted_phase: str | None,
+) -> RuntimeTrace:
+    elapsed_seconds = retrieval_elapsed_seconds + synthesis_elapsed_seconds
+    latency_budget_ok = (
+        retrieval_elapsed_seconds <= runtime_budget.retrieval_deadline_seconds
+        and elapsed_seconds <= runtime_budget.request_deadline_seconds
+        and budget_exhausted_phase != "synthesis"
+    )
+    token_budget_ok = (
+        evidence_token_estimate <= runtime_budget.evidence_token_budget
+        and (
+            answer_token_estimate is None
+            or answer_token_estimate <= runtime_budget.answer_token_budget
+        )
+    )
+    return RuntimeTrace(
+        request_id=request_id,
+        route_label=response.route_label,
+        answer_status=response.answer_status,
+        retrieval_status=response.retrieval_status,
+        elapsed_ms=int(round(elapsed_seconds * 1000)),
+        retrieval_elapsed_ms=int(round(retrieval_elapsed_seconds * 1000)),
+        synthesis_elapsed_ms=int(round(synthesis_elapsed_seconds * 1000)),
+        evidence_token_estimate=evidence_token_estimate,
+        answer_token_estimate=answer_token_estimate,
+        latency_budget_ok=latency_budget_ok,
+        token_budget_ok=token_budget_ok,
+        failure_reason=response.failure_reason,
+        budget_exhausted_phase=budget_exhausted_phase,
+    )
+
+
+async def execute_answer_pipeline_with_trace(
+    plan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    model_client: ModelClient,
+    runtime_budget: RuntimeBudget | None = None,
+) -> AnswerExecutionResult:
+    """Compose retrieval, generation, citation validation, and runtime tracing."""
+    budget = runtime_budget or RuntimeBudget.from_env()
+    request_id = uuid.uuid4().hex
+    started_at = time.perf_counter()
+    retrieval_plan = replace(
+        plan,
+        overall_deadline_seconds=min(
+            plan.overall_deadline_seconds,
+            budget.retrieval_deadline_seconds,
+        ),
+    )
+    retrieval_response = await execute_retrieval_pipeline(
+        plan=retrieval_plan,
+        query=query,
+        adapter_registry=adapter_registry,
+    )
+    retrieval_elapsed_seconds = time.perf_counter() - started_at
+    canonical_evidence = tuple(
+        _rehydrate_canonical_evidence(item)
+        for item in retrieval_response.canonical_evidence
+    )
+    evidence_token_estimate = _estimate_evidence_tokens(canonical_evidence)
+    budget_exhausted_phase: str | None = None
+
+    if retrieval_response.status == "failure_gaps" and not canonical_evidence:
+        response = _build_retrieval_failure_response(
+            retrieval_response,
+            canonical_evidence,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    remaining_synthesis_seconds = budget.remaining_synthesis_seconds(
+        retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+    )
+    if remaining_synthesis_seconds <= 0:
+        response = _build_budget_enforced_response(
+            retrieval_response,
+            canonical_evidence,
+            reason="no synthesis time remained within the request budget.",
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase="synthesis",
+            ),
+        )
+
+    prompt = build_grounded_answer_prompt(
+        query=query,
+        canonical_evidence=canonical_evidence,
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        retrieval_gaps=tuple(retrieval_response.gaps),
+    )
+    synthesis_started_at = time.perf_counter()
+    try:
+        draft = generate_answer_draft(
+            prompt,
+            model_client=model_client,
+            timeout_seconds=remaining_synthesis_seconds,
+        )
+    except TimeoutError:
+        budget_exhausted_phase = "synthesis"
+        response = _build_budget_enforced_response(
+            retrieval_response,
+            canonical_evidence,
+            reason="grounded synthesis exceeded the remaining request budget.",
+        )
+        synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=budget_exhausted_phase,
+            ),
+        )
+
+    response = _build_answer_response(
+        retrieval_response,
+        canonical_evidence,
+        draft,
+    )
+    synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
+    answer_token_estimate = _estimate_response_tokens(response)
+
+    if answer_token_estimate > budget.answer_token_budget:
+        budget_exhausted_phase = "answer_tokens"
+        response = _build_budget_enforced_response(
+            retrieval_response,
+            canonical_evidence,
+            reason="grounded output would exceed the answer token budget.",
+        )
+
+    return AnswerExecutionResult(
+        response=response,
+        runtime_trace=_build_runtime_trace(
+            request_id=request_id,
+            response=response,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=budget_exhausted_phase,
+        ),
+    )
+
+
+async def execute_answer_pipeline(
+    plan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    model_client: ModelClient,
+) -> AnswerResponse:
+    """Backward-compatible wrapper returning the public response only."""
+    result = await execute_answer_pipeline_with_trace(
+        plan=plan,
+        query=query,
+        adapter_registry=adapter_registry,
+        model_client=model_client,
+    )
+    return result.response

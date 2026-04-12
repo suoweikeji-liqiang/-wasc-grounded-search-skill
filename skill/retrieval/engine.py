@@ -101,13 +101,10 @@ async def _run_single_source(
         )
 
     async def _invoke_adapter() -> list[Any]:
-        try:
-            return await asyncio.wait_for(
-                adapter(query),
-                timeout=timeout_seconds,
-            )
-        except BaseException as exc:
-            raise exc
+        return await asyncio.wait_for(
+            adapter(query),
+            timeout=timeout_seconds,
+        )
 
     try:
         if semaphore is not None:
@@ -115,7 +112,9 @@ async def _run_single_source(
                 raw_hits = await _invoke_adapter()
         else:
             raw_hits = await _invoke_adapter()
-    except BaseException as exc:
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
         return SourceExecutionResult(
             source_id=source_id,
             status="failure_gaps",
@@ -178,7 +177,9 @@ async def _run_first_wave(
         source_id = tasks[done_task]
         try:
             by_source[source_id] = done_task.result()
-        except BaseException as exc:
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             by_source[source_id] = SourceExecutionResult(
                 source_id=source_id,
                 status="failure_gaps",

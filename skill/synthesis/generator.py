@@ -54,7 +54,9 @@ def _coerce_string_list(value: Any, *, field_name: str) -> list[str]:
 class ModelClient(Protocol):
     """Protocol for text-generation backends."""
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(
+        self, prompt: str, timeout_seconds: float | None = None
+    ) -> str:
         """Generate raw text for the provided prompt."""
 
 
@@ -67,7 +69,9 @@ class MiniMaxTextClient:
     base_url: str = "https://api.minimaxi.com/v1"
     timeout_seconds: float = 120.0
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(
+        self, prompt: str, timeout_seconds: float | None = None
+    ) -> str:
         if not self.api_key.strip():
             raise ValueError("MiniMaxTextClient requires a non-empty api_key")
 
@@ -89,7 +93,8 @@ class MiniMaxTextClient:
             },
             method="POST",
         )
-        with urlopen(request, timeout=self.timeout_seconds) as response:
+        timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
+        with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
         choices = payload.get("choices")
@@ -149,9 +154,21 @@ def _parse_source(payload: dict[str, object]) -> SourceReference:
 def generate_answer_draft(
     prompt: str,
     model_client: ModelClient,
+    timeout_seconds: float | None = None,
 ) -> StructuredAnswerDraft:
     """Generate and strictly parse a structured answer draft."""
-    raw_text = model_client.generate_text(prompt)
+    if timeout_seconds is None:
+        raw_text = model_client.generate_text(prompt)
+    else:
+        try:
+            raw_text = model_client.generate_text(
+                prompt,
+                timeout_seconds=timeout_seconds,
+            )
+        except TypeError as exc:
+            if "timeout_seconds" not in str(exc):
+                raise
+            raw_text = model_client.generate_text(prompt)
     payload = json.loads(_extract_json_object(raw_text))
     if not isinstance(payload, dict):
         raise ValueError("Generator output must be a JSON object")

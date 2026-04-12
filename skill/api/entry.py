@@ -15,6 +15,7 @@ from skill.api.schema import (
     RouteRequest,
     RouteResponse,
 )
+from skill.orchestrator.budget import AnswerExecutionResult, RuntimeBudget
 from skill.orchestrator.intent import classify_query
 from skill.orchestrator.planner import plan_route
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
@@ -32,7 +33,9 @@ from skill.retrieval.adapters.policy_official_web_allowlist import (
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import execute_retrieval_pipeline
 from skill.synthesis.generator import MiniMaxTextClient
-from skill.synthesis.orchestrate import execute_answer_pipeline
+from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+execute_answer_pipeline = execute_answer_pipeline_with_trace
 
 app = FastAPI(title="WASC Phase 1 Routing API", version="0.1.0")
 
@@ -75,10 +78,16 @@ async def retrieve_query(payload: RetrieveRequest) -> RetrieveResponse:
 async def answer_query(payload: AnswerRequest) -> AnswerResponse:
     classification = classify_query(payload.query)
     retrieval_plan = build_retrieval_plan(classification)
+    adapter_registry = getattr(app.state, "adapter_registry", None) or _default_adapter_registry()
     model_client = getattr(app.state, "model_client", None) or _default_model_client()
-    return await execute_answer_pipeline(
+    result = await execute_answer_pipeline(
         plan=retrieval_plan,
         query=payload.query,
-        adapter_registry=_default_adapter_registry(),
+        adapter_registry=adapter_registry,
         model_client=model_client,
+        runtime_budget=RuntimeBudget.from_env(),
     )
+    if isinstance(result, AnswerExecutionResult):
+        app.state.last_runtime_trace = result.runtime_trace
+        return result.response
+    return result
