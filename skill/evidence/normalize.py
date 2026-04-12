@@ -15,13 +15,19 @@ def _estimate_token_count(text: str) -> int:
     return len(_TOKEN_PATTERN.findall(text))
 
 
-def build_raw_record(hit: RetrievalHit, route_role: str) -> RawEvidenceRecord:
-    jurisdiction_status: str | None = None
-    version_status: str | None = None
-    if hit.source_id.startswith("policy_"):
-        jurisdiction_status = "jurisdiction_unknown"
-        version_status = "version_missing"
+def _policy_jurisdiction_status(hit: RetrievalHit) -> str | None:
+    if not hit.source_id.startswith("policy_"):
+        return None
+    return "observed" if hit.jurisdiction else "jurisdiction_unknown"
 
+
+def _policy_version_status(hit: RetrievalHit) -> str | None:
+    if not hit.source_id.startswith("policy_"):
+        return None
+    return "observed" if hit.version else "version_missing"
+
+
+def build_raw_record(hit: RetrievalHit, route_role: str) -> RawEvidenceRecord:
     return RawEvidenceRecord(
         source_id=hit.source_id,
         title=hit.title,
@@ -31,19 +37,19 @@ def build_raw_record(hit: RetrievalHit, route_role: str) -> RawEvidenceRecord:
         route_role=route_role,
         token_estimate=_estimate_token_count(hit.snippet),
         raw_hit=hit,
-        authority=None,
-        jurisdiction=None,
-        jurisdiction_status=jurisdiction_status,
-        publication_date=None,
-        effective_date=None,
-        version=None,
-        version_status=version_status,
-        evidence_level=None,
+        authority=hit.authority,
+        jurisdiction=hit.jurisdiction,
+        jurisdiction_status=_policy_jurisdiction_status(hit),
+        publication_date=hit.publication_date,
+        effective_date=hit.effective_date,
+        version=hit.version,
+        version_status=_policy_version_status(hit),
+        evidence_level=hit.evidence_level,
         canonical_match_confidence=None,
-        doi=None,
-        arxiv_id=None,
-        first_author=None,
-        year=None,
+        doi=hit.doi,
+        arxiv_id=hit.arxiv_id,
+        first_author=hit.first_author,
+        year=hit.year,
     )
 
 
