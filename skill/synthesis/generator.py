@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.request import Request, urlopen
 
 from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
+
+_SYSTEM_PROMPT = "You are a grounded answer generator. Return valid JSON only."
 
 
 class ModelClient(Protocol):
@@ -22,9 +25,47 @@ class MiniMaxTextClient:
 
     api_key: str
     model: str = "MiniMax-M2.7"
+    base_url: str = "https://api.minimax.io/v1"
+    timeout_seconds: float = 30.0
 
     def generate_text(self, prompt: str) -> str:
-        raise NotImplementedError("Live MiniMax calls are not wired in this offline test path.")
+        if not self.api_key.strip():
+            raise ValueError("MiniMaxTextClient requires a non-empty api_key")
+
+        request_payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "reasoning_split": True,
+        }
+        request = Request(
+            url=f"{self.base_url.rstrip('/')}/chat/completions",
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise ValueError("MiniMax response missing choices")
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise ValueError("MiniMax response choice must be an object")
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise ValueError("MiniMax response missing message")
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("MiniMax response missing content")
+        return content
 
 
 def _require_field(payload: dict[str, object], field_name: str) -> object:
@@ -46,14 +87,15 @@ def _parse_key_point(payload: dict[str, object]) -> KeyPoint:
     citations_payload = _require_field(payload, "citations")
     if not isinstance(citations_payload, list):
         raise ValueError("citations must be a list")
+    citations: list[ClaimCitation] = []
+    for item in citations_payload:
+        if not isinstance(item, dict):
+            raise ValueError("citation items must be JSON objects")
+        citations.append(_parse_citation(item))
     return KeyPoint(
         key_point_id=str(_require_field(payload, "key_point_id")),
         statement=str(_require_field(payload, "statement")),
-        citations=[
-            _parse_citation(item)
-            for item in citations_payload
-            if isinstance(item, dict)
-        ],
+        citations=citations,
     )
 
 
@@ -89,18 +131,22 @@ def generate_answer_draft(
     if not isinstance(gaps_payload, list):
         raise ValueError("gaps must be a list")
 
+    key_points: list[KeyPoint] = []
+    for item in key_points_payload:
+        if not isinstance(item, dict):
+            raise ValueError("key_points items must be JSON objects")
+        key_points.append(_parse_key_point(item))
+
+    sources: list[SourceReference] = []
+    for item in sources_payload:
+        if not isinstance(item, dict):
+            raise ValueError("sources items must be JSON objects")
+        sources.append(_parse_source(item))
+
     return StructuredAnswerDraft(
         conclusion=str(_require_field(payload, "conclusion")),
-        key_points=[
-            _parse_key_point(item)
-            for item in key_points_payload
-            if isinstance(item, dict)
-        ],
-        sources=[
-            _parse_source(item)
-            for item in sources_payload
-            if isinstance(item, dict)
-        ],
+        key_points=key_points,
+        sources=sources,
         uncertainty_notes=[str(item) for item in uncertainty_payload],
         gaps=[str(item) for item in gaps_payload],
     )

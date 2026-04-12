@@ -188,6 +188,83 @@ def test_generate_answer_draft_rejects_missing_quote_text() -> None:
         generate_answer_draft("prompt text", model_client=model_client)
 
 
+def test_generate_answer_draft_rejects_non_object_citation_items() -> None:
+    model_client = _FakeModelClient(
+        {
+            "conclusion": "Bad citation item",
+            "key_points": [
+                {
+                    "key_point_id": "kp-1",
+                    "statement": "Unsupported statement",
+                    "citations": ["not-a-citation-object"],
+                }
+            ],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    with pytest.raises(ValueError, match="citation items must be JSON objects"):
+        generate_answer_draft("prompt text", model_client=model_client)
+
+
 def test_minimax_text_client_defaults_to_competition_model() -> None:
     client = MiniMaxTextClient(api_key="test-key")
     assert client.model == "MiniMax-M2.7"
+
+
+def test_minimax_text_client_calls_openai_compatible_api(monkeypatch) -> None:
+    import skill.synthesis.generator as generator_module
+
+    observed: dict[str, object] = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "{\"conclusion\":\"ok\",\"key_points\":[],\"sources\":[],\"uncertainty_notes\":[]}"
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout: float):
+        observed["url"] = request.full_url
+        observed["timeout"] = timeout
+        observed["authorization"] = request.get_header("Authorization")
+        observed["content_type"] = request.get_header("Content-type")
+        observed["payload"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse()
+
+    monkeypatch.setattr(generator_module, "urlopen", _fake_urlopen)
+
+    client = MiniMaxTextClient(api_key="test-key")
+    response_text = client.generate_text("prompt text")
+
+    assert observed["url"] == "https://api.minimax.io/v1/chat/completions"
+    assert observed["timeout"] == 30.0
+    assert observed["authorization"] == "Bearer test-key"
+    assert observed["content_type"] == "application/json"
+    assert observed["payload"] == {
+        "model": "MiniMax-M2.7",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a grounded answer generator. Return valid JSON only.",
+            },
+            {"role": "user", "content": "prompt text"},
+        ],
+        "temperature": 0.1,
+        "reasoning_split": True,
+    }
+    assert response_text == "{\"conclusion\":\"ok\",\"key_points\":[],\"sources\":[],\"uncertainty_notes\":[]}"
