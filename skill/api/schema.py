@@ -4,6 +4,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from skill.evidence.models import (
+    CanonicalMatchConfidence,
+    EvidenceLevel,
+    PolicyJurisdictionStatus,
+    PolicyVersionStatus,
+    RouteRole,
+)
 from skill.retrieval.models import RetrievalFailureReason, RetrievalStatus
 
 
@@ -67,6 +74,59 @@ class RetrieveResultItem(BaseModel):
     credibility_tier: str | None = None
 
 
+class RetrieveRetainedSliceItem(BaseModel):
+    """Observable retained evidence slice within a canonical evidence item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    source_record_id: str = Field(min_length=1)
+    source_span: str | None = None
+
+
+class RetrieveLinkedVariantItem(BaseModel):
+    """Observable linked academic variant for a canonical evidence item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    variant_type: str = Field(min_length=1)
+    canonical_match_confidence: CanonicalMatchConfidence
+    doi: str | None = None
+    arxiv_id: str | None = None
+    first_author: str | None = None
+    year: int | None = None
+
+
+class RetrieveCanonicalEvidenceItem(BaseModel):
+    """Bounded canonical evidence exposed for runtime observability."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str = Field(min_length=1)
+    domain: ConcreteRoute
+    canonical_title: str = Field(min_length=1)
+    canonical_url: str = Field(min_length=1)
+    route_role: RouteRole
+    authority: str | None = None
+    jurisdiction: str | None = None
+    jurisdiction_status: PolicyJurisdictionStatus | None = None
+    publication_date: str | None = None
+    effective_date: str | None = None
+    version: str | None = None
+    version_status: PolicyVersionStatus | None = None
+    evidence_level: EvidenceLevel | None = None
+    canonical_match_confidence: CanonicalMatchConfidence | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    first_author: str | None = None
+    year: int | None = None
+    retained_slices: list[RetrieveRetainedSliceItem] = Field(default_factory=list)
+    linked_variants: list[RetrieveLinkedVariantItem] = Field(default_factory=list)
+
+
 class RetrieveOutcome(BaseModel):
     """Structured retrieval outcome envelope."""
 
@@ -105,4 +165,6 @@ class RetrieveResponse(RetrieveOutcome):
     primary_route: ConcreteRoute
     supplemental_route: ConcreteRoute | None
     browser_automation: Literal["disabled"]
+    canonical_evidence: list[RetrieveCanonicalEvidenceItem] = Field(default_factory=list)
     evidence_clipped: bool = False
+    evidence_pruned: bool = False

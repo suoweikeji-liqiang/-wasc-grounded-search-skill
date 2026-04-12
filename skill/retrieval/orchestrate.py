@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 
+from skill.evidence.models import CanonicalEvidence, EvidencePack
 from skill.evidence.dedupe import collapse_evidence_records
 from skill.evidence.normalize import normalize_hit_candidates
 from skill.evidence.pack import build_evidence_pack
 from skill.evidence.score import score_evidence_records
-from skill.api.schema import RetrieveResponse, RetrieveResultItem
+from skill.api.schema import (
+    RetrieveCanonicalEvidenceItem,
+    RetrieveLinkedVariantItem,
+    RetrieveResponse,
+    RetrieveResultItem,
+    RetrieveRetainedSliceItem,
+)
 from skill.orchestrator.retrieval_plan import RetrievalPlan
 from skill.retrieval.engine import RetrievalExecutionOutcome, run_retrieval
 from skill.retrieval.models import RetrievalHit
@@ -20,25 +27,83 @@ DEFAULT_EVIDENCE_TOP_K = 4
 DEFAULT_SUPPLEMENTAL_MIN_ITEMS = 1
 
 
-def _shape_results(hits: list[RetrievalHit]) -> list[RetrieveResultItem]:
+def _best_snippet(record: CanonicalEvidence) -> str:
+    if record.retained_slices:
+        best_slice = max(
+            record.retained_slices,
+            key=lambda slice_: (slice_.score, -slice_.token_estimate, slice_.text),
+        )
+        return best_slice.text
+    return record.raw_records[0].snippet
+
+
+def _shape_results(records: tuple[CanonicalEvidence, ...]) -> list[RetrieveResultItem]:
     return [
         RetrieveResultItem(
-            source_id=hit.source_id,
-            title=hit.title,
-            url=hit.url,
-            snippet=hit.snippet,
-            credibility_tier=hit.credibility_tier,
+            source_id=record.raw_records[0].source_id,
+            title=record.canonical_title,
+            url=record.canonical_url,
+            snippet=_best_snippet(record),
+            credibility_tier=record.raw_records[0].credibility_tier,
         )
-        for hit in hits
+        for record in records
+    ]
+
+
+def _shape_canonical_evidence(
+    records: tuple[CanonicalEvidence, ...],
+) -> list[RetrieveCanonicalEvidenceItem]:
+    return [
+        RetrieveCanonicalEvidenceItem(
+            evidence_id=record.evidence_id,
+            domain=record.domain,
+            canonical_title=record.canonical_title,
+            canonical_url=record.canonical_url,
+            route_role=record.route_role,
+            authority=record.authority,
+            jurisdiction=record.jurisdiction,
+            jurisdiction_status=record.jurisdiction_status,
+            publication_date=record.publication_date,
+            effective_date=record.effective_date,
+            version=record.version,
+            version_status=record.version_status,
+            evidence_level=record.evidence_level,
+            canonical_match_confidence=record.canonical_match_confidence,
+            doi=record.doi,
+            arxiv_id=record.arxiv_id,
+            first_author=record.first_author,
+            year=record.year,
+            retained_slices=[
+                RetrieveRetainedSliceItem(
+                    text=slice_.text,
+                    source_record_id=slice_.source_record_id,
+                    source_span=slice_.source_span,
+                )
+                for slice_ in record.retained_slices
+            ],
+            linked_variants=[
+                RetrieveLinkedVariantItem(
+                    source_id=variant.source_id,
+                    title=variant.title,
+                    url=variant.url,
+                    variant_type=variant.variant_type,
+                    canonical_match_confidence=variant.canonical_match_confidence,
+                    doi=variant.doi,
+                    arxiv_id=variant.arxiv_id,
+                    first_author=variant.first_author,
+                    year=variant.year,
+                )
+                for variant in record.linked_variants
+            ],
+        )
+        for record in records
     ]
 
 
 def _shape_response(
     plan: RetrievalPlan,
     outcome: RetrievalExecutionOutcome,
-    prioritized_hits: list[RetrievalHit],
-    *,
-    evidence_clipped: bool,
+    evidence_pack: EvidencePack,
 ) -> RetrieveResponse:
     return RetrieveResponse(
         route_label=plan.route_label,
@@ -48,8 +113,12 @@ def _shape_response(
         status=outcome.status,
         failure_reason=outcome.failure_reason,
         gaps=list(outcome.gaps),
-        evidence_clipped=evidence_clipped,
-        results=_shape_results(prioritized_hits),
+        canonical_evidence=_shape_canonical_evidence(
+            evidence_pack.canonical_evidence
+        ),
+        evidence_clipped=evidence_pack.clipped,
+        evidence_pruned=evidence_pack.pruned,
+        results=_shape_results(evidence_pack.canonical_evidence),
     )
 
 
@@ -93,6 +162,5 @@ async def execute_retrieval_pipeline(
     return _shape_response(
         plan=plan,
         outcome=outcome,
-        prioritized_hits=prioritized_hits,
-        evidence_clipped=evidence_pack.clipped,
+        evidence_pack=evidence_pack,
     )
