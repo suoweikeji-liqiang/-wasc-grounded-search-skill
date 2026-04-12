@@ -59,7 +59,11 @@ Plans:
   2. User can see policy evidence annotated with authority plus effective/publication date and jurisdiction/version when available.
   3. User can receive academic evidence where duplicate/preprint/published variants are normalized into canonical citations.
   4. User can receive outputs built from a bounded top-K evidence set that controls token usage.
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 03-01-PLAN.md - Lock the canonical evidence contracts, Wave 0 tests, and deterministic raw-hit normalization boundary.
+- [ ] 03-02-PLAN.md - Implement domain-specific canonicalization and duplicate-collapse core for policy, academic, and industry evidence.
+- [ ] 03-03-PLAN.md - Implement evidence scoring, hard-budget packing, and additive retrieval-orchestration integration.
 
 ### Phase 4: Grounded Structured Answer Generation
 **Goal**: Users can receive judge-optimized structured answers where factual claims are source-traceable and answer state is explicit.
@@ -90,6 +94,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Query Routing & Core Path Guardrails | 2/2 | Complete | 2026-04-11 |
 | 2. Multi-Source Retrieval by Domain | 4/4 | Complete | 2026-04-12 |
-| 3. Evidence Normalization & Budgeted Context | 0/TBD | Not started | - |
+| 3. Evidence Normalization & Budgeted Context | 0/3 | Not started | - |
 | 4. Grounded Structured Answer Generation | 0/TBD | Not started | - |
 | 5. Runtime Reliability & Benchmark Repeatability | 0/TBD | Not started | - |
