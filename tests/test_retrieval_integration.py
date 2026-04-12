@@ -6,6 +6,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
+from skill.evidence.models import EvidencePack
 from skill.api.schema import RetrieveResponse, RetrieveResultItem
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
@@ -13,24 +14,26 @@ from skill.retrieval.engine import RetrievalExecutionOutcome
 from skill.retrieval.models import RetrievalHit
 
 
-def test_execute_retrieval_pipeline_call_sequence_run_then_prioritize(monkeypatch) -> None:
+def test_execute_retrieval_pipeline_runs_post_priority_evidence_pipeline_in_order(
+    monkeypatch,
+) -> None:
     import skill.retrieval.orchestrate as orchestrate
 
     plan = build_retrieval_plan(
         ClassificationResult(
-            route_label="policy",
+            route_label="mixed",
             primary_route="policy",
-            supplemental_route=None,
-            reason_code="policy_hit",
-            scores={"policy": 4, "academic": 0, "industry": 0},
+            supplemental_route="academic",
+            reason_code="explicit_cross_domain",
+            scores={"policy": 5, "academic": 4, "industry": 0},
         )
     )
     raw_hits = [
         RetrievalHit(
-            source_id="policy_official_web_allowlist_fallback",
-            title="Fallback policy page",
-            url="https://www.gov.cn/fallback",
-            snippet="Fallback hit",
+            source_id="academic_semantic_scholar",
+            title="Supplemental paper",
+            url="https://www.semanticscholar.org/paper/abc",
+            snippet="Supplemental academic evidence",
         ),
         RetrievalHit(
             source_id="policy_official_registry",
@@ -56,8 +59,50 @@ def test_execute_retrieval_pipeline_call_sequence_run_then_prioritize(monkeypatc
         assert kwargs["hits"] == raw_hits
         return [raw_hits[1], raw_hits[0]]
 
+    def _fake_normalize_hit_candidates(**kwargs: object) -> list[str]:
+        events.append("normalize_hit_candidates")
+        assert kwargs["hits"] == [raw_hits[1], raw_hits[0]]
+        assert kwargs["route_role_by_source"] == {
+            "academic_semantic_scholar": "supplemental"
+        }
+        return ["normalized"]
+
+    def _fake_collapse_evidence_records(records: list[str]) -> list[str]:
+        events.append("collapse_evidence_records")
+        assert records == ["normalized"]
+        return ["canonical"]
+
+    def _fake_score_evidence_records(records: list[str]) -> list[str]:
+        events.append("score_evidence_records")
+        assert records == ["canonical"]
+        return ["scored"]
+
+    def _fake_build_evidence_pack(
+        records: list[str],
+        *,
+        token_budget: int,
+        top_k: int,
+        supplemental_min_items: int,
+    ) -> EvidencePack:
+        events.append("build_evidence_pack")
+        assert records == ["scored"]
+        assert token_budget > 0
+        assert top_k > 0
+        assert supplemental_min_items == 1
+        return EvidencePack(
+            raw_records=(),
+            canonical_evidence=(),
+            clipped=True,
+            pruned=True,
+            total_token_estimate=0,
+        )
+
     monkeypatch.setattr(orchestrate, "run_retrieval", _fake_run_retrieval)
     monkeypatch.setattr(orchestrate, "prioritize_hits", _fake_prioritize_hits)
+    monkeypatch.setattr(orchestrate, "normalize_hit_candidates", _fake_normalize_hit_candidates)
+    monkeypatch.setattr(orchestrate, "collapse_evidence_records", _fake_collapse_evidence_records)
+    monkeypatch.setattr(orchestrate, "score_evidence_records", _fake_score_evidence_records)
+    monkeypatch.setattr(orchestrate, "build_evidence_pack", _fake_build_evidence_pack)
 
     response = asyncio.run(
         orchestrate.execute_retrieval_pipeline(
@@ -67,14 +112,24 @@ def test_execute_retrieval_pipeline_call_sequence_run_then_prioritize(monkeypatc
         )
     )
 
-    assert events == ["run_retrieval", "prioritize_hits"]
+    assert events == [
+        "run_retrieval",
+        "prioritize_hits",
+        "normalize_hit_candidates",
+        "collapse_evidence_records",
+        "score_evidence_records",
+        "build_evidence_pack",
+    ]
     assert [item.source_id for item in response.results] == [
         "policy_official_registry",
-        "policy_official_web_allowlist_fallback",
+        "academic_semantic_scholar",
     ]
+    assert response.evidence_clipped is True
 
 
-def test_execute_retrieval_pipeline_mixed_route_primary_dominant(monkeypatch) -> None:
+def test_execute_retrieval_pipeline_mixed_route_preserves_primary_results_and_clip_flag(
+    monkeypatch,
+) -> None:
     import skill.retrieval.orchestrate as orchestrate
 
     plan = build_retrieval_plan(
@@ -110,7 +165,36 @@ def test_execute_retrieval_pipeline_mixed_route_primary_dominant(monkeypatch) ->
             source_results=(),
         )
 
+    def _fake_normalize_hit_candidates(**kwargs: object) -> list[object]:
+        assert kwargs["route_role_by_source"] == {
+            "academic_semantic_scholar": "supplemental"
+        }
+        return []
+
+    def _fake_build_evidence_pack(
+        records: list[object],
+        *,
+        token_budget: int,
+        top_k: int,
+        supplemental_min_items: int,
+    ) -> EvidencePack:
+        assert records == []
+        assert token_budget > 0
+        assert top_k > 0
+        assert supplemental_min_items == 1
+        return EvidencePack(
+            raw_records=(),
+            canonical_evidence=(),
+            clipped=False,
+            pruned=False,
+            total_token_estimate=0,
+        )
+
     monkeypatch.setattr(orchestrate, "run_retrieval", _fake_run_retrieval)
+    monkeypatch.setattr(orchestrate, "normalize_hit_candidates", _fake_normalize_hit_candidates)
+    monkeypatch.setattr(orchestrate, "collapse_evidence_records", lambda records: [])
+    monkeypatch.setattr(orchestrate, "score_evidence_records", lambda records: [])
+    monkeypatch.setattr(orchestrate, "build_evidence_pack", _fake_build_evidence_pack)
 
     response = asyncio.run(
         orchestrate.execute_retrieval_pipeline(
@@ -122,6 +206,7 @@ def test_execute_retrieval_pipeline_mixed_route_primary_dominant(monkeypatch) ->
 
     assert response.results
     assert response.results[0].source_id == "policy_official_registry"
+    assert response.evidence_clipped is False
 
 
 def test_retrieve_api_endpoint_routes_through_execute_retrieval_pipeline(monkeypatch) -> None:
@@ -140,6 +225,7 @@ def test_retrieve_api_endpoint_routes_through_execute_retrieval_pipeline(monkeyp
             status="success",
             failure_reason=None,
             gaps=[],
+            evidence_clipped=True,
             results=[
                 RetrieveResultItem(
                     source_id="policy_official_registry",
@@ -165,4 +251,7 @@ def test_retrieve_api_endpoint_routes_through_execute_retrieval_pipeline(monkeyp
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["results"][0]["source_id"] == "policy_official_registry"
+    assert payload["evidence_clipped"] is True
+    assert "total_token_estimate" not in payload
+    assert "token_budget" not in payload
     assert observed
