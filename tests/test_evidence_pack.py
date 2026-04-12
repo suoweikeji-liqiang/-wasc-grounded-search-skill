@@ -1,0 +1,237 @@
+"""Phase 3 evidence scoring and budget packing regressions."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+from skill.evidence.models import CanonicalEvidence, EvidenceSlice, RawEvidenceRecord
+from skill.evidence.normalize import build_raw_record
+from skill.retrieval.models import RetrievalHit
+
+
+def _make_raw_record(
+    *,
+    source_id: str,
+    title: str,
+    url: str,
+    snippet: str,
+    credibility_tier: str | None,
+    route_role: str,
+    token_estimate: int,
+    **overrides: object,
+) -> RawEvidenceRecord:
+    hit = RetrievalHit(
+        source_id=source_id,
+        title=title,
+        url=url,
+        snippet=snippet,
+        credibility_tier=credibility_tier,
+    )
+    record = build_raw_record(hit=hit, route_role=route_role)
+    return replace(record, token_estimate=token_estimate, **overrides)
+
+
+def _make_canonical(
+    *,
+    evidence_id: str,
+    domain: str = "industry",
+    source_id: str = "industry_ddgs",
+    title: str | None = None,
+    url: str | None = None,
+    snippet: str = "Evidence snippet for budget packing tests.",
+    credibility_tier: str | None = "industry_news",
+    route_role: str = "primary",
+    authority: str | None = None,
+    jurisdiction: str | None = None,
+    jurisdiction_status: str | None = None,
+    publication_date: str | None = None,
+    effective_date: str | None = None,
+    version: str | None = None,
+    version_status: str | None = None,
+    evidence_level: str | None = None,
+    canonical_match_confidence: str | None = None,
+    slice_specs: tuple[tuple[str, float, int], ...] = (("default", 0.5, 3),),
+) -> CanonicalEvidence:
+    title = title or evidence_id.replace("-", " ").title()
+    url = url or f"https://example.com/{evidence_id}"
+    raw_record = _make_raw_record(
+        source_id=source_id,
+        title=title,
+        url=url,
+        snippet=snippet,
+        credibility_tier=credibility_tier,
+        route_role=route_role,
+        token_estimate=sum(spec[2] for spec in slice_specs),
+        authority=authority,
+        jurisdiction=jurisdiction,
+        jurisdiction_status=jurisdiction_status,
+        publication_date=publication_date,
+        effective_date=effective_date,
+        version=version,
+        version_status=version_status,
+        evidence_level=evidence_level,
+        canonical_match_confidence=canonical_match_confidence,
+    )
+    slices = tuple(
+        EvidenceSlice(
+            text=text,
+            source_record_id=raw_record.source_id,
+            source_span="snippet",
+            score=score,
+            token_estimate=token_estimate,
+        )
+        for text, score, token_estimate in slice_specs
+    )
+    return CanonicalEvidence(
+        evidence_id=evidence_id,
+        domain=domain,
+        canonical_title=title,
+        canonical_url=url,
+        raw_records=(raw_record,),
+        retained_slices=slices,
+        linked_variants=(),
+        authority=authority,
+        jurisdiction=jurisdiction,
+        jurisdiction_status=jurisdiction_status,
+        publication_date=publication_date,
+        effective_date=effective_date,
+        version=version,
+        version_status=version_status,
+        evidence_level=evidence_level,
+        canonical_match_confidence=canonical_match_confidence,
+        doi=None,
+        arxiv_id=None,
+        first_author=None,
+        year=None,
+        route_role=route_role,
+        token_estimate=0,
+    )
+
+
+def test_score_evidence_records_prefers_primary_complete_authoritative_records() -> None:
+    from skill.evidence.score import score_evidence_records
+
+    primary_policy = _make_canonical(
+        evidence_id="policy-primary",
+        domain="policy",
+        source_id="policy_official_registry",
+        route_role="primary",
+        credibility_tier="official_government",
+        authority="Ministry of Ecology and Environment",
+        jurisdiction="CN",
+        jurisdiction_status="observed",
+        publication_date="2024-02-15",
+        effective_date="2024-03-01",
+        version="2024-02",
+        version_status="observed",
+        slice_specs=(
+            ("official high-confidence slice", 0.9, 4),
+            ("secondary official slice", 0.5, 2),
+        ),
+    )
+    supplemental_industry = _make_canonical(
+        evidence_id="industry-supplemental",
+        source_id="industry_ddgs",
+        route_role="supplemental",
+        credibility_tier="industry_news",
+        authority=None,
+        publication_date=None,
+        slice_specs=(("supporting industry slice", 0.4, 3),),
+    )
+
+    ranked = score_evidence_records([supplemental_industry, primary_policy])
+
+    assert [record.evidence_id for record in ranked] == [
+        "policy-primary",
+        "industry-supplemental",
+    ]
+    assert getattr(ranked[0], "total_score") > getattr(ranked[1], "total_score")
+
+
+def test_build_evidence_pack_prunes_low_scoring_retained_slices_before_dropping_records() -> None:
+    from skill.evidence.pack import build_evidence_pack
+    from skill.evidence.score import score_evidence_records
+
+    primary = _make_canonical(
+        evidence_id="primary-record",
+        route_role="primary",
+        credibility_tier="trusted_news",
+        authority="Acme Corp",
+        publication_date="2024-04-01",
+        slice_specs=(
+            ("primary-high", 0.95, 4),
+            ("primary-low", 0.10, 3),
+        ),
+    )
+    secondary = _make_canonical(
+        evidence_id="secondary-record",
+        route_role="primary",
+        credibility_tier="trusted_news",
+        publication_date="2024-04-02",
+        slice_specs=(("secondary", 0.60, 3),),
+    )
+    overflow = _make_canonical(
+        evidence_id="overflow-record",
+        route_role="primary",
+        credibility_tier="industry_news",
+        slice_specs=(("overflow", 0.20, 2),),
+    )
+
+    ranked = score_evidence_records([overflow, secondary, primary])
+    pack = build_evidence_pack(ranked, token_budget=7, top_k=2)
+
+    assert pack.clipped is True
+    assert [record.evidence_id for record in pack.canonical_evidence] == [
+        "primary-record",
+        "secondary-record",
+    ]
+    assert [slice_.text for slice_ in pack.canonical_evidence[0].retained_slices] == [
+        "primary-high"
+    ]
+    assert pack.total_token_estimate <= 7
+
+
+def test_build_evidence_pack_reserves_one_supplemental_item_for_mixed_queries() -> None:
+    from skill.evidence.pack import build_evidence_pack
+    from skill.evidence.score import score_evidence_records
+
+    primary_best = _make_canonical(
+        evidence_id="primary-best",
+        route_role="primary",
+        credibility_tier="official_government",
+        authority="Regulator",
+        publication_date="2024-03-01",
+        slice_specs=(("primary best", 0.95, 2),),
+    )
+    primary_second = _make_canonical(
+        evidence_id="primary-second",
+        route_role="primary",
+        credibility_tier="official_government",
+        authority="Regulator",
+        publication_date="2024-02-01",
+        slice_specs=(("primary second", 0.90, 2),),
+    )
+    supplemental = _make_canonical(
+        evidence_id="supplemental-support",
+        route_role="supplemental",
+        source_id="academic_semantic_scholar",
+        domain="academic",
+        evidence_level="peer_reviewed",
+        canonical_match_confidence="strong_id",
+        publication_date="2025-01-01",
+        slice_specs=(("supplemental support", 0.50, 2),),
+    )
+
+    ranked = score_evidence_records([supplemental, primary_second, primary_best])
+    pack = build_evidence_pack(
+        ranked,
+        token_budget=4,
+        top_k=2,
+        supplemental_min_items=1,
+    )
+
+    assert [record.evidence_id for record in pack.canonical_evidence] == [
+        "primary-best",
+        "supplemental-support",
+    ]
+    assert pack.clipped is True
