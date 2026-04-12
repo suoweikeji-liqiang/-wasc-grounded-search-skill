@@ -1,0 +1,106 @@
+{
+  "policy_duplicates": [
+    {
+      "case_id": "policy-official-published",
+      "source_id": "policy_official_registry",
+      "title": "National Air Quality Rule 2024",
+      "url": "https://www.mee.gov.cn/policy/air-quality-2024",
+      "snippet": "Official publication of the 2024 air quality rule.",
+      "credibility_tier": "official_government",
+      "authority": "Ministry of Ecology and Environment",
+      "publication_date": "2024-02-15",
+      "effective_date": "2024-03-01",
+      "version": "2024-02",
+      "version_status": "observed",
+      "jurisdiction": "CN",
+      "jurisdiction_status": "observed",
+      "route_role": "primary"
+    },
+    {
+      "case_id": "policy-mirror-missing-version",
+      "source_id": "policy_official_web_allowlist_fallback",
+      "title": "National Air Quality Rule 2024 Mirror",
+      "url": "https://www.gov.cn/zhengce/air-quality-2024",
+      "snippet": "Mirror copy of the air quality rule without explicit version text.",
+      "credibility_tier": "official_government",
+      "authority": "Ministry of Ecology and Environment",
+      "publication_date": "2024-02-15",
+      "effective_date": null,
+      "version": null,
+      "version_status": "version_missing",
+      "jurisdiction": null,
+      "jurisdiction_status": "jurisdiction_unknown",
+      "route_role": "primary"
+    }
+  ],
+  "academic_variants": [
+    {
+      "case_id": "academic-published",
+      "source_id": "academic_semantic_scholar",
+      "title": "Evidence Normalization for Retrieval-Augmented Systems",
+      "url": "https://doi.org/10.5555/evidence.2025.10",
+      "snippet": "Peer reviewed article describing evidence normalization.",
+      "credibility_tier": null,
+      "doi": "10.5555/evidence.2025.10",
+      "arxiv_id": "2501.01234",
+      "first_author": "Chen",
+      "year": 2025,
+      "evidence_level": "peer_reviewed",
+      "canonical_match_confidence": "strong_id",
+      "variant_type": "published",
+      "route_role": "primary"
+    },
+    {
+      "case_id": "academic-preprint",
+      "source_id": "academic_arxiv",
+      "title": "Evidence Normalization for Retrieval-Augmented Systems",
+      "url": "https://arxiv.org/abs/2501.01234",
+      "snippet": "Preprint version of the same evidence normalization work.",
+      "credibility_tier": null,
+      "doi": null,
+      "arxiv_id": "2501.01234",
+      "first_author": "Chen",
+      "year": 2025,
+      "evidence_level": "preprint",
+      "canonical_match_confidence": "strong_id",
+      "variant_type": "preprint",
+      "route_role": "primary"
+    },
+    {
+      "case_id": "academic-heuristic-match",
+      "source_id": "academic_semantic_scholar",
+      "title": "Grounded Search Evidence Packing",
+      "url": "https://www.semanticscholar.org/paper/heuristic-pack",
+      "snippet": "Metadata only record for evidence packing heuristics.",
+      "credibility_tier": null,
+      "doi": null,
+      "arxiv_id": null,
+      "first_author": "Patel",
+      "year": 2024,
+      "evidence_level": "metadata_only",
+      "canonical_match_confidence": "heuristic",
+      "variant_type": "metadata_only",
+      "route_role": "supplemental"
+    }
+  ],
+  "mixed_route_candidates": [
+    {
+      "case_id": "mixed-primary-policy",
+      "source_id": "policy_official_registry",
+      "title": "Official methane guidance",
+      "url": "https://www.mee.gov.cn/policy/methane-guidance",
+      "snippet": "Primary route policy evidence for methane guidance.",
+      "credibility_tier": "official_government",
+      "route_role": "primary"
+    },
+    {
+      "case_id": "mixed-supplemental-academic",
+      "source_id": "academic_semantic_scholar",
+      "title": "Methane mitigation evidence review",
+      "url": "https://www.semanticscholar.org/paper/methane-review",
+      "snippet": "Supplemental route academic evidence supporting methane guidance.",
+      "credibility_tier": null,
+      "route_role": "supplemental"
+    }
+  ]
+}
