@@ -962,6 +962,41 @@ def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path(
     assert result.runtime_trace.latency_budget_ok is True
 
 
+def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_grounded_search_evidence_packing() -> None:
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.retrieval.adapters.academic_arxiv import search as arxiv_search
+    from skill.retrieval.adapters.academic_semantic_scholar import (
+        search as semantic_scholar_search,
+    )
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "grounded search evidence packing should use the academic fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query="grounded search evidence packing paper",
+            adapter_registry={
+                "academic_semantic_scholar": semantic_scholar_search,
+                "academic_arxiv": arxiv_search,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Grounded search evidence packing" in result.response.conclusion
+    assert result.response.sources[0].title == "Grounded search evidence packing"
+    assert result.runtime_trace.latency_budget_ok is True
+
+
 def test_run_retrieval_propagates_cancelled_error() -> None:
     classification = ClassificationResult(
         route_label="policy",
