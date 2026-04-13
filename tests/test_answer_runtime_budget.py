@@ -216,6 +216,53 @@ def test_execute_answer_pipeline_with_trace_enforces_answer_token_budget(
     assert result.runtime_trace.budget_exhausted_phase == "answer_tokens"
 
 
+def test_execute_answer_pipeline_with_trace_skips_generation_for_irrelevant_evidence(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _grounded_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "This response should never be generated.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="battery recycling market share 2025",
+            adapter_registry={},
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert result.response.key_points == []
+    assert result.response.sources == []
+    assert any(
+        note.startswith("Relevance gate:")
+        for note in result.response.uncertainty_notes
+    )
+    assert result.runtime_trace.budget_exhausted_phase is None
+    assert result.runtime_trace.latency_budget_ok is True
+
+
 def test_run_retrieval_propagates_cancelled_error() -> None:
     classification = ClassificationResult(
         route_label="policy",

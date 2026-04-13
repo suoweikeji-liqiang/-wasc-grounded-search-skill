@@ -14,6 +14,7 @@ from skill.orchestrator.budget import (
     RuntimeBudget,
     RuntimeTrace,
 )
+from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
 from skill.synthesis.citation_check import validate_answer_citations
@@ -21,6 +22,37 @@ from skill.synthesis.generator import ModelClient, generate_answer_draft
 from skill.synthesis.prompt import build_grounded_answer_prompt
 from skill.synthesis.state import determine_answer_status
 from skill.synthesis.uncertainty import build_uncertainty_notes
+
+
+_RELEVANCE_STOPWORDS = frozenset(
+    {
+        "about",
+        "academic",
+        "against",
+        "answer",
+        "benchmark",
+        "date",
+        "effect",
+        "effective",
+        "forecast",
+        "guidance",
+        "impact",
+        "industry",
+        "information",
+        "latest",
+        "market",
+        "paper",
+        "policy",
+        "requirements",
+        "research",
+        "share",
+        "system",
+        "systems",
+        "update",
+        "version",
+        "what",
+    }
+)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -47,6 +79,34 @@ def _estimate_response_tokens(response: AnswerResponse) -> int:
     )
     total += sum(_estimate_tokens(note) for note in response.uncertainty_notes)
     return total
+
+
+def _content_terms(text: str) -> set[str]:
+    normalized = normalize_query_text(text)
+    return {
+        token
+        for token in query_tokens(normalized)
+        if token.isascii()
+        and len(token) >= 4
+        and token not in _RELEVANCE_STOPWORDS
+    }
+
+
+def _has_query_evidence_overlap(
+    query: str,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> bool:
+    query_terms = _content_terms(query)
+    if not query_terms:
+        return True
+
+    evidence_terms: set[str] = set()
+    for record in canonical_evidence:
+        evidence_terms.update(_content_terms(record.canonical_title))
+        for slice_ in record.retained_slices:
+            evidence_terms.update(_content_terms(slice_.text))
+
+    return bool(query_terms & evidence_terms)
 
 
 def _rehydrate_canonical_evidence(
@@ -240,6 +300,37 @@ def _build_budget_enforced_response(
     )
 
 
+def _build_relevance_gated_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> AnswerResponse:
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
+    )
+    return AnswerResponse(
+        answer_status="insufficient_evidence",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion="Available evidence was insufficient to fully support the requested answer.",
+        key_points=[],
+        sources=[],
+        uncertainty_notes=[
+            "Relevance gate: retained evidence does not share enough query-specific terms for grounded synthesis.",
+            *uncertainty_notes,
+        ],
+        gaps=list(retrieval_response.gaps),
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -380,6 +471,26 @@ async def execute_answer_pipeline_with_trace(
 
     if retrieval_response.status == "failure_gaps" and not canonical_evidence:
         response = _build_retrieval_failure_response(
+            retrieval_response,
+            canonical_evidence,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    if canonical_evidence and not _has_query_evidence_overlap(query, canonical_evidence):
+        response = _build_relevance_gated_response(
             retrieval_response,
             canonical_evidence,
         )
