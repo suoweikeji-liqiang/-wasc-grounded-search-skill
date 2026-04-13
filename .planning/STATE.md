@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-current_phase_name: runtime-reliability-benchmark-repeatability
-status: phase_complete
-stopped_at: Academic benchmark coverage completed; latest live benchmark reaches 50 grounded successes across the locked suite
-last_updated: "2026-04-13T05:24:58Z"
-last_activity: 2026-04-13 -- Academic benchmark coverage completed and verified against live benchmark
+milestone_name: Initial MVP
+current_phase_name: none
+status: completed
+stopped_at: v1.0 archived; next step is planning the next milestone
+last_updated: "2026-04-13T05:42:28.9483222Z"
+last_activity: 2026-04-13 -- v1.0 archived with advisory debt carried forward
 progress:
   total_phases: 5
   completed_phases: 5
@@ -19,19 +19,19 @@ progress:
 
 ## Project Reference
 
-See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
+See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-13)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Milestone audited - ready for archival after final milestone-completion decisions
+**Current focus:** Plan the next milestone; no active phases remain in v1.0
 
 ## Current Position
 
-Phase: 05 (runtime-reliability-benchmark-repeatability) - COMPLETE
-Current Phase Name: runtime-reliability-benchmark-repeatability
-Plan: 3/3 complete
-Status: Phase complete
-Last activity: 2026-04-13 -- Academic benchmark coverage completed and verified against live benchmark
-Last Activity Description: Live benchmark now routes benchmark English queries correctly, normalizes quoted MiniMax env values, keeps all 50 runs within runtime budget, and returns grounded_success for all 10 locked benchmark cases
+Phase: None - milestone archived
+Current Phase Name: none
+Plan: 17/17 complete
+Status: Milestone complete
+Last activity: 2026-04-13 -- v1.0 milestone archived to .planning/milestones and .planning/MILESTONES.md
+Last Activity Description: v1.0 Initial MVP is archived; roadmap, requirements, and audit artifacts are preserved, and the next step is fresh milestone planning
 
 Progress: [####################] 100%
 
@@ -87,10 +87,11 @@ None yet.
 
 [Issues that affect future work]
 
-- [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
+- [Carry-forward] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory only, but worth tightening in a later polish pass.
+- [Carry-forward] Nyquist discovery remains partial for Phases 2-5 and should be closed if a fully clean milestone is required.
 
 ## Session Continuity
 
 Last session: 2026-04-12T18:56:50+08:00
-Stopped at: Phase 5 complete
+Stopped at: v1.0 archived; next step is `/gsd-new-milestone`
 Resume file: None
