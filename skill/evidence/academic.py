@@ -83,10 +83,14 @@ def _build_academic_slices(records: list[RawEvidenceRecord]) -> tuple[EvidenceSl
         if not snippet or snippet in seen_text:
             continue
         seen_text.add(snippet)
+        source_record_id = (
+            f"{record.source_id}:"
+            f"{hashlib.sha1(f'{record.url}|{snippet}'.encode('utf-8')).hexdigest()[:12]}"
+        )
         slices.append(
             EvidenceSlice(
                 text=snippet,
-                source_record_id=record.source_id,
+                source_record_id=source_record_id,
                 source_span="snippet",
                 score=float(len(slices) == 0) + 0.5,
                 token_estimate=record.token_estimate,

@@ -129,13 +129,13 @@ def _normalized_record_text(
     parts = [
         title,
         snippet,
-        url,
         authority or "",
         publication_date or "",
         effective_date or "",
         version or "",
         str(year) if year is not None else "",
     ]
+    del url
     return normalize_query_text(" ".join(part for part in parts if part))
 
 

@@ -178,6 +178,17 @@ def _order_records_for_response(
             other_records,
         )
 
+    if plan.route_label in {"policy", "academic"}:
+        ordered = sorted(
+            records,
+            key=lambda record: (
+                -_query_match_score(query, record),
+                -getattr(record, "total_score", 0.0),
+                record.evidence_id,
+            ),
+        )
+        return tuple(ordered)
+
     if plan.route_label != "industry":
         return records
 
@@ -316,10 +327,17 @@ async def execute_retrieval_pipeline(
     )
     canonical_records = collapse_evidence_records(normalized_records)
     scored_records = score_evidence_records(canonical_records)
+    ordered_for_pack = list(
+        _order_records_for_response(
+            plan=plan,
+            query=query,
+            records=tuple(scored_records),
+        )
+    )
     pack_input_records = _seed_mixed_coverage_records(
         plan=plan,
         query=query,
-        records=scored_records,
+        records=ordered_for_pack,
         top_k=DEFAULT_EVIDENCE_TOP_K,
     )
     evidence_pack = build_evidence_pack(

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import replace
 from urllib.parse import urlparse
 
 from skill.evidence.models import CanonicalEvidence, EvidenceSlice, RawEvidenceRecord
 
-_POLICY_TITLE_TOKEN_RE = re.compile(r"[^a-z0-9]+")
+_POLICY_TITLE_TOKEN_RE = re.compile(r"[^a-z0-9\u4e00-\u9fff]+")
 _POLICY_MIRROR_RE = re.compile(r"\bmirror\b", re.IGNORECASE)
 
 
@@ -70,10 +71,14 @@ def _build_policy_slices(records: list[RawEvidenceRecord]) -> tuple[EvidenceSlic
         if not snippet or snippet in seen_text:
             continue
         seen_text.add(snippet)
+        source_record_id = (
+            f"{record.source_id}:"
+            f"{hashlib.sha1(f'{record.url}|{snippet}'.encode('utf-8')).hexdigest()[:12]}"
+        )
         slices.append(
             EvidenceSlice(
                 text=snippet,
-                source_record_id=record.source_id,
+                source_record_id=source_record_id,
                 source_span="snippet",
                 score=float(len(slices) == 0) + 0.5,
                 token_estimate=record.token_estimate,

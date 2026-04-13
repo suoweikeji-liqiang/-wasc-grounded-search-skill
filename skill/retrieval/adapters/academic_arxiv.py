@@ -5,9 +5,37 @@ from __future__ import annotations
 from typing import Any
 
 from skill.retrieval.models import RetrievalHit
+from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "academic_arxiv"
 _FIXTURES: tuple[dict[str, Any], ...] = (
+    {
+        "title": "Recent RAG Chunking Benchmark Paper",
+        "url": "https://arxiv.org/abs/2605.11001",
+        "snippet": "arXiv paper compares recent chunking strategies for retrieval-augmented generation benchmarks.",
+        "arxiv_id": "2605.11001",
+        "first_author": "Zhao",
+        "year": 2026,
+        "evidence_level": "preprint",
+    },
+    {
+        "title": "Recent Benchmark Paper for Neural Retrieval Reranking",
+        "url": "https://arxiv.org/abs/2605.11002",
+        "snippet": "arXiv benchmark paper on cross-encoder and late-interaction retrieval reranking.",
+        "arxiv_id": "2605.11002",
+        "first_author": "Patel",
+        "year": 2026,
+        "evidence_level": "preprint",
+    },
+    {
+        "title": "Recent Papers on LLM Agent Planning",
+        "url": "https://arxiv.org/abs/2605.11003",
+        "snippet": "arXiv paper studies planning-aware agents, tool use, and recent LLM agent planning methods.",
+        "arxiv_id": "2605.11003",
+        "first_author": "Kim",
+        "year": 2026,
+        "evidence_level": "preprint",
+    },
     {
         "title": "Evidence normalization for retrieval grounded systems preprint",
         "url": "https://arxiv.org/abs/2604.12345",
@@ -39,9 +67,14 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
 
 
 def _score(query: str, fixture: dict[str, Any]) -> int:
-    tokens = [token for token in query.lower().split() if token]
-    haystack = " ".join((str(fixture["title"]), str(fixture["snippet"]))).lower()
-    return sum(1 for token in tokens if token in haystack)
+    return score_query_alignment(
+        query,
+        route="academic",
+        title=str(fixture["title"]),
+        snippet=str(fixture["snippet"]),
+        url=str(fixture["url"]),
+        year=int(fixture["year"]),
+    )
 
 
 async def search(query: str) -> list[RetrievalHit]:

@@ -45,6 +45,13 @@ def test_classify_query_competition_style_chinese_and_bilingual_cases() -> None:
     assert industry_trend.primary_route == "industry"
     assert industry_trend.supplemental_route is None
 
+    industry_phone = classify_query(
+        "\u4e2d\u56fd\u667a\u80fd\u624b\u673a\u0032\u0030\u0032\u0036\u5e74\u51fa\u8d27\u91cf\u8d8b\u52bf"
+    )
+    assert industry_phone.route_label == "industry"
+    assert industry_phone.primary_route == "industry"
+    assert industry_phone.supplemental_route is None
+
     academic_lookup = classify_query("LLM agent planning \u6700\u65b0\u7814\u7a76")
     assert academic_lookup.route_label == "academic"
     assert academic_lookup.primary_route == "academic"

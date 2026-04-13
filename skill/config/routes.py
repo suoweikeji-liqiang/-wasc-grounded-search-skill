@@ -83,6 +83,8 @@ INDUSTRY_MARKERS: Final[tuple[str, ...]] = (
     "\u4ea7\u4e1a",
     "\u9500\u91cf",
     "\u51fa\u8d27",
+    "\u624b\u673a",
+    "\u667a\u80fd\u624b\u673a",
     "\u4efd\u989d",
     "\u9884\u6d4b",
     "\u4f9b\u5e94\u94fe",

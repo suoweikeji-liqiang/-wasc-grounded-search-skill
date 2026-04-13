@@ -140,9 +140,8 @@ def build_evidence_pack(
 ) -> EvidencePack:
     """Build a bounded evidence pack with slice-first pruning."""
 
-    scored_records = score_evidence_records(list(records))
     selected_records, clipped, supplemental_reserve = _select_top_k(
-        scored_records,
+        list(records),
         top_k=top_k,
         supplemental_min_items=supplemental_min_items,
     )

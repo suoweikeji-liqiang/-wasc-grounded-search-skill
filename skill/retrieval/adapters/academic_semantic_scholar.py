@@ -5,9 +5,37 @@ from __future__ import annotations
 from typing import Any
 
 from skill.retrieval.models import RetrievalHit
+from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "academic_semantic_scholar"
 _FIXTURES: tuple[dict[str, Any], ...] = (
+    {
+        "title": "RAG Chunking Survey: Recent Papers and Benchmarks",
+        "url": "https://www.semanticscholar.org/paper/rag-chunking-survey-2026",
+        "snippet": "Survey paper reviews recent RAG chunking methods, benchmark settings, and evaluation tradeoffs.",
+        "doi": "10.48550/wasc.2026.101",
+        "first_author": "Wang",
+        "year": 2026,
+        "evidence_level": "peer_reviewed",
+    },
+    {
+        "title": "Retrieval Reranking Benchmarks: Recent Papers",
+        "url": "https://www.semanticscholar.org/paper/retrieval-reranking-benchmarks-2026",
+        "snippet": "Peer-reviewed benchmark paper comparing recent retrieval reranking approaches.",
+        "doi": "10.48550/wasc.2026.102",
+        "first_author": "Singh",
+        "year": 2026,
+        "evidence_level": "peer_reviewed",
+    },
+    {
+        "title": "LLM Agent Planning Research Review",
+        "url": "https://www.semanticscholar.org/paper/llm-agent-planning-research-review",
+        "snippet": "Peer-reviewed paper surveys recent LLM agent planning research and evaluation trends.",
+        "doi": "10.48550/wasc.2026.103",
+        "first_author": "Liu",
+        "year": 2026,
+        "evidence_level": "peer_reviewed",
+    },
     {
         "title": "Evidence normalization for retrieval grounded systems",
         "url": "https://www.semanticscholar.org/paper/abc123",
@@ -40,9 +68,14 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
 
 
 def _score(query: str, fixture: dict[str, Any]) -> int:
-    tokens = [token for token in query.lower().split() if token]
-    haystack = " ".join((str(fixture["title"]), str(fixture["snippet"]))).lower()
-    return sum(1 for token in tokens if token in haystack)
+    return score_query_alignment(
+        query,
+        route="academic",
+        title=str(fixture["title"]),
+        snippet=str(fixture["snippet"]),
+        url=str(fixture["url"]),
+        year=int(fixture["year"]),
+    )
 
 
 async def search(query: str) -> list[RetrievalHit]:

@@ -62,8 +62,23 @@ _RELEVANCE_STOPWORDS = frozenset(
         "what",
     }
 )
+_SHORT_CONTENT_TOKENS = frozenset({"rag", "llm", "gpu", "ai", "xr"})
 
-_ACADEMIC_LOOKUP_MARKERS = frozenset({"paper", "study", "preprint", "review", "survey"})
+_ACADEMIC_LOOKUP_MARKERS = frozenset(
+    {
+        "paper",
+        "papers",
+        "study",
+        "preprint",
+        "review",
+        "survey",
+        "benchmark",
+        "benchmarks",
+        "\u8bba\u6587",
+        "\u7814\u7a76",
+        "\u7efc\u8ff0",
+    }
+)
 _ACADEMIC_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "compare", "comparison", "impact", "effect", "summary", "summarize"}
 )
@@ -104,6 +119,9 @@ _POLICY_LOOKUP_MARKERS = frozenset(
         "\u5b9e\u65bd",
         "\u4fee\u8ba2",
         "\u53d8\u5316",
+        "\u8c41\u514d",
+        "\u573a\u666f",
+        "\u6761\u6b3e",
     }
 )
 _POLICY_EXPLANATORY_MARKERS = frozenset(
@@ -164,7 +182,13 @@ def _content_terms(text: str) -> set[str]:
         token
         for token in query_tokens(normalized)
         if (
-            (token.isascii() and len(token) >= 4 and token not in _RELEVANCE_STOPWORDS)
+            (
+                token.isascii()
+                and (
+                    (len(token) >= 4 and token not in _RELEVANCE_STOPWORDS)
+                    or token in _SHORT_CONTENT_TOKENS
+                )
+            )
             or (token.isdigit() and len(token) == 4)
             or not token.isascii()
         )
@@ -218,11 +242,84 @@ def _best_route_slice_overlap(
     return _best_slice_overlap(query_terms, filtered_records)
 
 
+def _top_route_matches(
+    query: str,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    domain: str,
+    route_role: str,
+    limit: int = 2,
+) -> tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...]:
+    query_terms = _content_terms(query)
+    ranked_matches: list[tuple[int, int, float, str, CanonicalEvidence, EvidenceSlice]] = []
+
+    for record in canonical_evidence:
+        if record.domain != domain or record.route_role != route_role or not record.retained_slices:
+            continue
+
+        best_slice = max(
+            record.retained_slices,
+            key=lambda slice_: (
+                len(query_terms & _content_terms(slice_.text)),
+                slice_.score,
+                -slice_.token_estimate,
+                slice_.source_record_id,
+            ),
+        )
+        overlap = len(query_terms & _content_terms(best_slice.text))
+        alignment_score = score_query_alignment(
+            query,
+            route=domain,  # type: ignore[arg-type]
+            title=record.canonical_title,
+            snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+            url=record.canonical_url,
+            authority=record.authority,
+            publication_date=record.publication_date,
+            effective_date=record.effective_date,
+            version=record.version,
+            year=record.year,
+        )
+        if overlap <= 0 and alignment_score <= 0:
+            continue
+
+        ranked_matches.append(
+            (
+                overlap,
+                alignment_score,
+                float(getattr(record, "total_score", 0.0)),
+                record.evidence_id,
+                record,
+                best_slice,
+            )
+        )
+
+    ranked_matches.sort(
+        key=lambda item: (-item[0], -item[1], -item[2], item[3])
+    )
+    return tuple(
+        (record, best_slice, overlap)
+        for overlap, _, _, _, record, best_slice in ranked_matches[:limit]
+    )
+
+
+def _contains_marker(
+    normalized_query: str,
+    tokens: set[str],
+    markers: frozenset[str],
+) -> bool:
+    return any(
+        (marker in tokens) if marker.isascii() else (marker in normalized_query)
+        for marker in markers
+    )
+
+
 def _is_academic_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
-    return bool(tokens & _ACADEMIC_LOOKUP_MARKERS) and not bool(
-        tokens & _ACADEMIC_EXPLANATORY_MARKERS
+    return _contains_marker(
+        normalized, tokens, _ACADEMIC_LOOKUP_MARKERS
+    ) and not _contains_marker(
+        normalized, tokens, _ACADEMIC_EXPLANATORY_MARKERS
     )
 
 
@@ -231,12 +328,12 @@ def _is_policy_lookup_query(query: str) -> bool:
     tokens = set(query_tokens(normalized))
     traits = derive_query_traits(query)
     return (
-        bool(tokens & _POLICY_LOOKUP_MARKERS)
+        _contains_marker(normalized, tokens, _POLICY_LOOKUP_MARKERS)
         or traits.has_version_intent
         or traits.has_effective_date_intent
         or traits.is_policy_change
-    ) and not bool(
-        tokens & _POLICY_EXPLANATORY_MARKERS
+    ) and not _contains_marker(
+        normalized, tokens, _POLICY_EXPLANATORY_MARKERS
     )
 
 
@@ -245,9 +342,10 @@ def _is_industry_lookup_query(query: str) -> bool:
     tokens = set(query_tokens(normalized))
     traits = derive_query_traits(query)
     return (
-        bool(tokens & _INDUSTRY_LOOKUP_MARKERS) or traits.has_trend_intent
-    ) and not bool(
-        tokens & _INDUSTRY_EXPLANATORY_MARKERS
+        _contains_marker(normalized, tokens, _INDUSTRY_LOOKUP_MARKERS)
+        or traits.has_trend_intent
+    ) and not _contains_marker(
+        normalized, tokens, _INDUSTRY_EXPLANATORY_MARKERS
     )
 
 
@@ -611,9 +709,9 @@ def _build_academic_lookup_fast_path_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
-    matched_record: CanonicalEvidence,
-    matched_slice: EvidenceSlice,
+    matched_records: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
 ) -> AnswerResponse:
+    matched_record, matched_slice, _ = matched_records[0]
     evidence_label = matched_record.canonical_title
     metadata: list[str] = []
     if matched_record.first_author:
@@ -631,29 +729,36 @@ def _build_academic_lookup_fast_path_response(
             f'Closest retained academic match: "{evidence_label}"'
             f" ({', '.join(metadata)})."
         )
+    if len(matched_records) > 1:
+        supporting_titles = ", ".join(
+            f'"{record.canonical_title}"' for record, _, _ in matched_records[1:]
+        )
+        conclusion = f"{conclusion} Supporting academic evidence also includes {supporting_titles}."
 
     draft = StructuredAnswerDraft(
         conclusion=conclusion,
         key_points=[
             KeyPoint(
-                key_point_id="kp-1",
-                statement=matched_slice.text,
+                key_point_id=f"kp-{index}",
+                statement=record_slice.text,
                 citations=[
                     ClaimCitation(
-                        evidence_id=matched_record.evidence_id,
-                        source_record_id=matched_slice.source_record_id,
-                        source_url=matched_record.canonical_url,
-                        quote_text=matched_slice.text,
+                        evidence_id=record.evidence_id,
+                        source_record_id=record_slice.source_record_id,
+                        source_url=record.canonical_url,
+                        quote_text=record_slice.text,
                     )
                 ],
             )
+            for index, (record, record_slice, _) in enumerate(matched_records, start=1)
         ],
         sources=[
             SourceReference(
-                evidence_id=matched_record.evidence_id,
-                title=matched_record.canonical_title,
-                url=matched_record.canonical_url,
+                evidence_id=record.evidence_id,
+                title=record.canonical_title,
+                url=record.canonical_url,
             )
+            for record, _, _ in matched_records
         ],
         uncertainty_notes=[],
         gaps=[],
@@ -670,6 +775,7 @@ def _build_policy_lookup_fast_path_response(
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
     matched_record: CanonicalEvidence,
+    supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = (),
 ) -> AnswerResponse:
     matched_slice = matched_record.retained_slices[0]
     metadata: list[str] = []
@@ -688,6 +794,11 @@ def _build_policy_lookup_fast_path_response(
             f'Closest retained policy match: "{matched_record.canonical_title}"'
             f" ({'; '.join(metadata)})."
         )
+    if supporting_matches:
+        supporting_titles = ", ".join(
+            f'"{record.canonical_title}"' for record, _, _ in supporting_matches
+        )
+        conclusion = f"{conclusion} Supporting official evidence also includes {supporting_titles}."
 
     draft = StructuredAnswerDraft(
         conclusion=conclusion,
@@ -704,6 +815,21 @@ def _build_policy_lookup_fast_path_response(
                     )
                 ],
             )
+        ]
+        + [
+            KeyPoint(
+                key_point_id=f"kp-{index}",
+                statement=record_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=record.evidence_id,
+                        source_record_id=record_slice.source_record_id,
+                        source_url=record.canonical_url,
+                        quote_text=record_slice.text,
+                    )
+                ],
+            )
+            for index, (record, record_slice, _) in enumerate(supporting_matches, start=2)
         ],
         sources=[
             SourceReference(
@@ -711,6 +837,14 @@ def _build_policy_lookup_fast_path_response(
                 title=matched_record.canonical_title,
                 url=matched_record.canonical_url,
             )
+        ]
+        + [
+            SourceReference(
+                evidence_id=record.evidence_id,
+                title=record.canonical_title,
+                url=record.canonical_url,
+            )
+            for record, _, _ in supporting_matches
         ],
         uncertainty_notes=[],
         gaps=[],
@@ -728,8 +862,14 @@ def _build_industry_lookup_fast_path_response(
     *,
     matched_record: CanonicalEvidence,
     matched_slice: EvidenceSlice,
+    supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = (),
 ) -> AnswerResponse:
     conclusion = f'Closest retained industry match: "{matched_record.canonical_title}".'
+    if supporting_matches:
+        supporting_titles = ", ".join(
+            f'"{record.canonical_title}"' for record, _, _ in supporting_matches
+        )
+        conclusion = f"{conclusion} Supporting industry evidence also includes {supporting_titles}."
 
     draft = StructuredAnswerDraft(
         conclusion=conclusion,
@@ -746,6 +886,21 @@ def _build_industry_lookup_fast_path_response(
                     )
                 ],
             )
+        ]
+        + [
+            KeyPoint(
+                key_point_id=f"kp-{index}",
+                statement=record_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=record.evidence_id,
+                        source_record_id=record_slice.source_record_id,
+                        source_url=record.canonical_url,
+                        quote_text=record_slice.text,
+                    )
+                ],
+            )
+            for index, (record, record_slice, _) in enumerate(supporting_matches, start=2)
         ],
         sources=[
             SourceReference(
@@ -753,6 +908,14 @@ def _build_industry_lookup_fast_path_response(
                 title=matched_record.canonical_title,
                 url=matched_record.canonical_url,
             )
+        ]
+        + [
+            SourceReference(
+                evidence_id=record.evidence_id,
+                title=record.canonical_title,
+                url=record.canonical_url,
+            )
+            for record, _, _ in supporting_matches
         ],
         uncertainty_notes=[],
         gaps=[],
@@ -850,26 +1013,51 @@ def _build_local_answer_candidate(
         canonical_evidence,
     )
     matched_policy_record = _best_policy_lookup_record(query, canonical_evidence)
-    primary_route_overlap, primary_route_record, primary_route_slice = _best_route_slice_overlap(
-        query_terms,
+    policy_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="policy",
+        route_role="primary",
+        limit=2,
+    )
+    supporting_policy_matches = ()
+    if matched_policy_record is not None:
+        supporting_policy_matches = tuple(
+            match
+            for match in policy_matches
+            if match[0].evidence_id != matched_policy_record.evidence_id
+        )
+    primary_route_matches = _top_route_matches(
+        query,
         canonical_evidence,
         domain=retrieval_response.primary_route,
         route_role="primary",
+        limit=2,
     )
+    primary_route_overlap = 0
+    primary_route_record: CanonicalEvidence | None = None
+    primary_route_slice: EvidenceSlice | None = None
+    if primary_route_matches:
+        primary_route_record, primary_route_slice, primary_route_overlap = primary_route_matches[0]
+
+    supplemental_route_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = ()
     supplemental_route_overlap = 0
     supplemental_route_record: CanonicalEvidence | None = None
     supplemental_route_slice: EvidenceSlice | None = None
     if retrieval_response.supplemental_route is not None:
-        (
-            supplemental_route_overlap,
-            supplemental_route_record,
-            supplemental_route_slice,
-        ) = _best_route_slice_overlap(
-            query_terms,
+        supplemental_route_matches = _top_route_matches(
+            query,
             canonical_evidence,
             domain=retrieval_response.supplemental_route,
             route_role="supplemental",
+            limit=1,
         )
+        if supplemental_route_matches:
+            (
+                supplemental_route_record,
+                supplemental_route_slice,
+                supplemental_route_overlap,
+            ) = supplemental_route_matches[0]
 
     if (
         retrieval_response.route_label == "mixed"
@@ -900,9 +1088,11 @@ def _build_local_answer_candidate(
         and (
             not require_clean_runtime
             or (
-                not retrieval_response.evidence_clipped
-                and not retrieval_response.evidence_pruned
-                and not retrieval_response.gaps
+                not retrieval_response.gaps
+                and (
+                    not retrieval_response.evidence_clipped
+                    or bool(supporting_policy_matches)
+                )
             )
         )
     ):
@@ -910,29 +1100,36 @@ def _build_local_answer_candidate(
             retrieval_response,
             canonical_evidence,
             matched_record=matched_policy_record,
+            supporting_matches=supporting_policy_matches,
         )
 
+    industry_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="industry",
+        route_role="primary",
+        limit=2,
+    )
+    supporting_industry_matches = industry_matches[1:] if len(industry_matches) > 1 else ()
     if (
         retrieval_response.route_label != "mixed"
         and retrieval_response.primary_route == "industry"
         and _is_industry_lookup_query(query)
-        and best_record is not None
-        and best_slice is not None
-        and best_slice_overlap >= min(2, len(query_terms))
+        and industry_matches
+        and industry_matches[0][0] is not None
+        and industry_matches[0][1] is not None
+        and industry_matches[0][2] >= min(2, len(query_terms))
         and (
             not require_clean_runtime
-            or (
-                not retrieval_response.evidence_clipped
-                and not retrieval_response.evidence_pruned
-                and not retrieval_response.gaps
-            )
+            or not retrieval_response.gaps
         )
     ):
         return _build_industry_lookup_fast_path_response(
             retrieval_response,
             canonical_evidence,
-            matched_record=best_record,
-            matched_slice=best_slice,
+            matched_record=industry_matches[0][0],
+            matched_slice=industry_matches[0][1],
+            supporting_matches=supporting_industry_matches,
         )
 
     return None
@@ -1217,26 +1414,24 @@ async def execute_answer_pipeline_with_trace(
     if (
         retrieval_response.primary_route == "academic"
         and retrieval_response.status == "success"
-        and not retrieval_response.evidence_clipped
-        and not retrieval_response.evidence_pruned
         and not retrieval_response.gaps
         and _is_academic_lookup_query(query)
     ):
-        query_terms = _content_terms(query)
-        best_slice_overlap, best_record, best_slice = _best_slice_overlap(
-            query_terms,
+        academic_matches = _top_route_matches(
+            query,
             canonical_evidence,
+            domain="academic",
+            route_role="primary",
+            limit=2,
         )
         if (
-            best_record is not None
-            and best_slice is not None
-            and best_slice_overlap >= min(2, len(query_terms))
+            academic_matches
+            and academic_matches[0][2] >= min(2, len(_content_terms(query)))
         ):
             response = _build_academic_lookup_fast_path_response(
                 retrieval_response,
                 canonical_evidence,
-                matched_record=best_record,
-                matched_slice=best_slice,
+                matched_records=academic_matches,
             )
             answer_token_estimate = _estimate_response_tokens(response)
             _maybe_cache_response(
