@@ -138,6 +138,29 @@ _CROSS_DOMAIN_EFFECT_MARKERS = frozenset(
         "\u843d\u5730",
     }
 )
+_POLICY_EXEMPTION_MARKERS = frozenset(
+    {"exemption", "exemptions", "scenario", "scenarios", "\u8c41\u514d", "\u573a\u666f"}
+)
+_POLICY_CHANGE_MARKERS = frozenset(
+    {
+        "change",
+        "changes",
+        "revision",
+        "amendment",
+        "update",
+        "\u4fee\u8ba2",
+        "\u53d8\u5316",
+        "\u6761\u6b3e",
+    }
+)
+_ACADEMIC_RESEARCH_MARKERS = frozenset({"research", "\u7814\u7a76"})
+_ACADEMIC_BENCHMARK_MARKERS = frozenset(
+    {"benchmark", "benchmarks", "\u57fa\u51c6", "\u8bc4\u6d4b"}
+)
+_ACADEMIC_PAPER_MARKERS = frozenset({"paper", "papers", "\u8bba\u6587"})
+_MIXED_IMPACT_QUERY_MARKERS = frozenset(
+    {"impact", "effect", "\u5f71\u54cd", "\u6548\u5e94"}
+)
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
     "survey_or_review": 2,
@@ -311,6 +334,12 @@ def _contains_marker(
         (marker in tokens) if marker.isascii() else (marker in normalized_query)
         for marker in markers
     )
+
+
+def _query_contains_marker(query: str, markers: frozenset[str]) -> bool:
+    normalized = normalize_query_text(query)
+    tokens = set(query_tokens(normalized))
+    return _contains_marker(normalized, tokens, markers)
 
 
 def _is_academic_lookup_query(query: str) -> bool:
@@ -709,6 +738,7 @@ def _build_academic_lookup_fast_path_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     matched_records: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
 ) -> AnswerResponse:
     matched_record, matched_slice, _ = matched_records[0]
@@ -723,10 +753,18 @@ def _build_academic_lookup_fast_path_response(
     elif matched_record.evidence_level == "preprint":
         metadata.append("preprint")
 
-    conclusion = f'Closest retained academic match: "{evidence_label}".'
+    conclusion_prefix = "Closest retained academic match"
+    if _query_contains_marker(query, _ACADEMIC_RESEARCH_MARKERS):
+        conclusion_prefix = 'Retained academic "\u7814\u7a76" evidence'
+    elif _query_contains_marker(query, _ACADEMIC_BENCHMARK_MARKERS):
+        conclusion_prefix = "Retained academic benchmark evidence"
+    elif _query_contains_marker(query, _ACADEMIC_PAPER_MARKERS):
+        conclusion_prefix = "Retained academic paper evidence"
+
+    conclusion = f'{conclusion_prefix}: "{evidence_label}".'
     if metadata:
         conclusion = (
-            f'Closest retained academic match: "{evidence_label}"'
+            f'{conclusion_prefix}: "{evidence_label}"'
             f" ({', '.join(metadata)})."
         )
     if len(matched_records) > 1:
@@ -767,6 +805,10 @@ def _build_academic_lookup_fast_path_response(
         retrieval_response,
         canonical_evidence,
         draft,
+        local_fast_path=True,
+        uncertainty_focus_evidence_ids=tuple(
+            record.evidence_id for record, _, _ in matched_records
+        ),
     )
 
 
@@ -774,6 +816,7 @@ def _build_policy_lookup_fast_path_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     matched_record: CanonicalEvidence,
     supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = (),
 ) -> AnswerResponse:
@@ -788,10 +831,16 @@ def _build_policy_lookup_fast_path_response(
     elif matched_record.publication_date is not None:
         metadata.append(f"published {matched_record.publication_date}")
 
-    conclusion = f'Closest retained policy match: "{matched_record.canonical_title}".'
+    conclusion_prefix = "Closest retained policy match"
+    if _query_contains_marker(query, _POLICY_EXEMPTION_MARKERS):
+        conclusion_prefix = 'Retained policy "\u8c41\u514d\u573a\u666f" evidence'
+    elif _query_contains_marker(query, _POLICY_CHANGE_MARKERS):
+        conclusion_prefix = "Retained policy change evidence"
+
+    conclusion = f'{conclusion_prefix}: "{matched_record.canonical_title}".'
     if metadata:
         conclusion = (
-            f'Closest retained policy match: "{matched_record.canonical_title}"'
+            f'{conclusion_prefix}: "{matched_record.canonical_title}"'
             f" ({'; '.join(metadata)})."
         )
     if supporting_matches:
@@ -853,6 +902,8 @@ def _build_policy_lookup_fast_path_response(
         retrieval_response,
         canonical_evidence,
         draft,
+        local_fast_path=True,
+        uncertainty_focus_evidence_ids=(matched_record.evidence_id,),
     )
 
 
@@ -924,6 +975,8 @@ def _build_industry_lookup_fast_path_response(
         retrieval_response,
         canonical_evidence,
         draft,
+        local_fast_path=True,
+        uncertainty_focus_evidence_ids=(matched_record.evidence_id,),
     )
 
 
@@ -931,13 +984,20 @@ def _build_mixed_cross_domain_fast_path_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     matched_primary_record: CanonicalEvidence,
     matched_primary_slice: EvidenceSlice,
     matched_supplemental_record: CanonicalEvidence,
     matched_supplemental_slice: EvidenceSlice,
 ) -> AnswerResponse:
+    conclusion_prefix = "Retained cross-domain evidence includes"
+    if _query_contains_marker(query, _MIXED_IMPACT_QUERY_MARKERS):
+        if _query_contains_marker(query, frozenset({"\u5f71\u54cd", "\u6548\u5e94"})):
+            conclusion_prefix = 'Retained cross-domain "\u5f71\u54cd" evidence includes'
+        else:
+            conclusion_prefix = "Retained cross-domain impact evidence includes"
     conclusion = (
-        f'Retained cross-domain evidence includes {retrieval_response.primary_route} '
+        f"{conclusion_prefix} {retrieval_response.primary_route} "
         f'"{matched_primary_record.canonical_title}" and {retrieval_response.supplemental_route} '
         f'"{matched_supplemental_record.canonical_title}".'
     )
@@ -989,6 +1049,11 @@ def _build_mixed_cross_domain_fast_path_response(
         retrieval_response,
         canonical_evidence,
         draft,
+        local_fast_path=True,
+        uncertainty_focus_evidence_ids=(
+            matched_primary_record.evidence_id,
+            matched_supplemental_record.evidence_id,
+        ),
     )
 
 
@@ -1074,6 +1139,7 @@ def _build_local_answer_candidate(
         return _build_mixed_cross_domain_fast_path_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             matched_primary_record=primary_route_record,
             matched_primary_slice=primary_route_slice,
             matched_supplemental_record=supplemental_route_record,
@@ -1099,6 +1165,7 @@ def _build_local_answer_candidate(
         return _build_policy_lookup_fast_path_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             matched_record=matched_policy_record,
             supporting_matches=supporting_policy_matches,
         )
@@ -1194,6 +1261,9 @@ def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     draft,
+    *,
+    local_fast_path: bool = False,
+    uncertainty_focus_evidence_ids: tuple[str, ...] = (),
 ) -> AnswerResponse:
     citation_result = validate_answer_citations(draft, canonical_evidence)
     answer_status = determine_answer_status(
@@ -1203,15 +1273,6 @@ def _build_answer_response(
         grounded_key_point_count=citation_result.grounded_key_point_count,
         total_key_point_count=citation_result.total_key_point_count,
     )
-    uncertainty_notes = build_uncertainty_notes(
-        retrieval_status=retrieval_response.status,
-        gaps=tuple(retrieval_response.gaps),
-        evidence_clipped=retrieval_response.evidence_clipped,
-        evidence_pruned=retrieval_response.evidence_pruned,
-        canonical_evidence=canonical_evidence,
-        citation_issues=citation_result.issues,
-    )
-
     validated_key_points = [
         {
             "key_point_id": key_point.key_point_id,
@@ -1235,6 +1296,25 @@ def _build_answer_response(
     ]
     evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
     sources = _dedupe_sources(cited_evidence_ids, draft.sources, evidence_by_id)
+    strong_local_grounding = (
+        local_fast_path
+        and answer_status == "grounded_success"
+        and retrieval_response.status == "success"
+        and not retrieval_response.gaps
+        and not citation_result.issues
+        and len(sources) >= 2
+    )
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=citation_result.issues,
+        cited_evidence_ids=tuple(cited_evidence_ids),
+        focus_evidence_ids=uncertainty_focus_evidence_ids,
+        strong_local_grounding=strong_local_grounding,
+    )
 
     conclusion = draft.conclusion
     if answer_status == "insufficient_evidence":
@@ -1431,6 +1511,7 @@ async def execute_answer_pipeline_with_trace(
             response = _build_academic_lookup_fast_path_response(
                 retrieval_response,
                 canonical_evidence,
+                query=query,
                 matched_records=academic_matches,
             )
             answer_token_estimate = _estimate_response_tokens(response)

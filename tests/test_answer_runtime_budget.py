@@ -754,6 +754,7 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path(
         "title": "Ministry of Ecology and Environment policy bulletin",
         "url": "https://www.mee.gov.cn/policy/latest-regulation",
     }
+    assert result.response.uncertainty_notes == []
     assert result.runtime_trace.latency_budget_ok is True
 
 
@@ -899,6 +900,7 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
         "BYD autonomous driving supplier investment update"
         in result.response.conclusion
     )
+    assert "impact" in result.response.conclusion.lower()
     assert len(result.response.key_points) == 2
     assert {
         source["title"] for source in [item.model_dump() for item in result.response.sources]
@@ -906,6 +908,7 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
         "State Council autonomous driving pilot regulation",
         "BYD autonomous driving supplier investment update",
     }
+    assert result.response.uncertainty_notes == []
     assert result.runtime_trace.latency_budget_ok is True
 
 

@@ -13,11 +13,27 @@ def build_uncertainty_notes(
     evidence_pruned: bool,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     citation_issues: tuple[str, ...],
+    cited_evidence_ids: tuple[str, ...] = (),
+    focus_evidence_ids: tuple[str, ...] = (),
+    strong_local_grounding: bool = False,
 ) -> tuple[str, ...]:
     """Build deterministic uncertainty notes from observable system state."""
     notes: list[str] = []
+    scoped_ids = set(focus_evidence_ids or cited_evidence_ids)
+    relevant_policy_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == "policy"
+        and (not scoped_ids or record.evidence_id in scoped_ids)
+    )
+    relevant_academic_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == "academic"
+        and (not scoped_ids or record.evidence_id in scoped_ids)
+    )
 
-    if evidence_clipped or evidence_pruned:
+    if (evidence_clipped or evidence_pruned) and not strong_local_grounding:
         details: list[str] = []
         if evidence_clipped:
             details.append("bounded evidence was clipped")
@@ -29,27 +45,25 @@ def build_uncertainty_notes(
         notes.append(f"Retrieval gaps: {'; '.join(gaps)}")
 
     if any(
-        record.domain == "policy"
-        and (
+        (
             record.version_status == "version_missing"
             or record.jurisdiction_status != "observed"
         )
-        for record in canonical_evidence
+        for record in relevant_policy_records
     ):
         notes.append(
             "Policy metadata incomplete: at least one policy record is missing version or observed jurisdiction metadata."
         )
 
     if any(
-        record.domain == "academic"
-        and (
+        (
             record.canonical_match_confidence == "heuristic"
             or any(
                 variant.canonical_match_confidence == "heuristic"
                 for variant in record.linked_variants
             )
         )
-        for record in canonical_evidence
+        for record in relevant_academic_records
     ):
         notes.append(
             "Academic match heuristic: at least one academic merge relied on heuristic citation matching."
