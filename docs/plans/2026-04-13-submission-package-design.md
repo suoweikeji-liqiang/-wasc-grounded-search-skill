@@ -62,7 +62,7 @@ The README should act as the main review entrypoint and include:
 
 ### License Strategy
 
-Use standard MIT for clear submission-time licensing.
+Use MIT-0 to align with the official submission-time licensing requirement.
 
 ## Accuracy Rules
 
