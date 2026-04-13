@@ -1,0 +1,252 @@
+{
+  "generated_at": "2026-04-13T06:35:38.291805+00:00",
+  "dataset_path": "D:\\study\\WASC1\\ref\\competition_eval_cases.json",
+  "summary": {
+    "total_cases": 12,
+    "passed_cases": 0,
+    "pass_rate": 0.0,
+    "avg_latency_ms": 945.91,
+    "p95_latency_ms": 3277.85,
+    "avg_sources": 0.0,
+    "uncertainty_rate": 1.0,
+    "intent_accuracy": 0.4167,
+    "avg_keyword_coverage": 0.0
+  },
+  "cases": [
+    {
+      "id": "policy-change-001",
+      "query": "2025年数据出境安全评估办法有哪些变化？",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 23.19,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "policy-change-002",
+      "query": "个人信息出境认证办法2025年修订了哪些条款？",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 7.3,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "policy-qa-003",
+      "query": "促进和规范数据跨境流动规定中哪些场景可豁免？",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 2171.29,
+      "summary": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "error": null
+    },
+    {
+      "id": "industry-vision-004",
+      "query": "Vision Pro 当前销量预测如何？",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 6.45,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "industry-chip-005",
+      "query": "2026年AI服务器GPU市场份额预测",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 973.16,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 1,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "industry-phone-006",
+      "query": "中国智能手机2026年出货量趋势",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 3277.85,
+      "summary": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "error": null
+    },
+    {
+      "id": "academic-rag-007",
+      "query": "RAG chunking 最新论文综述",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords"
+      ],
+      "elapsed_ms": 5.14,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "academic",
+      "intent_match": true,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "academic-rerank-008",
+      "query": "retrieval reranking recent benchmark papers",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords"
+      ],
+      "elapsed_ms": 4.86,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "academic",
+      "intent_match": true,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "academic-agent-009",
+      "query": "LLM agent planning 最新研究",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords",
+        "intent"
+      ],
+      "elapsed_ms": 5.4,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": false,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "mixed-act-010",
+      "query": "AI Act 对开源模型和产业落地影响",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords"
+      ],
+      "elapsed_ms": 621.39,
+      "summary": "Available evidence was insufficient to fully support the requested answer.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": true,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available evidence was insufficient to fully support the requested answer.",
+      "error": null
+    },
+    {
+      "id": "mixed-energy-011",
+      "query": "欧盟碳关税政策对新能源车出口和供应链影响",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords"
+      ],
+      "elapsed_ms": 2059.33,
+      "summary": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": true,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "error": null
+    },
+    {
+      "id": "mixed-regulation-012",
+      "query": "美国出口管制规则对大模型训练芯片供给影响",
+      "passed": false,
+      "failed_checks": [
+        "sources",
+        "keywords"
+      ],
+      "elapsed_ms": 2195.58,
+      "summary": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "sources_count": 0,
+      "uncertainties_count": 2,
+      "intent_predicted": "mixed",
+      "intent_match": true,
+      "keyword_coverage": 0.0,
+      "answer_status": "insufficient_evidence",
+      "response_preview": "Available runtime budget was insufficient to complete grounded synthesis.",
+      "error": null
+    }
+  ]
+}
