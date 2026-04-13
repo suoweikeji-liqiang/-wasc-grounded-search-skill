@@ -93,6 +93,42 @@ ENGLISH_BENCHMARK_ROUTE_CASES = (
     },
 )
 
+COMPETITION_STYLE_ROUTE_CASES = (
+    {
+        "query": "\u0032\u0030\u0032\u0035\u5e74\u4e2a\u4eba\u4fe1\u606f\u51fa\u5883\u8ba4\u8bc1\u529e\u6cd5\u4fee\u8ba2\u4e86\u54ea\u4e9b\u6761\u6b3e",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u0032\u0030\u0032\u0036\u5e74AI\u670d\u52a1\u5668GPU\u5e02\u573a\u4efd\u989d\u9884\u6d4b",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "LLM agent planning \u6700\u65b0\u7814\u7a76",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "AI Act \u5bf9\u5f00\u6e90\u6a21\u578b\u548c\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "industry",
+    },
+)
+
+LEGACY_EXPLICIT_CROSS_DOMAIN_CASES = (
+    {
+        "query": "\u7814\u7a76\u4e0e\u76d1\u7ba1\u534f\u540c\u6846\u67b6",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "academic",
+    },
+)
+
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
@@ -203,6 +239,30 @@ def test_ambiguous_mixed_contract_uses_concrete_primary_family_table(
 
 @pytest.mark.parametrize("case", ENGLISH_BENCHMARK_ROUTE_CASES, ids=lambda case: case["query"])
 def test_english_benchmark_queries_route_to_expected_domains(
+    client: TestClient,
+    case: dict[str, str | None],
+) -> None:
+    payload = client.post("/route", json={"query": case["query"]}).json()
+
+    assert payload["route_label"] == case["route_label"]
+    assert payload["primary_route"] == case["primary_route"]
+    assert payload["supplemental_route"] == case["supplemental_route"]
+
+
+@pytest.mark.parametrize("case", COMPETITION_STYLE_ROUTE_CASES, ids=lambda case: case["query"])
+def test_competition_style_queries_route_to_expected_domains(
+    client: TestClient,
+    case: dict[str, str | None],
+) -> None:
+    payload = client.post("/route", json={"query": case["query"]}).json()
+
+    assert payload["route_label"] == case["route_label"]
+    assert payload["primary_route"] == case["primary_route"]
+    assert payload["supplemental_route"] == case["supplemental_route"]
+
+
+@pytest.mark.parametrize("case", LEGACY_EXPLICIT_CROSS_DOMAIN_CASES, ids=lambda case: case["query"])
+def test_legacy_explicit_cross_domain_markers_still_route_correctly(
     client: TestClient,
     case: dict[str, str | None],
 ) -> None:

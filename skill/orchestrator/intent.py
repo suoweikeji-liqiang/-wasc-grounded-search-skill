@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -44,10 +45,18 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
         "policy": (
             "policy",
             "regulation",
+            "rule",
+            "rules",
             "registry",
             "guidance",
             "effective date",
             "order",
+            "act",
+            "ai act",
+            "law",
+            "exemption",
+            "revision",
+            "amendment",
             "export controls",
             "controls",
             "climate",
@@ -57,22 +66,35 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
         "academic": (
             "paper",
             "research",
+            "study",
+            "survey",
+            "review",
+            "planning",
+            "agent planning",
             "retrieval",
             "grounded",
             "evidence packing",
             "evidence",
             "normalization",
+            "chunking",
         ),
         "industry": (
             "industry",
             "market",
             "share",
             "forecast",
+            "outlook",
+            "trend",
+            "shipment",
+            "shipments",
+            "sales",
             "capacity",
             "battery",
             "recycling",
             "semiconductor",
             "packaging",
+            "gpu",
+            "server",
         ),
     }
 )
@@ -83,16 +105,33 @@ _ENGLISH_EXPLICIT_CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
     "impact of",
     "effect of",
 )
+_POLICY_ACADEMIC_RESEARCH_PATH_MARKERS: tuple[str, ...] = (
+    "\u7814\u7a76\u8def\u5f84",
+    "\u7814\u7a76\u6846\u67b6",
+)
 
 _PRECEDENCE_INDEX: Mapping[str, int] = MappingProxyType(
     {route: index for index, route in enumerate(ROUTE_PRECEDENCE)}
 )
 
 
+def _marker_in_query(normalized_query: str, marker: str) -> bool:
+    if marker.isascii():
+        return re.search(
+            rf"(?<![a-z0-9]){re.escape(marker)}(?![a-z0-9])",
+            normalized_query,
+        ) is not None
+    return marker in normalized_query
+
+
 def _score_routes(normalized_query: str) -> Mapping[str, int]:
     scored = {
-        route: sum(2 for marker in markers if marker in normalized_query)
-        + sum(2 for marker in _ENGLISH_MARKER_TABLE[route] if marker in normalized_query)
+        route: sum(2 for marker in markers if _marker_in_query(normalized_query, marker))
+        + sum(
+            2
+            for marker in _ENGLISH_MARKER_TABLE[route]
+            if _marker_in_query(normalized_query, marker)
+        )
         for route, markers in _MARKER_TABLE.items()
     }
     return MappingProxyType(scored)
@@ -116,6 +155,20 @@ def _is_explicit_cross_domain(normalized_query: str, scores: Mapping[str, int]) 
     )
     active_domain_count = sum(1 for score in scores.values() if score > 0)
     return has_cross_domain_phrase and active_domain_count >= 2
+
+
+def _is_policy_academic_research_path_ambiguity(
+    normalized_query: str,
+    ranked: tuple[ConcreteRoute, ...],
+    scores: Mapping[str, int],
+) -> bool:
+    return (
+        ranked[0] == "policy"
+        and ranked[1] == "academic"
+        and scores["policy"] > 0
+        and scores["academic"] > 0
+        and any(marker in normalized_query for marker in _POLICY_ACADEMIC_RESEARCH_PATH_MARKERS)
+    )
 
 
 def classify_query(query: str) -> ClassificationResult:
@@ -157,6 +210,15 @@ def classify_query(query: str) -> ClassificationResult:
             primary_route=primary_route,
             supplemental_route=None,
             reason_code="low_signal",
+            scores=scores,
+        )
+
+    if _is_policy_academic_research_path_ambiguity(normalized_query, ranked, scores):
+        return ClassificationResult(
+            route_label="mixed",
+            primary_route=primary_route,
+            supplemental_route=None,
+            reason_code="policy_academic_research_path",
             scores=scores,
         )
 
