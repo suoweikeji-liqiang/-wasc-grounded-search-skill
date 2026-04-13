@@ -44,7 +44,7 @@ def _best_snippet(record: CanonicalEvidence) -> str:
     return record.raw_records[0].snippet
 
 
-def _industry_query_match_score(query: str, record: CanonicalEvidence) -> int:
+def _query_match_score(query: str, record: CanonicalEvidence) -> int:
     tokens = [token for token in query.lower().split() if token]
     haystack = " ".join(
         [
@@ -55,19 +55,69 @@ def _industry_query_match_score(query: str, record: CanonicalEvidence) -> int:
     return sum(1 for token in tokens if token in haystack)
 
 
+def _interleave_mixed_records(
+    primary_records: list[CanonicalEvidence],
+    supplemental_records: list[CanonicalEvidence],
+    other_records: list[CanonicalEvidence],
+) -> tuple[CanonicalEvidence, ...]:
+    ordered: list[CanonicalEvidence] = []
+    if primary_records:
+        ordered.append(primary_records[0])
+    if supplemental_records:
+        ordered.append(supplemental_records[0])
+    ordered.extend(primary_records[1:])
+    ordered.extend(supplemental_records[1:])
+    ordered.extend(other_records)
+    return tuple(ordered)
+
+
 def _order_records_for_response(
     *,
     plan: RetrievalPlan,
     query: str,
     records: tuple[CanonicalEvidence, ...],
 ) -> tuple[CanonicalEvidence, ...]:
+    if plan.route_label == "mixed":
+        primary_records = [
+            record for record in records if record.route_role == "primary"
+        ]
+        supplemental_records = [
+            record for record in records if record.route_role == "supplemental"
+        ]
+        other_records = [
+            record
+            for record in records
+            if record.route_role not in {"primary", "supplemental"}
+        ]
+        ordered_primary = sorted(
+            primary_records,
+            key=lambda record: (
+                -_query_match_score(query, record),
+                -getattr(record, "total_score", 0.0),
+                record.evidence_id,
+            ),
+        )
+        ordered_supplemental = sorted(
+            supplemental_records,
+            key=lambda record: (
+                -_query_match_score(query, record),
+                -getattr(record, "total_score", 0.0),
+                record.evidence_id,
+            ),
+        )
+        return _interleave_mixed_records(
+            ordered_primary,
+            ordered_supplemental,
+            other_records,
+        )
+
     if plan.route_label != "industry":
         return records
 
     ordered = sorted(
         records,
         key=lambda record: (
-            -_industry_query_match_score(query, record),
+            -_query_match_score(query, record),
             _INDUSTRY_CREDIBILITY_PRIORITY.get(
                 record.raw_records[0].credibility_tier,
                 99,

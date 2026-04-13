@@ -322,6 +322,136 @@ def test_execute_retrieval_pipeline_industry_runtime_case_reorders_response_by_q
     )
 
 
+def test_execute_retrieval_pipeline_mixed_policy_industry_runtime_case_surfaces_query_aligned_cross_domain_evidence() -> None:
+    import skill.retrieval.orchestrate as orchestrate
+    from skill.retrieval.adapters.industry_ddgs import search as industry_search
+    from skill.retrieval.adapters.policy_official_registry import (
+        search as policy_registry_search,
+    )
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="explicit_cross_domain",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query="autonomous driving policy impact on industry",
+            adapter_registry={
+                "policy_official_registry": policy_registry_search,
+                "industry_ddgs": industry_search,
+            },
+        )
+    )
+
+    primary_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "primary"
+    ]
+    supplemental_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    ]
+
+    assert primary_titles[0] == "State Council autonomous driving pilot regulation"
+    assert supplemental_titles[0] == "BYD autonomous driving supplier investment update"
+    assert "autonomous driving" in response.canonical_evidence[0].retained_slices[0].text.lower()
+    assert any(
+        "autonomous driving" in item.retained_slices[0].text.lower()
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    )
+
+
+def test_execute_retrieval_pipeline_mixed_policy_academic_runtime_case_surfaces_query_aligned_cross_domain_evidence() -> None:
+    import skill.retrieval.orchestrate as orchestrate
+    from skill.retrieval.adapters.academic_semantic_scholar import (
+        search as semantic_scholar_search,
+    )
+    from skill.retrieval.adapters.policy_official_registry import (
+        search as policy_registry_search,
+    )
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="academic",
+            reason_code="explicit_cross_domain",
+            scores={"policy": 4, "academic": 4, "industry": 0},
+        )
+    )
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query="AI chip export controls effect on academic research",
+            adapter_registry={
+                "policy_official_registry": policy_registry_search,
+                "academic_semantic_scholar": semantic_scholar_search,
+            },
+        )
+    )
+
+    primary_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "primary"
+    ]
+    supplemental_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    ]
+
+    assert primary_titles[0] == "Ministry of Commerce AI chip export controls notice"
+    assert supplemental_titles[0] == "Export controls and academic AI chip research"
+    assert any(
+        "export controls" in item.retained_slices[0].text.lower()
+        for item in response.canonical_evidence
+        if item.route_role == "primary"
+    )
+    assert any(
+        "academic research" in item.retained_slices[0].text.lower()
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    )
+
+
+def test_execute_retrieval_pipeline_industry_runtime_case_keeps_fast_path_eligible_after_fixture_expansion() -> None:
+    import skill.retrieval.orchestrate as orchestrate
+    from skill.retrieval.adapters.industry_ddgs import search as industry_search
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query="battery recycling market share 2025",
+            adapter_registry={"industry_ddgs": industry_search},
+        )
+    )
+
+    assert response.evidence_clipped is False
+    assert response.evidence_pruned is False
+
+
 def test_retrieve_response_exposes_additive_canonical_evidence_models() -> None:
     response = RetrieveResponse(
         route_label="mixed",

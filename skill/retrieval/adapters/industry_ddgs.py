@@ -25,6 +25,11 @@ _TRUSTED_NEWS_DOMAINS: frozenset[str] = frozenset(
 
 _FIXTURES: tuple[dict[str, str], ...] = (
     {
+        "title": "BYD autonomous driving supplier investment update",
+        "url": "https://www.byd.com/news/autonomous-driving-supplier-investment-2026",
+        "snippet": "Company update says autonomous driving programs are increasing supplier investment across the vehicle industry in 2026.",
+    },
+    {
         "title": "Tesla annual battery supply update",
         "url": "https://www.tesla.com/blog/battery-supply-update",
         "snippet": "Company disclosure on battery production guidance.",
@@ -83,5 +88,5 @@ async def search(query: str) -> list[RetrievalHit]:
             snippet=item["snippet"],
             credibility_tier=_tier_for_url(item["url"]),
         )
-        for item in ranked
+        for item in ranked[:4]
     ]

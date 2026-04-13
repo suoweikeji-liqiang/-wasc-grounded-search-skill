@@ -27,6 +27,26 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
         "publication_date": "2026-02-21",
         "effective_date": "2026-03-01",
     },
+    {
+        "title": "State Council autonomous driving pilot regulation",
+        "url": "https://www.gov.cn/zhengce/autonomous-driving-pilot-regulation",
+        "snippet": "Official autonomous driving pilot regulation sets 2026 compliance requirements for road testing.",
+        "authority": "State Council",
+        "jurisdiction": "CN",
+        "publication_date": "2026-03-28",
+        "effective_date": "2026-05-01",
+        "version": "2026 pilot edition",
+    },
+    {
+        "title": "Ministry of Commerce AI chip export controls notice",
+        "url": "https://www.mofcom.gov.cn/article/ai-chip-export-controls-2026",
+        "snippet": "Official AI chip export controls notice tightens 2026 licensing requirements for advanced accelerators.",
+        "authority": "Ministry of Commerce",
+        "jurisdiction": "CN",
+        "publication_date": "2026-04-02",
+        "effective_date": "2026-04-15",
+        "version": "2026 export control notice",
+    },
 )
 
 

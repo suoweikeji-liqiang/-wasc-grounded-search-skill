@@ -75,6 +75,9 @@ _POLICY_LOOKUP_MARKERS = frozenset(
 _POLICY_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "impact", "effect", "summary", "summarize"}
 )
+_CROSS_DOMAIN_EFFECT_MARKERS = frozenset(
+    {"impact on", "effect on", "impact of", "effect of"}
+)
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
     "survey_or_review": 2,
@@ -153,6 +156,21 @@ def _best_slice_overlap(
     return best_overlap, best_record, best_slice
 
 
+def _best_route_slice_overlap(
+    query_terms: set[str],
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    domain: str,
+    route_role: str,
+) -> tuple[int, CanonicalEvidence | None, EvidenceSlice | None]:
+    filtered_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == domain and record.route_role == route_role
+    )
+    return _best_slice_overlap(query_terms, filtered_records)
+
+
 def _is_academic_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
@@ -175,6 +193,11 @@ def _is_industry_lookup_query(query: str) -> bool:
     return bool(tokens & _INDUSTRY_LOOKUP_MARKERS) and not bool(
         tokens & _INDUSTRY_EXPLANATORY_MARKERS
     )
+
+
+def _is_cross_domain_effect_query(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    return any(marker in normalized for marker in _CROSS_DOMAIN_EFFECT_MARKERS)
 
 
 def _best_policy_lookup_record(
@@ -653,6 +676,71 @@ def _build_industry_lookup_fast_path_response(
     )
 
 
+def _build_mixed_cross_domain_fast_path_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    matched_primary_record: CanonicalEvidence,
+    matched_primary_slice: EvidenceSlice,
+    matched_supplemental_record: CanonicalEvidence,
+    matched_supplemental_slice: EvidenceSlice,
+) -> AnswerResponse:
+    conclusion = (
+        f'Retained cross-domain evidence includes {retrieval_response.primary_route} '
+        f'"{matched_primary_record.canonical_title}" and {retrieval_response.supplemental_route} '
+        f'"{matched_supplemental_record.canonical_title}".'
+    )
+
+    draft = StructuredAnswerDraft(
+        conclusion=conclusion,
+        key_points=[
+            KeyPoint(
+                key_point_id="kp-1",
+                statement=matched_primary_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=matched_primary_record.evidence_id,
+                        source_record_id=matched_primary_slice.source_record_id,
+                        source_url=matched_primary_record.canonical_url,
+                        quote_text=matched_primary_slice.text,
+                    )
+                ],
+            ),
+            KeyPoint(
+                key_point_id="kp-2",
+                statement=matched_supplemental_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=matched_supplemental_record.evidence_id,
+                        source_record_id=matched_supplemental_slice.source_record_id,
+                        source_url=matched_supplemental_record.canonical_url,
+                        quote_text=matched_supplemental_slice.text,
+                    )
+                ],
+            ),
+        ],
+        sources=[
+            SourceReference(
+                evidence_id=matched_primary_record.evidence_id,
+                title=matched_primary_record.canonical_title,
+                url=matched_primary_record.canonical_url,
+            ),
+            SourceReference(
+                evidence_id=matched_supplemental_record.evidence_id,
+                title=matched_supplemental_record.canonical_title,
+                url=matched_supplemental_record.canonical_url,
+            ),
+        ],
+        uncertainty_notes=[],
+        gaps=[],
+    )
+    return _build_answer_response(
+        retrieval_response,
+        canonical_evidence,
+        draft,
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -894,6 +982,64 @@ async def execute_answer_pipeline_with_trace(
             canonical_evidence,
             matched_record=best_record,
             matched_slice=best_slice,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    primary_route_overlap, primary_route_record, primary_route_slice = _best_route_slice_overlap(
+        query_terms,
+        canonical_evidence,
+        domain=retrieval_response.primary_route,
+        route_role="primary",
+    )
+    supplemental_route_overlap = 0
+    supplemental_route_record: CanonicalEvidence | None = None
+    supplemental_route_slice: EvidenceSlice | None = None
+    if retrieval_response.supplemental_route is not None:
+        (
+            supplemental_route_overlap,
+            supplemental_route_record,
+            supplemental_route_slice,
+        ) = _best_route_slice_overlap(
+            query_terms,
+            canonical_evidence,
+            domain=retrieval_response.supplemental_route,
+            route_role="supplemental",
+        )
+
+    if (
+        retrieval_response.route_label == "mixed"
+        and retrieval_response.status == "success"
+        and retrieval_response.supplemental_route is not None
+        and not retrieval_response.evidence_pruned
+        and not retrieval_response.gaps
+        and _is_cross_domain_effect_query(query)
+        and primary_route_record is not None
+        and primary_route_slice is not None
+        and supplemental_route_record is not None
+        and supplemental_route_slice is not None
+        and primary_route_overlap >= min(2, len(query_terms))
+        and supplemental_route_overlap >= min(2, len(query_terms))
+    ):
+        response = _build_mixed_cross_domain_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_primary_record=primary_route_record,
+            matched_primary_slice=primary_route_slice,
+            matched_supplemental_record=supplemental_route_record,
+            matched_supplemental_slice=supplemental_route_slice,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(

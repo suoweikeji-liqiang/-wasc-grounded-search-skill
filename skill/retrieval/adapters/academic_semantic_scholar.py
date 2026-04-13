@@ -26,6 +26,15 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
         "year": 2024,
         "evidence_level": "survey_or_review",
     },
+    {
+        "title": "Export controls and academic AI chip research",
+        "url": "https://www.semanticscholar.org/paper/export-controls-ai-chip-research",
+        "snippet": "Peer-reviewed analysis of how export controls reshape academic research access to advanced AI chip systems.",
+        "doi": "10.1000/export-controls.2026.001",
+        "first_author": "Zhang",
+        "year": 2026,
+        "evidence_level": "peer_reviewed",
+    },
 )
 
 

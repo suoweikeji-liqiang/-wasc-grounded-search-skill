@@ -256,6 +256,114 @@ def _industry_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _mixed_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-1",
+                "domain": "policy",
+                "canonical_title": "State Council autonomous driving pilot regulation",
+                "canonical_url": "https://www.gov.cn/zhengce/autonomous-driving-pilot-regulation",
+                "route_role": "primary",
+                "authority": "State Council",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-03-28",
+                "effective_date": "2026-05-01",
+                "version": "2026 pilot edition",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "Official autonomous driving pilot regulation sets 2026 compliance requirements for road testing.",
+                        "source_record_id": "policy-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-1",
+                "domain": "industry",
+                "canonical_title": "BYD autonomous driving supplier investment update",
+                "canonical_url": "https://www.byd.com/news/autonomous-driving-supplier-investment-2026",
+                "route_role": "supplemental",
+                "retained_slices": [
+                    {
+                        "text": "Company update says autonomous driving programs are increasing supplier investment across the vehicle industry in 2026.",
+                        "source_record_id": "industry-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=True,
+        evidence_pruned=False,
+    )
+
+
+def _mixed_weak_overlap_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-1",
+                "domain": "policy",
+                "canonical_title": "State Council administrative regulation repository update",
+                "canonical_url": "https://www.gov.cn/zhengce/content/official-update.htm",
+                "route_role": "primary",
+                "authority": "State Council",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-02-21",
+                "effective_date": "2026-03-01",
+                "version": None,
+                "version_status": "version_missing",
+                "retained_slices": [
+                    {
+                        "text": "Authoritative policy text with publication references.",
+                        "source_record_id": "policy-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-1",
+                "domain": "industry",
+                "canonical_title": "Tesla annual battery supply update",
+                "canonical_url": "https://www.tesla.com/blog/battery-supply-update",
+                "route_role": "supplemental",
+                "retained_slices": [
+                    {
+                        "text": "Company disclosure on battery production guidance.",
+                        "source_record_id": "industry-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 class _RecordingModelClient:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -613,6 +721,102 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
         "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
     }
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "mixed cross-domain fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query="autonomous driving policy impact on industry",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert (
+        "State Council autonomous driving pilot regulation"
+        in result.response.conclusion
+    )
+    assert (
+        "BYD autonomous driving supplier investment update"
+        in result.response.conclusion
+    )
+    assert len(result.response.key_points) == 2
+    assert {
+        source["title"] for source in [item.model_dump() for item in result.response.sources]
+    } == {
+        "State Council autonomous driving pilot regulation",
+        "BYD autonomous driving supplier investment update",
+    }
+    assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_keeps_mixed_fast_path_conservative(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_weak_overlap_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "This response should never be generated.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query="autonomous driving policy impact on industry",
+            adapter_registry={},
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert any(
+        note.startswith("Relevance gate:")
+        for note in result.response.uncertainty_notes
+    )
 
 
 def test_execute_answer_pipeline_with_trace_degrades_on_generation_backend_error(
