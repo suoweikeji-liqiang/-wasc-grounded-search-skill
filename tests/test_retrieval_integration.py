@@ -426,6 +426,120 @@ def test_execute_retrieval_pipeline_mixed_policy_academic_runtime_case_surfaces_
     )
 
 
+def test_execute_retrieval_pipeline_mixed_chinese_runtime_case_keeps_query_aligned_records_per_route(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.orchestrate as orchestrate
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="explicit_cross_domain",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+    query = (
+        "\u81ea\u52a8\u9a7e\u9a76\u653f\u7b56\u53d8\u5316\u5bf9"
+        "\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd\u0032\u0030\u0032\u0036"
+    )
+
+    async def _fake_run_retrieval(**_: object) -> RetrievalExecutionOutcome:
+        return _outcome(
+            _policy_hit(
+                title="Vehicle administrative compliance bulletin",
+                url="https://www.gov.cn/policy/vehicle-bulletin",
+                snippet=(
+                    "General policy administration bulletin for vehicle compliance and "
+                    "reporting requirements."
+                ),
+                authority="State Council",
+                jurisdiction="CN",
+                publication_date="2026-03-28",
+                effective_date="2026-05-01",
+                version="2026 bulletin",
+            ),
+            _policy_hit(
+                title=(
+                    "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1"
+                    "\u529e\u6cd5\u4fee\u8ba2"
+                ),
+                url="https://www.gov.cn/policy/autonomous-driving-amendment",
+                snippet=(
+                    "\u0032\u0030\u0032\u0036\u5e74\u81ea\u52a8\u9a7e\u9a76"
+                    "\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\uff0c\u805a\u7126"
+                    "\u843d\u5730\u548c\u914d\u5957\u8981\u6c42\u3002"
+                ),
+                authority="State Council",
+                jurisdiction="CN",
+                publication_date="2026-03-20",
+            ),
+            _policy_hit(
+                title="Road testing filing reference notice",
+                url="https://www.gov.cn/policy/road-testing-filing",
+                snippet="Official notice about filing templates for road testing programs.",
+                authority="Ministry of Transport",
+                jurisdiction="CN",
+                publication_date="2026-03-10",
+                effective_date="2026-04-01",
+                version="2026 filing edition",
+            ),
+            _industry_hit(
+                title="OEM annual supplier partnership update",
+                url="https://www.example.com/oem-supplier-update",
+                snippet=(
+                    "Company official supplier partnership update with broad manufacturing "
+                    "and procurement context."
+                ),
+                credibility_tier="company_official",
+            ),
+            _industry_hit(
+                title=(
+                    "\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730"
+                    "\u5f71\u54cd\u9884\u6d4b\u0032\u0030\u0032\u0036"
+                ),
+                url="https://www.example.com/autonomous-driving-industry-impact-2026",
+                snippet=(
+                    "\u673a\u6784\u5206\u6790\u81ea\u52a8\u9a7e\u9a76\u76d1\u7ba1"
+                    "\u53d8\u5316\u5bf9\u4ea7\u4e1a\u843d\u5730\u548c\u4f9b\u5e94"
+                    "\u94fe\u6295\u8d44\u7684\u5f71\u54cd\u3002"
+                ),
+                credibility_tier="trusted_news",
+            ),
+        )
+
+    monkeypatch.setattr(orchestrate, "run_retrieval", _fake_run_retrieval)
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query=query,
+            adapter_registry={},
+        )
+    )
+
+    primary_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "primary"
+    ]
+    supplemental_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    ]
+
+    assert primary_titles[0] == (
+        "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u529e\u6cd5\u4fee\u8ba2"
+    )
+    assert supplemental_titles[0] == (
+        "\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd\u9884\u6d4b\u0032\u0030\u0032\u0036"
+    )
+    assert any(item.route_role == "primary" for item in response.canonical_evidence)
+    assert any(item.route_role == "supplemental" for item in response.canonical_evidence)
+
+
 def test_execute_retrieval_pipeline_industry_runtime_case_keeps_fast_path_eligible_after_fixture_expansion() -> None:
     import skill.retrieval.orchestrate as orchestrate
     from skill.retrieval.adapters.industry_ddgs import search as industry_search

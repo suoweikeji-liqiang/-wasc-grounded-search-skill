@@ -19,7 +19,7 @@ from skill.api.schema import (
 from skill.orchestrator.retrieval_plan import RetrievalPlan
 from skill.retrieval.engine import RetrievalExecutionOutcome, run_retrieval
 from skill.retrieval.models import RetrievalHit
-from skill.retrieval.priority import prioritize_hits
+from skill.retrieval.priority import prioritize_hits, score_query_alignment
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 DEFAULT_EVIDENCE_TOKEN_BUDGET = 48
@@ -45,14 +45,19 @@ def _best_snippet(record: CanonicalEvidence) -> str:
 
 
 def _query_match_score(query: str, record: CanonicalEvidence) -> int:
-    tokens = [token for token in query.lower().split() if token]
-    haystack = " ".join(
-        [
-            record.canonical_title,
-            *[slice_.text for slice_ in record.retained_slices],
-        ]
-    ).lower()
-    return sum(1 for token in tokens if token in haystack)
+    route = record.domain if record.domain in {"policy", "industry", "academic"} else "industry"
+    return score_query_alignment(
+        query,
+        route=route,  # type: ignore[arg-type]
+        title=record.canonical_title,
+        snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+        url=record.canonical_url,
+        authority=record.authority,
+        publication_date=record.publication_date,
+        effective_date=record.effective_date,
+        version=record.version,
+        year=record.year,
+    )
 
 
 def _interleave_mixed_records(
@@ -69,6 +74,68 @@ def _interleave_mixed_records(
     ordered.extend(supplemental_records[1:])
     ordered.extend(other_records)
     return tuple(ordered)
+
+
+def _best_mixed_route_record(
+    records: list[CanonicalEvidence],
+    *,
+    query: str,
+    route_role: str,
+) -> CanonicalEvidence | None:
+    candidates = [record for record in records if record.route_role == route_role]
+    if not candidates:
+        return None
+    ranked = sorted(
+        candidates,
+        key=lambda record: (
+            -_query_match_score(query, record),
+            -getattr(record, "total_score", 0.0),
+            record.evidence_id,
+        ),
+    )
+    best = ranked[0]
+    if _query_match_score(query, best) <= 0:
+        return None
+    return best
+
+
+def _seed_mixed_coverage_records(
+    *,
+    plan: RetrievalPlan,
+    query: str,
+    records: list[CanonicalEvidence],
+    top_k: int,
+) -> list[CanonicalEvidence]:
+    if plan.route_label != "mixed" or plan.supplemental_route is None or len(records) <= top_k:
+        return records
+
+    best_primary = _best_mixed_route_record(
+        records,
+        query=query,
+        route_role="primary",
+    )
+    best_supplemental = _best_mixed_route_record(
+        records,
+        query=query,
+        route_role="supplemental",
+    )
+    if best_primary is None or best_supplemental is None:
+        return records
+
+    seeded: list[CanonicalEvidence] = [best_primary]
+    if best_supplemental.evidence_id != best_primary.evidence_id:
+        seeded.append(best_supplemental)
+
+    selected_ids = {record.evidence_id for record in seeded}
+    for record in records:
+        if record.evidence_id in selected_ids:
+            continue
+        seeded.append(record)
+        selected_ids.add(record.evidence_id)
+        if len(seeded) == top_k:
+            break
+
+    return seeded
 
 
 def _order_records_for_response(
@@ -249,8 +316,14 @@ async def execute_retrieval_pipeline(
     )
     canonical_records = collapse_evidence_records(normalized_records)
     scored_records = score_evidence_records(canonical_records)
+    pack_input_records = _seed_mixed_coverage_records(
+        plan=plan,
+        query=query,
+        records=scored_records,
+        top_k=DEFAULT_EVIDENCE_TOP_K,
+    )
     evidence_pack = build_evidence_pack(
-        scored_records,
+        pack_input_records,
         token_budget=DEFAULT_EVIDENCE_TOKEN_BUDGET,
         top_k=DEFAULT_EVIDENCE_TOP_K,
         supplemental_min_items=DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
