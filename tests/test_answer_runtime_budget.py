@@ -105,6 +105,49 @@ def _academic_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _academic_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "paper-1",
+                "domain": "academic",
+                "canonical_title": "Evidence normalization for retrieval grounded systems",
+                "canonical_url": "https://www.semanticscholar.org/paper/abc123",
+                "route_role": "primary",
+                "evidence_level": "peer_reviewed",
+                "canonical_match_confidence": "heuristic",
+                "doi": "10.48550/wasc.2025.001",
+                "arxiv_id": "2604.12345",
+                "first_author": "Lin",
+                "year": 2025,
+                "retained_slices": [
+                    {
+                        "text": "Peer-reviewed study on merging policy and academic evidence signals.",
+                        "source_record_id": "paper-1-slice-1",
+                        "source_span": "snippet",
+                    },
+                    {
+                        "text": "Preprint variant of the evidence normalization study before journal publication.",
+                        "source_record_id": "paper-1-slice-2",
+                        "source_span": "snippet",
+                    },
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 class _RecordingModelClient:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -426,6 +469,65 @@ def test_execute_answer_pipeline_with_trace_skips_academic_generation_when_slice
         note.startswith("Relevance gate:")
         for note in result.response.uncertainty_notes
     )
+
+
+def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _academic_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "academic title lookup fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query="evidence normalization benchmark paper",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert (
+        "Evidence normalization for retrieval grounded systems"
+        in result.response.conclusion
+    )
+    assert result.response.key_points[0].model_dump() == {
+        "key_point_id": "kp-1",
+        "statement": "Preprint variant of the evidence normalization study before journal publication.",
+        "citations": [
+            {
+                "evidence_id": "paper-1",
+                "source_record_id": "paper-1-slice-2",
+                "source_url": "https://www.semanticscholar.org/paper/abc123",
+                "quote_text": "Preprint variant of the evidence normalization study before journal publication.",
+            }
+        ],
+    }
+    assert result.response.sources[0].model_dump() == {
+        "evidence_id": "paper-1",
+        "title": "Evidence normalization for retrieval grounded systems",
+        "url": "https://www.semanticscholar.org/paper/abc123",
+    }
+    assert result.runtime_trace.latency_budget_ok is True
 
 
 def test_run_retrieval_propagates_cancelled_error() -> None:

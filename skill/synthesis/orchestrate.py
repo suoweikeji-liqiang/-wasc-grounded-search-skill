@@ -23,6 +23,7 @@ from skill.synthesis.generator import (
     ModelClient,
     generate_answer_draft,
 )
+from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
 from skill.synthesis.prompt import build_grounded_answer_prompt
 from skill.synthesis.state import determine_answer_status
 from skill.synthesis.uncertainty import build_uncertainty_notes
@@ -57,6 +58,18 @@ _RELEVANCE_STOPWORDS = frozenset(
         "what",
     }
 )
+
+_ACADEMIC_LOOKUP_MARKERS = frozenset({"paper", "study", "preprint", "review", "survey"})
+_ACADEMIC_EXPLANATORY_MARKERS = frozenset(
+    {"what", "how", "why", "compare", "comparison", "impact", "effect", "summary", "summarize"}
+)
+_ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
+    "peer_reviewed": 3,
+    "survey_or_review": 2,
+    "preprint": 1,
+    "metadata_only": 0,
+    None: 0,
+}
 
 
 def _estimate_tokens(text: str) -> int:
@@ -96,6 +109,46 @@ def _content_terms(text: str) -> set[str]:
     }
 
 
+def _best_slice_overlap(
+    query_terms: set[str],
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> tuple[int, CanonicalEvidence | None, EvidenceSlice | None]:
+    best_overlap = 0
+    best_record: CanonicalEvidence | None = None
+    best_slice: EvidenceSlice | None = None
+    best_candidate = (0, -1, -10_000, "", "")
+
+    for record in canonical_evidence:
+        evidence_level_priority = _ACADEMIC_EVIDENCE_LEVEL_PRIORITY.get(
+            record.evidence_level,
+            0,
+        )
+        for slice_ in record.retained_slices:
+            overlap = len(query_terms & _content_terms(slice_.text))
+            candidate = (
+                overlap,
+                evidence_level_priority,
+                -slice_.token_estimate,
+                record.evidence_id,
+                slice_.source_record_id,
+            )
+            if candidate > best_candidate:
+                best_candidate = candidate
+                best_overlap = overlap
+                best_record = record
+                best_slice = slice_
+
+    return best_overlap, best_record, best_slice
+
+
+def _is_academic_lookup_query(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    tokens = set(query_tokens(normalized))
+    return bool(tokens & _ACADEMIC_LOOKUP_MARKERS) and not bool(
+        tokens & _ACADEMIC_EXPLANATORY_MARKERS
+    )
+
+
 def _has_query_evidence_overlap(
     query: str,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -107,16 +160,11 @@ def _has_query_evidence_overlap(
         return True
 
     evidence_terms: set[str] = set()
-    max_slice_overlap = 0
+    max_slice_overlap, _, _ = _best_slice_overlap(query_terms, canonical_evidence)
     for record in canonical_evidence:
         evidence_terms.update(_content_terms(record.canonical_title))
         for slice_ in record.retained_slices:
-            slice_terms = _content_terms(slice_.text)
-            evidence_terms.update(slice_terms)
-            max_slice_overlap = max(
-                max_slice_overlap,
-                len(query_terms & slice_terms),
-            )
+            evidence_terms.update(_content_terms(slice_.text))
 
     overlap_count = len(query_terms & evidence_terms)
     if primary_route == "academic":
@@ -382,6 +430,64 @@ def _build_generation_backend_response(
     )
 
 
+def _build_academic_lookup_fast_path_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    matched_record: CanonicalEvidence,
+    matched_slice: EvidenceSlice,
+) -> AnswerResponse:
+    evidence_label = matched_record.canonical_title
+    metadata: list[str] = []
+    if matched_record.first_author:
+        metadata.append(matched_record.first_author)
+    if matched_record.year is not None:
+        metadata.append(str(matched_record.year))
+    if matched_record.evidence_level == "peer_reviewed":
+        metadata.append("peer-reviewed")
+    elif matched_record.evidence_level == "preprint":
+        metadata.append("preprint")
+
+    conclusion = f'Closest retained academic match: "{evidence_label}".'
+    if metadata:
+        conclusion = (
+            f'Closest retained academic match: "{evidence_label}"'
+            f" ({', '.join(metadata)})."
+        )
+
+    draft = StructuredAnswerDraft(
+        conclusion=conclusion,
+        key_points=[
+            KeyPoint(
+                key_point_id="kp-1",
+                statement=matched_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=matched_record.evidence_id,
+                        source_record_id=matched_slice.source_record_id,
+                        source_url=matched_record.canonical_url,
+                        quote_text=matched_slice.text,
+                    )
+                ],
+            )
+        ],
+        sources=[
+            SourceReference(
+                evidence_id=matched_record.evidence_id,
+                title=matched_record.canonical_title,
+                url=matched_record.canonical_url,
+            )
+        ],
+        uncertainty_notes=[],
+        gaps=[],
+    )
+    return _build_answer_response(
+        retrieval_response,
+        canonical_evidence,
+        draft,
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -524,6 +630,43 @@ async def execute_answer_pipeline_with_trace(
         response = _build_retrieval_failure_response(
             retrieval_response,
             canonical_evidence,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    query_terms = _content_terms(query)
+    best_slice_overlap, best_record, best_slice = _best_slice_overlap(
+        query_terms,
+        canonical_evidence,
+    )
+    if (
+        retrieval_response.primary_route == "academic"
+        and retrieval_response.status == "success"
+        and not retrieval_response.evidence_clipped
+        and not retrieval_response.evidence_pruned
+        and not retrieval_response.gaps
+        and _is_academic_lookup_query(query)
+        and best_record is not None
+        and best_slice is not None
+        and best_slice_overlap >= min(2, len(query_terms))
+    ):
+        response = _build_academic_lookup_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_record=best_record,
+            matched_slice=best_slice,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(
