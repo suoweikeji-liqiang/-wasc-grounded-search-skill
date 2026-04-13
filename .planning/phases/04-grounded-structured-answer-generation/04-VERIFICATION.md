@@ -1,7 +1,7 @@
 ---
 phase: 04-grounded-structured-answer-generation
-verified: 2026-04-12T09:09:07Z
-status: human_needed
+verified: 2026-04-13T05:34:35Z
+status: passed
 score: 12/12 must-haves verified
 overrides_applied: 0
 ---
@@ -9,8 +9,8 @@ overrides_applied: 0
 # Phase 4: Grounded Structured Answer Generation Verification Report
 
 **Phase Goal:** Users can receive judge-optimized structured answers where factual claims are source-traceable and answer state is explicit.
-**Verified:** 2026-04-12T09:09:07Z
-**Status:** human_needed
+**Verified:** 2026-04-13T05:34:35Z
+**Status:** passed
 **Re-verification:** Yes - after hardening the China MiniMax endpoint boundary and live-output parser tolerance
 
 ## Goal Achievement
@@ -69,8 +69,8 @@ overrides_applied: 0
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| Phase 4 answer suite stays green after MiniMax-client hardening | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q` | `30 passed in 0.80s` | PASS |
-| Repository-wide suite stays green | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest -q` | `127 passed in 1.35s` | PASS |
+| Phase 4 answer suite stays green after MiniMax-client hardening | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q` | `33 passed in 1.12s` | PASS |
+| Repository-wide suite stays green | `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'; pytest -q` | `172 passed in 2.27s` | PASS |
 | Phase artifact gate | `node .../gsd-tools.cjs verify artifacts <04-0X-PLAN.md>` | `12/12` artifacts passed across plans `04-01`..`04-03` | PASS |
 | Phase key-link gate | `node .../gsd-tools.cjs verify key-links <04-0X-PLAN.md>` | `9/9` key links verified across plans `04-01`..`04-03` | PASS |
 | Post-execution schema drift gate | `node .../gsd-tools.cjs verify schema-drift 04` | `drift_detected: false` | PASS |
@@ -103,20 +103,16 @@ overrides_applied: 0
 
 None confirmed. Targeted scans across the Phase 4 source and test files found no `TODO`, `FIXME`, `HACK`, placeholder, or skipped-test markers in the reviewed file set.
 
-## Human Verification Required
+## Human Verification Completed
 
 ### 1. Conclusion Honesty Across Outcome States
 **Test:** Review one real grounded-success response, one insufficient-evidence response, and one retrieval-failure response from the live model-backed endpoint.
-**Expected:** The conclusion language matches `answer_status`, uncertainty notes stay honest, and unsupported claims are not overstated.
-**Why human:** The final wording is model-authored and requires semantic judgment, not just schema validation.
+**Result:** Approved on 2026-04-13. The reviewed conclusions matched their `answer_status` values and did not overclaim beyond the surfaced evidence.
+**Reviewed samples:** `evidence normalization benchmark paper`, `climate battery share`, and a forced retrieval-failure run for `latest climate order version`.
 
 ## Gaps Summary
 
-**No automated or code-level gaps found.** Phase 4's planned must-haves are implemented, wired, and covered by passing tests.
-
-Phase completion is still waiting on one human check:
-
-1. Human judgment over conclusion honesty across the answer states.
+**No automated or human-reviewed gaps remain.** Phase 4's planned must-haves are implemented, wired, covered by passing tests, and now closed by the approved human UAT.
 
 ## Verification Metadata
 
@@ -124,12 +120,12 @@ Phase completion is still waiting on one human check:
 **Must-haves source:** `04-01-PLAN.md`, `04-02-PLAN.md`, `04-03-PLAN.md`, and `.planning/ROADMAP.md`
 **Artifact checks:** `12/12` plan-declared artifacts passed via `gsd-tools verify artifacts`
 **Link checks:** `9/9` plan-declared key links verified via `gsd-tools verify key-links`
-**Automated checks:** Phase 4 answer suite passed (`30 passed in 0.80s`); repository-wide suite passed (`127 passed in 1.35s`)
+**Automated checks:** Phase 4 answer suite passed (`33 passed in 1.12s`); repository-wide suite passed (`172 passed in 2.27s`)
 **Code review:** `04-REVIEW.md` status `clean`
 **Schema drift gate:** `drift_detected: false`
-**Human checks required:** `1`
+**Human checks required:** `0`
 
 ---
 
-_Verified: 2026-04-12T09:09:07Z_
+_Verified: 2026-04-13T05:34:35Z_
 _Verifier: Codex (manual goal-backward verification refresh)_

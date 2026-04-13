@@ -1,9 +1,9 @@
 ---
-status: partial
+status: passed
 phase: 04-grounded-structured-answer-generation
 source: [04-VERIFICATION.md]
 started: 2026-04-12T08:43:58Z
-updated: 2026-04-12T09:09:07Z
+updated: 2026-04-13T05:34:35Z
 ---
 
 ## Current Test
@@ -18,17 +18,17 @@ result: passed
 
 ### 2. Conclusion Honesty Across Outcome States
 expected: Real grounded-success, insufficient-evidence, and retrieval-failure responses use conclusion language that matches `answer_status` and does not overclaim beyond the cited evidence.
-result: pending
+result: passed
 
 ## Summary
 
 total: 2
-passed: 1
+passed: 2
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-- Observation pending human judgment: the academic smoke path returned `grounded_success`, but the conclusion text still says additional sources are required. This may be acceptable or may indicate the answer-state wording needs tightening.
+- Human review approved the current conclusion language across sampled `grounded_success`, `insufficient_evidence`, and `retrieval_failure` outputs. No wording mismatch or overclaim was identified in the reviewed samples.

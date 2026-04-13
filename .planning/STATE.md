@@ -22,7 +22,7 @@ progress:
 See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Milestone audited - awaiting human UAT closure and milestone completion decisions before archive
+**Current focus:** Milestone audited - ready for archival after final milestone-completion decisions
 
 ## Current Position
 
@@ -87,7 +87,6 @@ None yet.
 
 [Issues that affect future work]
 
-- [Phase 4] `04-HUMAN-UAT.md` still has one pending human judgment item on whether live conclusion wording is fully aligned with `answer_status`.
 - [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
 
 ## Session Continuity
