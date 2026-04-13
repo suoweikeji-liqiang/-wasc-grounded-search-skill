@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase_name: runtime-reliability-benchmark-repeatability
 status: phase_complete
-stopped_at: Mixed retrieval alignment and cross-domain fast path shipped; latest live benchmark reaches 45 grounded successes with only academic-01 remaining
-last_updated: "2026-04-13T05:17:29Z"
-last_activity: 2026-04-13 -- Mixed retrieval alignment and cross-domain fast path verified against live benchmark
+stopped_at: Academic benchmark coverage completed; latest live benchmark reaches 50 grounded successes across the locked suite
+last_updated: "2026-04-13T05:24:58Z"
+last_activity: 2026-04-13 -- Academic benchmark coverage completed and verified against live benchmark
 progress:
   total_phases: 5
   completed_phases: 5
@@ -22,7 +22,7 @@ progress:
 See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Milestone audited - awaiting human UAT closure and decision on whether to close the remaining academic-01 live gap before archive
+**Current focus:** Milestone audited - awaiting human UAT closure and milestone completion decisions before archive
 
 ## Current Position
 
@@ -30,8 +30,8 @@ Phase: 05 (runtime-reliability-benchmark-repeatability) - COMPLETE
 Current Phase Name: runtime-reliability-benchmark-repeatability
 Plan: 3/3 complete
 Status: Phase complete
-Last activity: 2026-04-13 -- Mixed retrieval alignment and cross-domain fast path verified against live benchmark
-Last Activity Description: Live benchmark now routes benchmark English queries correctly, normalizes quoted MiniMax env values, keeps all 50 runs within runtime budget, and returns grounded_success for policy-01/02/03, academic-02/03, industry-01/02, and mixed-01/02
+Last activity: 2026-04-13 -- Academic benchmark coverage completed and verified against live benchmark
+Last Activity Description: Live benchmark now routes benchmark English queries correctly, normalizes quoted MiniMax env values, keeps all 50 runs within runtime budget, and returns grounded_success for all 10 locked benchmark cases
 
 Progress: [####################] 100%
 
@@ -88,7 +88,6 @@ None yet.
 [Issues that affect future work]
 
 - [Phase 4] `04-HUMAN-UAT.md` still has one pending human judgment item on whether live conclusion wording is fully aligned with `answer_status`.
-- [Phase 5] Live benchmark now routes English benchmark queries to the intended domains, normalizes quoted MiniMax env values, and keeps the full 10x5 suite within budget with 45 grounded successes; only academic-01 still returns `insufficient_evidence`.
 - [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
 
 ## Session Continuity
