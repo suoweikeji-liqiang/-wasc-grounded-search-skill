@@ -173,7 +173,7 @@ def test_execute_answer_pipeline_returns_grounded_success_with_cited_key_points(
     response = asyncio.run(
         execute_answer_pipeline(
             plan=_build_plan("policy", "policy", None),
-            query=cases["grounded_policy_success"]["query"],
+            query="climate takes effect on May 1",
             adapter_registry={},
             model_client=model_client,
         )

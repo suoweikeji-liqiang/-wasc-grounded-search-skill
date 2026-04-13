@@ -68,6 +68,67 @@ def _grounded_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _policy_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-1",
+                "domain": "policy",
+                "canonical_title": "Ministry of Ecology and Environment policy bulletin",
+                "canonical_url": "https://www.mee.gov.cn/policy/latest-regulation",
+                "route_role": "primary",
+                "authority": "Ministry of Ecology and Environment",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-03-18",
+                "effective_date": "2026-04-01",
+                "version": "2026-03 bulletin",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "Official regulatory bulletin for environmental compliance.",
+                        "source_record_id": "policy-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "policy-2",
+                "domain": "policy",
+                "canonical_title": "State Council administrative regulation repository update",
+                "canonical_url": "https://www.gov.cn/zhengce/content/official-update.htm",
+                "route_role": "primary",
+                "authority": "State Council",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-02-21",
+                "effective_date": "2026-03-01",
+                "version": None,
+                "version_status": "version_missing",
+                "retained_slices": [
+                    {
+                        "text": "Authoritative policy text with publication references.",
+                        "source_record_id": "policy-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _academic_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="academic",
@@ -209,7 +270,7 @@ def test_execute_answer_pipeline_with_trace_forwards_remaining_synthesis_timeout
     result = asyncio.run(
         execute_answer_pipeline_with_trace(
             plan=_build_plan("policy", "policy", None),
-            query="latest climate order version",
+            query="climate takes effect on May 1",
             adapter_registry={},
             model_client=model_client,
             runtime_budget=RuntimeBudget(),
@@ -276,7 +337,7 @@ def test_execute_answer_pipeline_with_trace_enforces_answer_token_budget(
     result = asyncio.run(
         execute_answer_pipeline_with_trace(
             plan=_build_plan("policy", "policy", None),
-            query="latest climate order version",
+            query="climate takes effect on May 1",
             adapter_registry={},
             model_client=model_client,
             runtime_budget=RuntimeBudget(answer_token_budget=3),
@@ -385,6 +446,67 @@ def test_execute_answer_pipeline_with_trace_skips_generation_on_single_term_over
         note.startswith("Relevance gate:")
         for note in result.response.uncertainty_notes
     )
+
+
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "policy lookup fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="latest climate order version",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert (
+        'Closest retained policy match: "Ministry of Ecology and Environment policy bulletin"'
+        in result.response.conclusion
+    )
+    assert "2026-03 bulletin" in result.response.conclusion
+    assert "2026-04-01" in result.response.conclusion
+    assert result.response.key_points[0].model_dump() == {
+        "key_point_id": "kp-1",
+        "statement": "Official regulatory bulletin for environmental compliance.",
+        "citations": [
+            {
+                "evidence_id": "policy-1",
+                "source_record_id": "policy-1-slice-1",
+                "source_url": "https://www.mee.gov.cn/policy/latest-regulation",
+                "quote_text": "Official regulatory bulletin for environmental compliance.",
+            }
+        ],
+    }
+    assert result.response.sources[0].model_dump() == {
+        "evidence_id": "policy-1",
+        "title": "Ministry of Ecology and Environment policy bulletin",
+        "url": "https://www.mee.gov.cn/policy/latest-regulation",
+    }
+    assert result.runtime_trace.latency_budget_ok is True
 
 
 def test_execute_answer_pipeline_with_trace_degrades_on_generation_backend_error(
@@ -619,7 +741,7 @@ def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(
         client = TestClient(api_entry.app)
         response = client.post(
             "/answer",
-            json={"query": "latest climate order version"},
+            json={"query": "climate takes effect on May 1"},
         )
     finally:
         del api_entry.app.state.adapter_registry

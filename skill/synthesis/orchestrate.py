@@ -63,6 +63,12 @@ _ACADEMIC_LOOKUP_MARKERS = frozenset({"paper", "study", "preprint", "review", "s
 _ACADEMIC_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "compare", "comparison", "impact", "effect", "summary", "summarize"}
 )
+_POLICY_LOOKUP_MARKERS = frozenset(
+    {"latest", "version", "effective", "date", "update", "registry", "guidance", "order"}
+)
+_POLICY_EXPLANATORY_MARKERS = frozenset(
+    {"what", "how", "why", "impact", "effect", "summary", "summarize"}
+)
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
     "survey_or_review": 2,
@@ -147,6 +153,52 @@ def _is_academic_lookup_query(query: str) -> bool:
     return bool(tokens & _ACADEMIC_LOOKUP_MARKERS) and not bool(
         tokens & _ACADEMIC_EXPLANATORY_MARKERS
     )
+
+
+def _is_policy_lookup_query(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    tokens = set(query_tokens(normalized))
+    return bool(tokens & _POLICY_LOOKUP_MARKERS) and not bool(
+        tokens & _POLICY_EXPLANATORY_MARKERS
+    )
+
+
+def _best_policy_lookup_record(
+    query: str,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> CanonicalEvidence | None:
+    tokens = set(query_tokens(normalize_query_text(query)))
+    needs_version = "version" in tokens
+    needs_effective_date = bool({"effective", "date"} & tokens)
+
+    best_record: CanonicalEvidence | None = None
+    best_candidate = (-1, -1, "", "", "")
+    for record in canonical_evidence:
+        if record.domain != "policy" or not record.retained_slices:
+            continue
+
+        has_version = int(record.version_status == "observed" and record.version is not None)
+        has_effective_date = int(record.effective_date is not None)
+        candidate = (
+            has_version if needs_version else 0,
+            has_effective_date if needs_effective_date else 0,
+            record.publication_date or "",
+            record.effective_date or "",
+            record.evidence_id,
+        )
+        if candidate > best_candidate:
+            best_candidate = candidate
+            best_record = record
+
+    if best_record is None:
+        return None
+    if needs_version and not (
+        best_record.version_status == "observed" and best_record.version is not None
+    ):
+        return None
+    if needs_effective_date and best_record.effective_date is None:
+        return None
+    return best_record
 
 
 def _has_query_evidence_overlap(
@@ -488,6 +540,63 @@ def _build_academic_lookup_fast_path_response(
     )
 
 
+def _build_policy_lookup_fast_path_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    matched_record: CanonicalEvidence,
+) -> AnswerResponse:
+    matched_slice = matched_record.retained_slices[0]
+    metadata: list[str] = []
+    if matched_record.authority:
+        metadata.append(matched_record.authority)
+    if matched_record.version is not None:
+        metadata.append(f"version {matched_record.version}")
+    if matched_record.effective_date is not None:
+        metadata.append(f"effective {matched_record.effective_date}")
+    elif matched_record.publication_date is not None:
+        metadata.append(f"published {matched_record.publication_date}")
+
+    conclusion = f'Closest retained policy match: "{matched_record.canonical_title}".'
+    if metadata:
+        conclusion = (
+            f'Closest retained policy match: "{matched_record.canonical_title}"'
+            f" ({'; '.join(metadata)})."
+        )
+
+    draft = StructuredAnswerDraft(
+        conclusion=conclusion,
+        key_points=[
+            KeyPoint(
+                key_point_id="kp-1",
+                statement=matched_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=matched_record.evidence_id,
+                        source_record_id=matched_slice.source_record_id,
+                        source_url=matched_record.canonical_url,
+                        quote_text=matched_slice.text,
+                    )
+                ],
+            )
+        ],
+        sources=[
+            SourceReference(
+                evidence_id=matched_record.evidence_id,
+                title=matched_record.canonical_title,
+                url=matched_record.canonical_url,
+            )
+        ],
+        uncertainty_notes=[],
+        gaps=[],
+    )
+    return _build_answer_response(
+        retrieval_response,
+        canonical_evidence,
+        draft,
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -667,6 +776,36 @@ async def execute_answer_pipeline_with_trace(
             canonical_evidence,
             matched_record=best_record,
             matched_slice=best_slice,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    matched_policy_record = _best_policy_lookup_record(query, canonical_evidence)
+    if (
+        retrieval_response.primary_route == "policy"
+        and retrieval_response.status == "success"
+        and not retrieval_response.evidence_clipped
+        and not retrieval_response.evidence_pruned
+        and not retrieval_response.gaps
+        and _is_policy_lookup_query(query)
+        and matched_policy_record is not None
+    ):
+        response = _build_policy_lookup_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_record=matched_policy_record,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(
