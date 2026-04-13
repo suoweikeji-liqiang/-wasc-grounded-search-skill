@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase_name: runtime-reliability-benchmark-repeatability
 status: phase_complete
-stopped_at: Live MiniMax benchmark executed; awaiting release decision on pending human UAT and synthesis latency debt
-last_updated: "2026-04-13T01:02:00.0000000Z"
-last_activity: 2026-04-13 -- Live MiniMax benchmark executed and audit updated
+stopped_at: Relevance gate optimization shipped; awaiting release decision on pending human UAT and live answer quality debt
+last_updated: "2026-04-13T01:06:30.0000000Z"
+last_activity: 2026-04-13 -- Relevance gate optimization verified against live benchmark
 progress:
   total_phases: 5
   completed_phases: 5
@@ -22,7 +22,7 @@ progress:
 See: D:\study\WASC\.planning\PROJECT.md (updated 2026-04-12)
 
 **Core value:** For any benchmark query, the Skill returns a trustworthy, structured answer with clear source links and minimal unsupported claims.
-**Current focus:** Milestone audited - awaiting human UAT closure and decision on live synthesis latency debt before archive
+**Current focus:** Milestone audited - awaiting human UAT closure and decision on live answer quality debt before archive
 
 ## Current Position
 
@@ -30,8 +30,8 @@ Phase: 05 (runtime-reliability-benchmark-repeatability) - COMPLETE
 Current Phase Name: runtime-reliability-benchmark-repeatability
 Plan: 3/3 complete
 Status: Phase complete
-Last activity: 2026-04-13 -- Live MiniMax benchmark executed and audit updated
-Last Activity Description: Live benchmark now runs; pending release decision on synthesis latency debt
+Last activity: 2026-04-13 -- Relevance gate optimization verified against live benchmark
+Last Activity Description: Live benchmark now stays within budget; pending release decision on answer quality debt
 
 Progress: [####################] 100%
 
@@ -88,7 +88,7 @@ None yet.
 [Issues that affect future work]
 
 - [Phase 4] `04-HUMAN-UAT.md` still has one pending human judgment item on whether live conclusion wording is fully aligned with `answer_status`.
-- [Phase 5] Live MiniMax benchmark now runs end to end, but every observed run degraded to `insufficient_evidence` because synthesis exceeded the request budget.
+- [Phase 5] Live benchmark now stays within latency and token budgets, but every observed run still returns `insufficient_evidence` because routing/retrieval evidence is too weak for grounded answers.
 - [Phase 2] `RetrieveResponse` is less strict than `RetrieveOutcome` on cross-field invariants; advisory now, but worth tightening in a later polish pass.
 
 ## Session Continuity
