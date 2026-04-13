@@ -3,3 +3,15 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Local demo / submission artifacts
+assets/demo-video/
+benchmark-results/bilibili-demo-server.stderr.log
+benchmark-results/bilibili-demo-server.stdout.log
+docs/submission/demo-*.md
+docs/plans/2026-04-13-bilibili-product-first-video-design.md
+docs/plans/2026-04-13-bilibili-product-first-video.md
+scripts/render_bilibili_demo_video.py
+scripts/run_bilibili_demo.ps1
+scripts/upload_bilibili_submission.py
+tests/test_bilibili_demo_script.py
