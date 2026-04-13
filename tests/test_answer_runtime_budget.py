@@ -14,6 +14,7 @@ from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
 from skill.retrieval.engine import run_retrieval
 from skill.retrieval.models import RetrievalHit
+from skill.synthesis.generator import ModelBackendError
 
 
 def _build_plan(route_label: str, primary_route: str, supplemental_route: str | None):
@@ -56,6 +57,43 @@ def _grounded_retrieve_response() -> RetrieveResponse:
                     {
                         "text": "The Climate Order takes effect on May 1, 2026.",
                         "source_record_id": "policy-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _academic_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "paper-1",
+                "domain": "academic",
+                "canonical_title": "Evidence normalization for retrieval grounded systems",
+                "canonical_url": "https://www.semanticscholar.org/paper/abc123",
+                "route_role": "primary",
+                "evidence_level": "peer_reviewed",
+                "canonical_match_confidence": "heuristic",
+                "doi": "10.48550/wasc.2025.001",
+                "first_author": "Lin",
+                "year": 2025,
+                "retained_slices": [
+                    {
+                        "text": "Peer-reviewed study on merging policy and academic evidence signals.",
+                        "source_record_id": "paper-1-slice-1",
                         "source_span": "snippet",
                     }
                 ],
@@ -261,6 +299,133 @@ def test_execute_answer_pipeline_with_trace_skips_generation_for_irrelevant_evid
     )
     assert result.runtime_trace.budget_exhausted_phase is None
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_skips_generation_on_single_term_overlap(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _grounded_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "This response should never be generated.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="climate battery share",
+            adapter_registry={},
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert any(
+        note.startswith("Relevance gate:")
+        for note in result.response.uncertainty_notes
+    )
+
+
+def test_execute_answer_pipeline_with_trace_degrades_on_generation_backend_error(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _grounded_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _FailingModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise ModelBackendError("MiniMax request failed with status 500")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="The Climate Order takes effect on May 1, 2026.",
+            adapter_registry={},
+            model_client=_FailingModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert result.response.key_points == []
+    assert any(
+        note.startswith("Generation backend:")
+        for note in result.response.uncertainty_notes
+    )
+    assert result.runtime_trace.budget_exhausted_phase is None
+
+
+def test_execute_answer_pipeline_with_trace_skips_academic_generation_when_slice_overlap_is_weak(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _academic_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "This response should never be generated.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query="grounded search evidence packing paper",
+            adapter_registry={},
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert any(
+        note.startswith("Relevance gate:")
+        for note in result.response.uncertainty_notes
+    )
 
 
 def test_run_retrieval_propagates_cancelled_error() -> None:

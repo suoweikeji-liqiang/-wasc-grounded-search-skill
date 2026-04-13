@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -11,7 +11,11 @@ from skill.evidence.models import CanonicalEvidence, EvidenceSlice
 from skill.evidence.normalize import build_raw_record
 from skill.retrieval.models import RetrievalHit
 
-from skill.synthesis.generator import MiniMaxTextClient, generate_answer_draft
+from skill.synthesis.generator import (
+    MiniMaxTextClient,
+    ModelBackendError,
+    generate_answer_draft,
+)
 from skill.synthesis.prompt import build_grounded_answer_prompt
 
 
@@ -299,6 +303,43 @@ def test_minimax_text_client_defaults_to_competition_model() -> None:
     assert client.model == "MiniMax-M2.7"
 
 
+def test_minimax_text_client_strips_wrapping_quotes_from_api_key(monkeypatch) -> None:
+    import skill.synthesis.generator as generator_module
+
+    observed: dict[str, object] = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "{\"conclusion\":\"ok\",\"key_points\":[],\"sources\":[],\"uncertainty_notes\":[]}"
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout: float):
+        observed["authorization"] = request.get_header("Authorization")
+        return _FakeResponse()
+
+    monkeypatch.setattr(generator_module, "urlopen", _fake_urlopen)
+
+    client = MiniMaxTextClient(api_key='"test-key"')
+    client.generate_text("prompt text")
+
+    assert observed["authorization"] == "Bearer test-key"
+
+
 def test_minimax_text_client_calls_openai_compatible_api(monkeypatch) -> None:
     import skill.synthesis.generator as generator_module
 
@@ -369,4 +410,26 @@ def test_minimax_text_client_normalizes_urlopen_timeout_to_timeout_error(
     client = MiniMaxTextClient(api_key="test-key")
 
     with pytest.raises(TimeoutError, match="handshake operation timed out"):
+        client.generate_text("prompt text")
+
+
+def test_minimax_text_client_normalizes_http_error_to_model_backend_error(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.generator as generator_module
+
+    def _http_error_urlopen(request, timeout: float):
+        raise HTTPError(
+            url=request.full_url,
+            code=500,
+            msg="Internal Server Error",
+            hdrs=None,
+            fp=None,
+        )
+
+    monkeypatch.setattr(generator_module, "urlopen", _http_error_urlopen)
+
+    client = MiniMaxTextClient(api_key="test-key")
+
+    with pytest.raises(ModelBackendError, match="status 500"):
         client.generate_text("prompt text")

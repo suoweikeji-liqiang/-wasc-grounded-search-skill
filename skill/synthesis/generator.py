@@ -7,12 +7,23 @@ from json import JSONDecodeError
 from typing import Any
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
 
 _SYSTEM_PROMPT = "You are a grounded answer generator. Return valid JSON only."
+
+
+class ModelBackendError(RuntimeError):
+    """Raised when the upstream generation backend fails before returning content."""
+
+
+def _normalize_secret(value: str) -> str:
+    normalized = value.strip()
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+        return normalized[1:-1].strip()
+    return normalized
 
 
 def _extract_json_object(raw_text: str) -> str:
@@ -70,6 +81,9 @@ class MiniMaxTextClient:
     base_url: str = "https://api.minimaxi.com/v1"
     timeout_seconds: float = 120.0
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "api_key", _normalize_secret(self.api_key))
+
     def generate_text(
         self, prompt: str, timeout_seconds: float | None = None
     ) -> str:
@@ -98,10 +112,16 @@ class MiniMaxTextClient:
         try:
             with urlopen(request, timeout=timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise ModelBackendError(
+                f"MiniMax request failed with status {exc.code}"
+            ) from exc
         except URLError as exc:
             if isinstance(exc.reason, TimeoutError):
                 raise TimeoutError(str(exc.reason)) from exc
-            raise
+            raise ModelBackendError(
+                f"MiniMax request failed: {exc.reason}"
+            ) from exc
 
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:

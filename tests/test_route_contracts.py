@@ -30,6 +30,69 @@ AMBIGUOUS_MIXED_REASON_CATEGORIES = {
     "ambiguous_tie_defaults_precedence",
 }
 
+ENGLISH_BENCHMARK_ROUTE_CASES = (
+    {
+        "query": "latest climate order version",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "latest methane registry update",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "industrial emissions guidance effective date",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "grounded search evidence packing paper",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "evidence normalization benchmark paper",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "latency-aware retrieval paper",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "semiconductor packaging capacity forecast 2026",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "battery recycling market share 2025",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "autonomous driving policy impact on industry",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "industry",
+    },
+    {
+        "query": "AI chip export controls effect on academic research",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "academic",
+    },
+)
+
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
@@ -136,3 +199,15 @@ def test_ambiguous_mixed_contract_uses_concrete_primary_family_table(
     assert payload["primary_route"] in ALLOWED_CONCRETE_ROUTES
     assert payload["supplemental_route"] is None
     assert payload["source_families"] == list(ROUTE_SOURCE_FAMILIES[payload["primary_route"]])
+
+
+@pytest.mark.parametrize("case", ENGLISH_BENCHMARK_ROUTE_CASES, ids=lambda case: case["query"])
+def test_english_benchmark_queries_route_to_expected_domains(
+    client: TestClient,
+    case: dict[str, str | None],
+) -> None:
+    payload = client.post("/route", json={"query": case["query"]}).json()
+
+    assert payload["route_label"] == case["route_label"]
+    assert payload["primary_route"] == case["primary_route"]
+    assert payload["supplemental_route"] == case["supplemental_route"]

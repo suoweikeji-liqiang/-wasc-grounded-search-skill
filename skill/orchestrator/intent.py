@@ -39,6 +39,51 @@ _MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyType(
     }
 )
 
+_ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyType(
+    {
+        "policy": (
+            "policy",
+            "regulation",
+            "registry",
+            "guidance",
+            "effective date",
+            "order",
+            "export controls",
+            "controls",
+            "climate",
+            "methane",
+            "emissions",
+        ),
+        "academic": (
+            "paper",
+            "research",
+            "retrieval",
+            "grounded",
+            "evidence packing",
+            "evidence",
+            "normalization",
+        ),
+        "industry": (
+            "industry",
+            "market",
+            "share",
+            "forecast",
+            "capacity",
+            "battery",
+            "recycling",
+            "semiconductor",
+            "packaging",
+        ),
+    }
+)
+
+_ENGLISH_EXPLICIT_CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
+    "impact on",
+    "effect on",
+    "impact of",
+    "effect of",
+)
+
 _PRECEDENCE_INDEX: Mapping[str, int] = MappingProxyType(
     {route: index for index, route in enumerate(ROUTE_PRECEDENCE)}
 )
@@ -47,6 +92,7 @@ _PRECEDENCE_INDEX: Mapping[str, int] = MappingProxyType(
 def _score_routes(normalized_query: str) -> Mapping[str, int]:
     scored = {
         route: sum(2 for marker in markers if marker in normalized_query)
+        + sum(2 for marker in _ENGLISH_MARKER_TABLE[route] if marker in normalized_query)
         for route, markers in _MARKER_TABLE.items()
     }
     return MappingProxyType(scored)
@@ -62,7 +108,11 @@ def _rank_routes(scores: Mapping[str, int]) -> tuple[ConcreteRoute, ...]:
 
 def _is_explicit_cross_domain(normalized_query: str, scores: Mapping[str, int]) -> bool:
     has_cross_domain_phrase = any(
-        marker in normalized_query for marker in EXPLICIT_CROSS_DOMAIN_MARKERS
+        marker in normalized_query
+        for marker in (
+            *EXPLICIT_CROSS_DOMAIN_MARKERS,
+            *_ENGLISH_EXPLICIT_CROSS_DOMAIN_MARKERS,
+        )
     )
     active_domain_count = sum(1 for score in scores.values() if score > 0)
     return has_cross_domain_phrase and active_domain_count >= 2

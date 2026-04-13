@@ -18,7 +18,11 @@ from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
 from skill.synthesis.citation_check import validate_answer_citations
-from skill.synthesis.generator import ModelClient, generate_answer_draft
+from skill.synthesis.generator import (
+    ModelBackendError,
+    ModelClient,
+    generate_answer_draft,
+)
 from skill.synthesis.prompt import build_grounded_answer_prompt
 from skill.synthesis.state import determine_answer_status
 from skill.synthesis.uncertainty import build_uncertainty_notes
@@ -95,18 +99,32 @@ def _content_terms(text: str) -> set[str]:
 def _has_query_evidence_overlap(
     query: str,
     canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    primary_route: str,
 ) -> bool:
     query_terms = _content_terms(query)
     if not query_terms:
         return True
 
     evidence_terms: set[str] = set()
+    max_slice_overlap = 0
     for record in canonical_evidence:
         evidence_terms.update(_content_terms(record.canonical_title))
         for slice_ in record.retained_slices:
-            evidence_terms.update(_content_terms(slice_.text))
+            slice_terms = _content_terms(slice_.text)
+            evidence_terms.update(slice_terms)
+            max_slice_overlap = max(
+                max_slice_overlap,
+                len(query_terms & slice_terms),
+            )
 
-    return bool(query_terms & evidence_terms)
+    overlap_count = len(query_terms & evidence_terms)
+    if primary_route == "academic":
+        required_slice_overlap = min(2, len(query_terms))
+        return max_slice_overlap >= required_slice_overlap
+
+    required_overlap = min(2, len(query_terms))
+    return overlap_count >= required_overlap
 
 
 def _rehydrate_canonical_evidence(
@@ -331,6 +349,39 @@ def _build_relevance_gated_response(
     )
 
 
+def _build_generation_backend_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    reason: str,
+) -> AnswerResponse:
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
+    )
+    return AnswerResponse(
+        answer_status="insufficient_evidence",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion="Available evidence was insufficient to fully support the requested answer.",
+        key_points=[],
+        sources=[],
+        uncertainty_notes=[
+            f"Generation backend: {reason}",
+            *uncertainty_notes,
+        ],
+        gaps=list(retrieval_response.gaps),
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -489,7 +540,11 @@ async def execute_answer_pipeline_with_trace(
             ),
         )
 
-    if canonical_evidence and not _has_query_evidence_overlap(query, canonical_evidence):
+    if canonical_evidence and not _has_query_evidence_overlap(
+        query,
+        canonical_evidence,
+        primary_route=retrieval_response.primary_route,
+    ):
         response = _build_relevance_gated_response(
             retrieval_response,
             canonical_evidence,
@@ -567,6 +622,27 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=budget_exhausted_phase,
+            ),
+        )
+    except ModelBackendError as exc:
+        response = _build_generation_backend_response(
+            retrieval_response,
+            canonical_evidence,
+            reason=str(exc),
+        )
+        synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
             ),
         )
 
