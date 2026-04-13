@@ -63,6 +63,12 @@ _ACADEMIC_LOOKUP_MARKERS = frozenset({"paper", "study", "preprint", "review", "s
 _ACADEMIC_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "compare", "comparison", "impact", "effect", "summary", "summarize"}
 )
+_INDUSTRY_LOOKUP_MARKERS = frozenset(
+    {"forecast", "outlook", "market", "share", "capacity", "packaging", "recycling", "pricing"}
+)
+_INDUSTRY_EXPLANATORY_MARKERS = frozenset(
+    {"what", "how", "why", "impact", "effect", "summary", "summarize"}
+)
 _POLICY_LOOKUP_MARKERS = frozenset(
     {"latest", "version", "effective", "date", "update", "registry", "guidance", "order"}
 )
@@ -160,6 +166,14 @@ def _is_policy_lookup_query(query: str) -> bool:
     tokens = set(query_tokens(normalized))
     return bool(tokens & _POLICY_LOOKUP_MARKERS) and not bool(
         tokens & _POLICY_EXPLANATORY_MARKERS
+    )
+
+
+def _is_industry_lookup_query(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    tokens = set(query_tokens(normalized))
+    return bool(tokens & _INDUSTRY_LOOKUP_MARKERS) and not bool(
+        tokens & _INDUSTRY_EXPLANATORY_MARKERS
     )
 
 
@@ -597,6 +611,48 @@ def _build_policy_lookup_fast_path_response(
     )
 
 
+def _build_industry_lookup_fast_path_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    matched_record: CanonicalEvidence,
+    matched_slice: EvidenceSlice,
+) -> AnswerResponse:
+    conclusion = f'Closest retained industry match: "{matched_record.canonical_title}".'
+
+    draft = StructuredAnswerDraft(
+        conclusion=conclusion,
+        key_points=[
+            KeyPoint(
+                key_point_id="kp-1",
+                statement=matched_slice.text,
+                citations=[
+                    ClaimCitation(
+                        evidence_id=matched_record.evidence_id,
+                        source_record_id=matched_slice.source_record_id,
+                        source_url=matched_record.canonical_url,
+                        quote_text=matched_slice.text,
+                    )
+                ],
+            )
+        ],
+        sources=[
+            SourceReference(
+                evidence_id=matched_record.evidence_id,
+                title=matched_record.canonical_title,
+                url=matched_record.canonical_url,
+            )
+        ],
+        uncertainty_notes=[],
+        gaps=[],
+    )
+    return _build_answer_response(
+        retrieval_response,
+        canonical_evidence,
+        draft,
+    )
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -806,6 +862,38 @@ async def execute_answer_pipeline_with_trace(
             retrieval_response,
             canonical_evidence,
             matched_record=matched_policy_record,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
+
+    if (
+        retrieval_response.primary_route == "industry"
+        and retrieval_response.status == "success"
+        and not retrieval_response.evidence_clipped
+        and not retrieval_response.evidence_pruned
+        and not retrieval_response.gaps
+        and _is_industry_lookup_query(query)
+        and best_record is not None
+        and best_slice is not None
+        and best_slice_overlap >= min(2, len(query_terms))
+    ):
+        response = _build_industry_lookup_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_record=best_record,
+            matched_slice=best_slice,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(

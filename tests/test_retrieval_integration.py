@@ -77,6 +77,22 @@ def _academic_hit(
     )
 
 
+def _industry_hit(
+    *,
+    title: str,
+    url: str,
+    snippet: str,
+    credibility_tier: str,
+) -> RetrievalHit:
+    return RetrievalHit(
+        source_id="industry_ddgs",
+        title=title,
+        url=url,
+        snippet=snippet,
+        credibility_tier=credibility_tier,
+    )
+
+
 def test_execute_retrieval_pipeline_policy_runtime_case_uses_real_evidence_path(
     monkeypatch,
 ) -> None:
@@ -248,6 +264,62 @@ def test_execute_retrieval_pipeline_academic_runtime_case_merges_variants_on_rea
     assert [item.snippet for item in response.results] == [
         canonical.retained_slices[0].text
     ]
+
+
+def test_execute_retrieval_pipeline_industry_runtime_case_reorders_response_by_query_match(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.orchestrate as orchestrate
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    live_industry_hits = [
+        _industry_hit(
+            title="Tesla annual battery supply update",
+            url="https://www.tesla.com/blog/battery-supply-update",
+            snippet="Company disclosure on battery production guidance.",
+            credibility_tier="company_official",
+        ),
+        _industry_hit(
+            title="SEMI outlook for semiconductor packaging capacity",
+            url="https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+            snippet="Industry-association forecast for semiconductor packaging capacity in 2026.",
+            credibility_tier="industry_association",
+        ),
+        _industry_hit(
+            title="Reuters battery recycling market share outlook 2025",
+            url="https://www.reuters.com/markets/battery-recycling-share-2025",
+            snippet="Trusted news estimate of battery recycling market-share shifts in 2025.",
+            credibility_tier="trusted_news",
+        ),
+    ]
+
+    async def _fake_run_retrieval(**_: object) -> RetrievalExecutionOutcome:
+        return _outcome(*live_industry_hits)
+
+    monkeypatch.setattr(orchestrate, "run_retrieval", _fake_run_retrieval)
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query="semiconductor packaging capacity forecast 2026",
+            adapter_registry={},
+        )
+    )
+
+    assert response.canonical_evidence[0].canonical_title == (
+        "SEMI outlook for semiconductor packaging capacity"
+    )
+    assert response.results[0].title == (
+        "SEMI outlook for semiconductor packaging capacity"
+    )
 
 
 def test_retrieve_response_exposes_additive_canonical_evidence_models() -> None:

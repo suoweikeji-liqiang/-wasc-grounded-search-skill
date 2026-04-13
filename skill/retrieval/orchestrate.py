@@ -25,6 +25,13 @@ Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 DEFAULT_EVIDENCE_TOKEN_BUDGET = 48
 DEFAULT_EVIDENCE_TOP_K = 4
 DEFAULT_SUPPLEMENTAL_MIN_ITEMS = 1
+_INDUSTRY_CREDIBILITY_PRIORITY: dict[str | None, int] = {
+    "company_official": 0,
+    "industry_association": 1,
+    "trusted_news": 2,
+    "general_web": 3,
+    None: 4,
+}
 
 
 def _best_snippet(record: CanonicalEvidence) -> str:
@@ -35,6 +42,40 @@ def _best_snippet(record: CanonicalEvidence) -> str:
         )
         return best_slice.text
     return record.raw_records[0].snippet
+
+
+def _industry_query_match_score(query: str, record: CanonicalEvidence) -> int:
+    tokens = [token for token in query.lower().split() if token]
+    haystack = " ".join(
+        [
+            record.canonical_title,
+            *[slice_.text for slice_ in record.retained_slices],
+        ]
+    ).lower()
+    return sum(1 for token in tokens if token in haystack)
+
+
+def _order_records_for_response(
+    *,
+    plan: RetrievalPlan,
+    query: str,
+    records: tuple[CanonicalEvidence, ...],
+) -> tuple[CanonicalEvidence, ...]:
+    if plan.route_label != "industry":
+        return records
+
+    ordered = sorted(
+        records,
+        key=lambda record: (
+            -_industry_query_match_score(query, record),
+            _INDUSTRY_CREDIBILITY_PRIORITY.get(
+                record.raw_records[0].credibility_tier,
+                99,
+            ),
+            record.evidence_id,
+        ),
+    )
+    return tuple(ordered)
 
 
 def _shape_results(records: tuple[CanonicalEvidence, ...]) -> list[RetrieveResultItem]:
@@ -102,9 +143,15 @@ def _shape_canonical_evidence(
 
 def _shape_response(
     plan: RetrievalPlan,
+    query: str,
     outcome: RetrievalExecutionOutcome,
     evidence_pack: EvidencePack,
 ) -> RetrieveResponse:
+    ordered_records = _order_records_for_response(
+        plan=plan,
+        query=query,
+        records=evidence_pack.canonical_evidence,
+    )
     return RetrieveResponse(
         route_label=plan.route_label,
         primary_route=plan.primary_route,
@@ -113,12 +160,10 @@ def _shape_response(
         status=outcome.status,
         failure_reason=outcome.failure_reason,
         gaps=list(outcome.gaps),
-        canonical_evidence=_shape_canonical_evidence(
-            evidence_pack.canonical_evidence
-        ),
+        canonical_evidence=_shape_canonical_evidence(ordered_records),
         evidence_clipped=evidence_pack.clipped,
         evidence_pruned=evidence_pack.pruned,
-        results=_shape_results(evidence_pack.canonical_evidence),
+        results=_shape_results(ordered_records),
     )
 
 
@@ -146,6 +191,7 @@ async def execute_retrieval_pipeline(
         hits=list(outcome.results),
         primary_route=plan.primary_route,
         supplemental_route=plan.supplemental_route,
+        query=query,
     )
     normalized_records = normalize_hit_candidates(
         hits=prioritized_hits,
@@ -161,6 +207,7 @@ async def execute_retrieval_pipeline(
     )
     return _shape_response(
         plan=plan,
+        query=query,
         outcome=outcome,
         evidence_pack=evidence_pack,
     )

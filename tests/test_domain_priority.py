@@ -95,6 +95,16 @@ def test_industry_tier_adapter_assigns_explicit_credibility_tiers() -> None:
     assert "company_official" in observed_tiers
 
 
+def test_industry_adapter_prefers_exact_query_match_over_generic_higher_tier_fixture() -> None:
+    from skill.retrieval.adapters.industry_ddgs import search
+
+    hits = asyncio.run(search("semiconductor packaging capacity forecast 2026"))
+
+    assert hits
+    assert hits[0].title == "SEMI outlook for semiconductor packaging capacity"
+    assert hits[0].credibility_tier == "industry_association"
+
+
 def test_prioritize_hits_policy_domain_first_d15_before_generic_relevance() -> None:
     hits = [
         RetrievalHit(
@@ -194,4 +204,43 @@ def test_prioritize_hits_industry_tier_then_recency_within_tier() -> None:
         "Trusted News Newer",
         "Trusted News Older",
         "General Web Post",
+    ]
+
+
+def test_prioritize_hits_industry_prefers_query_match_when_query_available() -> None:
+    hits = [
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Company Official Battery Update",
+            url="https://www.tesla.com/blog/2025-06-01-update",
+            snippet="Generic battery production guidance.",
+            credibility_tier="company_official",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="SEMI outlook for semiconductor packaging capacity",
+            url="https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+            snippet="Industry-association forecast for semiconductor packaging capacity in 2026.",
+            credibility_tier="industry_association",
+        ),
+        RetrievalHit(
+            source_id="industry_ddgs",
+            title="Trusted News Battery Pricing",
+            url="https://www.reuters.com/world/2026-02-15/market",
+            snippet="Trusted news on battery pricing.",
+            credibility_tier="trusted_news",
+        ),
+    ]
+
+    ordered = prioritize_hits(
+        domain="industry",
+        hits=hits,
+        primary_route="industry",
+        supplemental_route=None,
+        query="semiconductor packaging capacity forecast 2026",
+    )
+
+    assert [hit.title for hit in ordered][:2] == [
+        "SEMI outlook for semiconductor packaging capacity",
+        "Company Official Battery Update",
     ]

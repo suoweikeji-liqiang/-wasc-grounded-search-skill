@@ -62,6 +62,12 @@ def _generic_relevance_key(hit: RetrievalHit) -> int:
     return len(hit.title) + len(hit.snippet)
 
 
+def _query_match_key(query: str, hit: RetrievalHit) -> int:
+    tokens = [token for token in query.lower().split() if token]
+    haystack = f"{hit.title} {hit.snippet}".lower()
+    return sum(1 for token in tokens if token in haystack)
+
+
 def _sort_policy(hits: list[RetrievalHit]) -> list[RetrievalHit]:
     indexed = list(enumerate(hits))
     ranked = sorted(
@@ -93,27 +99,43 @@ def _sort_academic(hits: list[RetrievalHit]) -> list[RetrievalHit]:
     return [hit for _, hit in ranked]
 
 
-def _sort_industry(hits: list[RetrievalHit]) -> list[RetrievalHit]:
+def _sort_industry(hits: list[RetrievalHit], *, query: str | None = None) -> list[RetrievalHit]:
     indexed = list(enumerate(hits))
-    ranked = sorted(
-        indexed,
-        key=lambda item: (
-            -_INDUSTRY_TIER_PRIORITY.get(item[1].credibility_tier, 99),
-            _recency_key(item[1]),
-            _generic_relevance_key(item[1]),
-            -item[0],
-        ),
-        reverse=True,
-    )
+    if query is not None:
+        ranked = sorted(
+            indexed,
+            key=lambda item: (
+                -_query_match_key(query, item[1]),
+                _INDUSTRY_TIER_PRIORITY.get(item[1].credibility_tier, 99),
+                -_recency_key(item[1]),
+                -_generic_relevance_key(item[1]),
+                item[0],
+            ),
+        )
+    else:
+        ranked = sorted(
+            indexed,
+            key=lambda item: (
+                _INDUSTRY_TIER_PRIORITY.get(item[1].credibility_tier, 99),
+                -_recency_key(item[1]),
+                -_generic_relevance_key(item[1]),
+                item[0],
+            ),
+        )
     return [hit for _, hit in ranked]
 
 
-def _sort_by_route(route: ConcreteRoute, hits: list[RetrievalHit]) -> list[RetrievalHit]:
+def _sort_by_route(
+    route: ConcreteRoute,
+    hits: list[RetrievalHit],
+    *,
+    query: str | None = None,
+) -> list[RetrievalHit]:
     if route == "policy":
         return _sort_policy(hits)
     if route == "academic":
         return _sort_academic(hits)
-    return _sort_industry(hits)
+    return _sort_industry(hits, query=query)
 
 
 def prioritize_hits(
@@ -121,6 +143,7 @@ def prioritize_hits(
     hits: list[RetrievalHit],
     primary_route: str,
     supplemental_route: str | None,
+    query: str | None = None,
 ) -> list[RetrievalHit]:
     """Apply hard domain rules before generic scoring (D-15)."""
     if not hits:
@@ -136,10 +159,16 @@ def prioritize_hits(
             for hit in hits
             if hit not in primary_hits and hit not in supplemental_hits
         ]
-        ordered_primary = _sort_by_route(primary_route, primary_hits)  # type: ignore[arg-type]
+        ordered_primary = _sort_by_route(
+            primary_route,
+            primary_hits,
+            query=query,
+        )  # type: ignore[arg-type]
         if supplemental_route is not None:
             ordered_supplemental = _sort_by_route(
-                supplemental_route, supplemental_hits
+                supplemental_route,
+                supplemental_hits,
+                query=query,
             )  # type: ignore[arg-type]
         else:
             ordered_supplemental = []
@@ -150,5 +179,5 @@ def prioritize_hits(
     if domain == "academic":
         return _sort_academic(hits)
     if domain == "industry":
-        return _sort_industry(hits)
-    return _sort_by_route(primary_route, hits)  # type: ignore[arg-type]
+        return _sort_industry(hits, query=query)
+    return _sort_by_route(primary_route, hits, query=query)  # type: ignore[arg-type]

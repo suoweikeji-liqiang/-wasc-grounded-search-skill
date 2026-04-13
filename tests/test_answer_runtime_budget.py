@@ -209,6 +209,53 @@ def _academic_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _industry_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-1",
+                "domain": "industry",
+                "canonical_title": "Battery recycling market share outlook 2025",
+                "canonical_url": "https://www.reuters.com/markets/battery-recycling-share-2025",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Trusted news estimate of battery recycling market-share shifts in 2025.",
+                        "source_record_id": "industry-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-2",
+                "domain": "industry",
+                "canonical_title": "Tesla annual battery supply update",
+                "canonical_url": "https://www.tesla.com/blog/battery-supply-update",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Company disclosure on battery production guidance.",
+                        "source_record_id": "industry-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 class _RecordingModelClient:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -505,6 +552,65 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path(
         "evidence_id": "policy-1",
         "title": "Ministry of Ecology and Environment policy bulletin",
         "url": "https://www.mee.gov.cn/policy/latest-regulation",
+    }
+    assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry lookup fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share 2025",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert (
+        'Closest retained industry match: "Battery recycling market share outlook 2025"'
+        in result.response.conclusion
+    )
+    assert result.response.key_points[0].model_dump() == {
+        "key_point_id": "kp-1",
+        "statement": "Trusted news estimate of battery recycling market-share shifts in 2025.",
+        "citations": [
+            {
+                "evidence_id": "industry-1",
+                "source_record_id": "industry-1-slice-1",
+                "source_url": "https://www.reuters.com/markets/battery-recycling-share-2025",
+                "quote_text": "Trusted news estimate of battery recycling market-share shifts in 2025.",
+            }
+        ],
+    }
+    assert result.response.sources[0].model_dump() == {
+        "evidence_id": "industry-1",
+        "title": "Battery recycling market share outlook 2025",
+        "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
     }
     assert result.runtime_trace.latency_budget_ok is True
 

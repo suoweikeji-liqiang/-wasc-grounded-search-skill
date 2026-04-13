@@ -17,7 +17,7 @@ _COMPANY_OFFICIAL_DOMAINS: frozenset[str] = frozenset(
     {"www.tesla.com", "www.byd.com"}
 )
 _INDUSTRY_ASSOCIATION_DOMAINS: frozenset[str] = frozenset(
-    {"www.iea.org", "www.sae.org"}
+    {"www.iea.org", "www.sae.org", "www.semi.org"}
 )
 _TRUSTED_NEWS_DOMAINS: frozenset[str] = frozenset(
     {"www.reuters.com", "www.bloomberg.com"}
@@ -30,14 +30,14 @@ _FIXTURES: tuple[dict[str, str], ...] = (
         "snippet": "Company disclosure on battery production guidance.",
     },
     {
-        "title": "IEA outlook for battery manufacturing capacity",
-        "url": "https://www.iea.org/reports/battery-manufacturing-2026",
-        "snippet": "Industry-association market outlook and statistics.",
+        "title": "SEMI outlook for semiconductor packaging capacity",
+        "url": "https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+        "snippet": "Industry-association forecast for semiconductor packaging capacity in 2026.",
     },
     {
-        "title": "Reuters report on EV battery pricing",
-        "url": "https://www.reuters.com/world/asia-pacific/ev-battery-pricing-2026-04-10/",
-        "snippet": "Trusted news coverage of supply chain price trends.",
+        "title": "Reuters battery recycling market share outlook 2025",
+        "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
+        "snippet": "Trusted news estimate of battery recycling market-share shifts in 2025.",
     },
     {
         "title": "Community blog roundup of battery trends",
@@ -69,8 +69,8 @@ async def search(query: str) -> list[RetrievalHit]:
     ranked = sorted(
         _FIXTURES,
         key=lambda item: (
-            -_TIER_ORDER.index(_tier_for_url(item["url"])),
             _score(query, item),
+            -_TIER_ORDER.index(_tier_for_url(item["url"])),
             item["url"],
         ),
         reverse=True,
