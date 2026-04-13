@@ -7,6 +7,7 @@ from json import JSONDecodeError
 from typing import Any
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
@@ -94,8 +95,13 @@ class MiniMaxTextClient:
             method="POST",
         )
         timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
-        with urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise TimeoutError(str(exc.reason)) from exc
+            raise
 
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:

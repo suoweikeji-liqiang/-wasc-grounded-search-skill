@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from urllib.error import URLError
 
 import pytest
 
@@ -353,3 +354,19 @@ def test_minimax_text_client_calls_openai_compatible_api(monkeypatch) -> None:
         "reasoning_split": True,
     }
     assert response_text == "{\"conclusion\":\"ok\",\"key_points\":[],\"sources\":[],\"uncertainty_notes\":[]}"
+
+
+def test_minimax_text_client_normalizes_urlopen_timeout_to_timeout_error(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.generator as generator_module
+
+    def _timeout_urlopen(request, timeout: float):
+        raise URLError(TimeoutError("_ssl.c:989: The handshake operation timed out"))
+
+    monkeypatch.setattr(generator_module, "urlopen", _timeout_urlopen)
+
+    client = MiniMaxTextClient(api_key="test-key")
+
+    with pytest.raises(TimeoutError, match="handshake operation timed out"):
+        client.generate_text("prompt text")
