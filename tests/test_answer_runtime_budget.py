@@ -364,6 +364,99 @@ def _mixed_weak_overlap_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _policy_chinese_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-cn-1",
+                "domain": "policy",
+                "canonical_title": "\u6c14\u5019\u547d\u4ee4\u4fee\u8ba2\u901a\u544a",
+                "canonical_url": "https://www.gov.cn/zhengce/climate-order-revision",
+                "route_role": "primary",
+                "authority": "\u56fd\u52a1\u9662",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-03-18",
+                "effective_date": "2026-04-01",
+                "version": "2026-03 \u4fee\u8ba2\u7248",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "\u6b63\u5f0f\u7248\u6c14\u5019\u547d\u4ee4\u4fee\u8ba2\u7248\u5c06\u4e8e 2026-04-01 \u751f\u6548\u3002",
+                        "source_record_id": "policy-cn-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _mixed_chinese_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-cn-1",
+                "domain": "policy",
+                "canonical_title": "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u529e\u6cd5\u4fee\u8ba2",
+                "canonical_url": "https://www.gov.cn/zhengce/autonomous-driving-amendment",
+                "route_role": "primary",
+                "authority": "\u56fd\u52a1\u9662",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-03-28",
+                "effective_date": "2026-05-01",
+                "version": "2026 \u8bd5\u70b9\u7248",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "\u81ea\u52a8\u9a7e\u9a76\u76d1\u7ba1\u53d8\u5316\u5c06\u5f71\u54cd 2026 \u5e74\u8bd5\u70b9\u843d\u5730\u3002",
+                        "source_record_id": "policy-cn-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-cn-1",
+                "domain": "industry",
+                "canonical_title": "\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd\u9884\u6d4b",
+                "canonical_url": "https://www.example.com/autonomous-driving-industry-impact",
+                "route_role": "supplemental",
+                "retained_slices": [
+                    {
+                        "text": "\u4f9b\u5e94\u94fe\u5382\u5546\u9884\u8ba1\u76d1\u7ba1\u8bd5\u70b9\u5c06\u63a8\u52a8\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730\u3002",
+                        "source_record_id": "industry-cn-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 class _RecordingModelClient:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
@@ -664,6 +757,46 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path(
     assert result.runtime_trace.latency_budget_ok is True
 
 
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_chinese_version_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_chinese_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "Chinese policy lookup should use the local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="\u6c14\u5019\u547d\u4ee4\u6700\u65b0\u7248\u672c\u4ec0\u4e48\u65f6\u5019\u751f\u6548",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "\u6c14\u5019\u547d\u4ee4\u4fee\u8ba2\u901a\u544a" in result.response.conclusion
+    assert "2026-03 \u4fee\u8ba2\u7248" in result.response.conclusion
+    assert "2026-04-01" in result.response.conclusion
+
+
 def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
     monkeypatch,
 ) -> None:
@@ -774,6 +907,48 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
         "BYD autonomous driving supplier investment update",
     }
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path_for_chinese_impact_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_chinese_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "Chinese mixed impact query should use the local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query=(
+                "\u81ea\u52a8\u9a7e\u9a76\u653f\u7b56\u53d8\u5316"
+                "\u5bf9\u4ea7\u4e1a\u843d\u5730\u6709\u4ec0\u4e48\u5f71\u54cd"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u529e\u6cd5\u4fee\u8ba2" in result.response.conclusion
+    assert "\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd\u9884\u6d4b" in result.response.conclusion
 
 
 def test_execute_answer_pipeline_with_trace_keeps_mixed_fast_path_conservative(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -17,6 +18,8 @@ from skill.orchestrator.budget import (
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
+from skill.retrieval.priority import score_query_alignment
+from skill.orchestrator.query_traits import derive_query_traits
 from skill.synthesis.citation_check import validate_answer_citations
 from skill.synthesis.generator import (
     ModelBackendError,
@@ -64,19 +67,57 @@ _ACADEMIC_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "compare", "comparison", "impact", "effect", "summary", "summarize"}
 )
 _INDUSTRY_LOOKUP_MARKERS = frozenset(
-    {"forecast", "outlook", "market", "share", "capacity", "packaging", "recycling", "pricing"}
+    {
+        "forecast",
+        "outlook",
+        "market",
+        "share",
+        "capacity",
+        "packaging",
+        "recycling",
+        "pricing",
+        "\u8d8b\u52bf",
+        "\u9884\u6d4b",
+        "\u51fa\u8d27",
+        "\u4efd\u989d",
+        "\u5e02\u573a",
+    }
 )
 _INDUSTRY_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "impact", "effect", "summary", "summarize"}
 )
 _POLICY_LOOKUP_MARKERS = frozenset(
-    {"latest", "version", "effective", "date", "update", "registry", "guidance", "order"}
+    {
+        "latest",
+        "version",
+        "effective",
+        "date",
+        "update",
+        "registry",
+        "guidance",
+        "order",
+        "\u6700\u65b0",
+        "\u7248\u672c",
+        "\u751f\u6548",
+        "\u65bd\u884c",
+        "\u5b9e\u65bd",
+        "\u4fee\u8ba2",
+        "\u53d8\u5316",
+    }
 )
 _POLICY_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "impact", "effect", "summary", "summarize"}
 )
 _CROSS_DOMAIN_EFFECT_MARKERS = frozenset(
-    {"impact on", "effect on", "impact of", "effect of"}
+    {
+        "impact on",
+        "effect on",
+        "impact of",
+        "effect of",
+        "\u5f71\u54cd",
+        "\u6548\u5e94",
+        "\u843d\u5730",
+    }
 )
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
@@ -85,6 +126,9 @@ _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "metadata_only": 0,
     None: 0,
 }
+_DATE_LITERAL_RE = re.compile(r"20\d{2}-\d{2}-\d{2}")
+_YEAR_LITERAL_RE = re.compile(r"20\d{2}")
+_VERSION_LITERAL_RE = re.compile(r"version [^.;,)]+", re.IGNORECASE)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -118,9 +162,11 @@ def _content_terms(text: str) -> set[str]:
     return {
         token
         for token in query_tokens(normalized)
-        if token.isascii()
-        and len(token) >= 4
-        and token not in _RELEVANCE_STOPWORDS
+        if (
+            (token.isascii() and len(token) >= 4 and token not in _RELEVANCE_STOPWORDS)
+            or (token.isdigit() and len(token) == 4)
+            or not token.isascii()
+        )
     }
 
 
@@ -182,7 +228,13 @@ def _is_academic_lookup_query(query: str) -> bool:
 def _is_policy_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
-    return bool(tokens & _POLICY_LOOKUP_MARKERS) and not bool(
+    traits = derive_query_traits(query)
+    return (
+        bool(tokens & _POLICY_LOOKUP_MARKERS)
+        or traits.has_version_intent
+        or traits.has_effective_date_intent
+        or traits.is_policy_change
+    ) and not bool(
         tokens & _POLICY_EXPLANATORY_MARKERS
     )
 
@@ -190,35 +242,55 @@ def _is_policy_lookup_query(query: str) -> bool:
 def _is_industry_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
-    return bool(tokens & _INDUSTRY_LOOKUP_MARKERS) and not bool(
+    traits = derive_query_traits(query)
+    return (
+        bool(tokens & _INDUSTRY_LOOKUP_MARKERS) or traits.has_trend_intent
+    ) and not bool(
         tokens & _INDUSTRY_EXPLANATORY_MARKERS
     )
 
 
 def _is_cross_domain_effect_query(query: str) -> bool:
     normalized = normalize_query_text(query)
-    return any(marker in normalized for marker in _CROSS_DOMAIN_EFFECT_MARKERS)
+    return any(marker in normalized for marker in _CROSS_DOMAIN_EFFECT_MARKERS) or (
+        derive_query_traits(query).is_cross_domain_impact
+    )
 
 
 def _best_policy_lookup_record(
     query: str,
     canonical_evidence: tuple[CanonicalEvidence, ...],
 ) -> CanonicalEvidence | None:
-    tokens = set(query_tokens(normalize_query_text(query)))
-    needs_version = "version" in tokens
-    needs_effective_date = bool({"effective", "date"} & tokens)
+    traits = derive_query_traits(query)
+    needs_version = traits.has_version_intent
+    needs_effective_date = traits.has_effective_date_intent
+    needs_policy_change = traits.is_policy_change
 
     best_record: CanonicalEvidence | None = None
-    best_candidate = (-1, -1, "", "", "")
+    best_candidate = (-1, -1, -1, -1, "", "", "")
     for record in canonical_evidence:
         if record.domain != "policy" or not record.retained_slices:
             continue
 
         has_version = int(record.version_status == "observed" and record.version is not None)
         has_effective_date = int(record.effective_date is not None)
+        alignment_score = score_query_alignment(
+            query,
+            route="policy",
+            title=record.canonical_title,
+            snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+            url=record.canonical_url,
+            authority=record.authority,
+            publication_date=record.publication_date,
+            effective_date=record.effective_date,
+            version=record.version,
+            year=record.year,
+        )
         candidate = (
-            has_version if needs_version else 0,
-            has_effective_date if needs_effective_date else 0,
+            has_version if needs_version else 1,
+            has_effective_date if needs_effective_date else 1,
+            int(alignment_score > 0) if needs_policy_change else 1,
+            alignment_score,
             record.publication_date or "",
             record.effective_date or "",
             record.evidence_id,
@@ -235,6 +307,21 @@ def _best_policy_lookup_record(
         return None
     if needs_effective_date and best_record.effective_date is None:
         return None
+    if needs_policy_change:
+        alignment_score = score_query_alignment(
+            query,
+            route="policy",
+            title=best_record.canonical_title,
+            snippet=" ".join(slice_.text for slice_ in best_record.retained_slices),
+            url=best_record.canonical_url,
+            authority=best_record.authority,
+            publication_date=best_record.publication_date,
+            effective_date=best_record.effective_date,
+            version=best_record.version,
+            year=best_record.year,
+        )
+        if alignment_score <= 0:
+            return None
     return best_record
 
 
@@ -741,6 +828,170 @@ def _build_mixed_cross_domain_fast_path_response(
     )
 
 
+def _build_local_answer_candidate(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+    require_clean_runtime: bool,
+) -> AnswerResponse | None:
+    if retrieval_response.status != "success":
+        return None
+
+    if require_clean_runtime and (
+        retrieval_response.evidence_pruned or retrieval_response.gaps
+    ):
+        return None
+
+    query_terms = _content_terms(query)
+    best_slice_overlap, best_record, best_slice = _best_slice_overlap(
+        query_terms,
+        canonical_evidence,
+    )
+    matched_policy_record = _best_policy_lookup_record(query, canonical_evidence)
+    primary_route_overlap, primary_route_record, primary_route_slice = _best_route_slice_overlap(
+        query_terms,
+        canonical_evidence,
+        domain=retrieval_response.primary_route,
+        route_role="primary",
+    )
+    supplemental_route_overlap = 0
+    supplemental_route_record: CanonicalEvidence | None = None
+    supplemental_route_slice: EvidenceSlice | None = None
+    if retrieval_response.supplemental_route is not None:
+        (
+            supplemental_route_overlap,
+            supplemental_route_record,
+            supplemental_route_slice,
+        ) = _best_route_slice_overlap(
+            query_terms,
+            canonical_evidence,
+            domain=retrieval_response.supplemental_route,
+            route_role="supplemental",
+        )
+
+    if (
+        retrieval_response.route_label == "mixed"
+        and retrieval_response.supplemental_route is not None
+        and _is_cross_domain_effect_query(query)
+        and primary_route_record is not None
+        and primary_route_slice is not None
+        and supplemental_route_record is not None
+        and supplemental_route_slice is not None
+        and primary_route_overlap >= min(2, len(query_terms))
+        and supplemental_route_overlap >= min(2, len(query_terms))
+        and (not require_clean_runtime or not retrieval_response.gaps)
+    ):
+        return _build_mixed_cross_domain_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_primary_record=primary_route_record,
+            matched_primary_slice=primary_route_slice,
+            matched_supplemental_record=supplemental_route_record,
+            matched_supplemental_slice=supplemental_route_slice,
+        )
+
+    if (
+        retrieval_response.route_label != "mixed"
+        and retrieval_response.primary_route == "policy"
+        and _is_policy_lookup_query(query)
+        and matched_policy_record is not None
+        and (
+            not require_clean_runtime
+            or (
+                not retrieval_response.evidence_clipped
+                and not retrieval_response.evidence_pruned
+                and not retrieval_response.gaps
+            )
+        )
+    ):
+        return _build_policy_lookup_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_record=matched_policy_record,
+        )
+
+    if (
+        retrieval_response.route_label != "mixed"
+        and retrieval_response.primary_route == "industry"
+        and _is_industry_lookup_query(query)
+        and best_record is not None
+        and best_slice is not None
+        and best_slice_overlap >= min(2, len(query_terms))
+        and (
+            not require_clean_runtime
+            or (
+                not retrieval_response.evidence_clipped
+                and not retrieval_response.evidence_pruned
+                and not retrieval_response.gaps
+            )
+        )
+    ):
+        return _build_industry_lookup_fast_path_response(
+            retrieval_response,
+            canonical_evidence,
+            matched_record=best_record,
+            matched_slice=best_slice,
+        )
+
+    return None
+
+
+def _response_text(response: AnswerResponse) -> str:
+    return "\n".join(
+        [
+            response.conclusion,
+            *[key_point.statement for key_point in response.key_points],
+            *[source.title for source in response.sources],
+        ]
+    )
+
+
+def _local_candidate_should_override(
+    *,
+    query: str,
+    generated_response: AnswerResponse,
+    local_candidate: AnswerResponse | None,
+) -> bool:
+    if local_candidate is None or local_candidate.answer_status != "grounded_success":
+        return False
+    if generated_response.answer_status != "grounded_success":
+        return True
+
+    generated_text = _response_text(generated_response)
+    local_text = _response_text(local_candidate)
+    normalized_generated = normalize_query_text(generated_text)
+    normalized_local = normalize_query_text(local_text)
+    generated_dates = set(_DATE_LITERAL_RE.findall(generated_text))
+    local_dates = set(_DATE_LITERAL_RE.findall(local_text))
+    generated_years = set(_YEAR_LITERAL_RE.findall(generated_text))
+    local_years = set(_YEAR_LITERAL_RE.findall(local_text))
+    local_versions = {normalize_query_text(match) for match in _VERSION_LITERAL_RE.findall(local_text)}
+    traits = derive_query_traits(query)
+
+    if len(generated_response.sources) < len(local_candidate.sources):
+        return True
+    if len(generated_response.key_points) < len(local_candidate.key_points):
+        return True
+
+    if traits.has_effective_date_intent and local_dates and not local_dates <= generated_dates:
+        return True
+    if traits.has_year and local_years and not local_years <= generated_years:
+        return True
+    if (traits.has_version_intent or traits.is_policy_change) and local_versions:
+        if any(version_phrase not in normalized_generated for version_phrase in local_versions):
+            return True
+    if any(
+        normalize_query_text(source.title) not in normalized_generated
+        for source in local_candidate.sources
+    ):
+        return True
+    if len(normalized_generated) < len(normalized_local) // 2:
+        return True
+
+    return False
+
+
 def _build_answer_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -899,11 +1150,6 @@ async def execute_answer_pipeline_with_trace(
             ),
         )
 
-    query_terms = _content_terms(query)
-    best_slice_overlap, best_record, best_slice = _best_slice_overlap(
-        query_terms,
-        canonical_evidence,
-    )
     if (
         retrieval_response.primary_route == "academic"
         and retrieval_response.status == "success"
@@ -911,136 +1157,46 @@ async def execute_answer_pipeline_with_trace(
         and not retrieval_response.evidence_pruned
         and not retrieval_response.gaps
         and _is_academic_lookup_query(query)
-        and best_record is not None
-        and best_slice is not None
-        and best_slice_overlap >= min(2, len(query_terms))
     ):
-        response = _build_academic_lookup_fast_path_response(
-            retrieval_response,
-            canonical_evidence,
-            matched_record=best_record,
-            matched_slice=best_slice,
-        )
-        answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
-            response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-            ),
-        )
-
-    matched_policy_record = _best_policy_lookup_record(query, canonical_evidence)
-    if (
-        retrieval_response.primary_route == "policy"
-        and retrieval_response.status == "success"
-        and not retrieval_response.evidence_clipped
-        and not retrieval_response.evidence_pruned
-        and not retrieval_response.gaps
-        and _is_policy_lookup_query(query)
-        and matched_policy_record is not None
-    ):
-        response = _build_policy_lookup_fast_path_response(
-            retrieval_response,
-            canonical_evidence,
-            matched_record=matched_policy_record,
-        )
-        answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
-            response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-            ),
-        )
-
-    if (
-        retrieval_response.primary_route == "industry"
-        and retrieval_response.status == "success"
-        and not retrieval_response.evidence_clipped
-        and not retrieval_response.evidence_pruned
-        and not retrieval_response.gaps
-        and _is_industry_lookup_query(query)
-        and best_record is not None
-        and best_slice is not None
-        and best_slice_overlap >= min(2, len(query_terms))
-    ):
-        response = _build_industry_lookup_fast_path_response(
-            retrieval_response,
-            canonical_evidence,
-            matched_record=best_record,
-            matched_slice=best_slice,
-        )
-        answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
-            response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-            ),
-        )
-
-    primary_route_overlap, primary_route_record, primary_route_slice = _best_route_slice_overlap(
-        query_terms,
-        canonical_evidence,
-        domain=retrieval_response.primary_route,
-        route_role="primary",
-    )
-    supplemental_route_overlap = 0
-    supplemental_route_record: CanonicalEvidence | None = None
-    supplemental_route_slice: EvidenceSlice | None = None
-    if retrieval_response.supplemental_route is not None:
-        (
-            supplemental_route_overlap,
-            supplemental_route_record,
-            supplemental_route_slice,
-        ) = _best_route_slice_overlap(
+        query_terms = _content_terms(query)
+        best_slice_overlap, best_record, best_slice = _best_slice_overlap(
             query_terms,
             canonical_evidence,
-            domain=retrieval_response.supplemental_route,
-            route_role="supplemental",
         )
+        if (
+            best_record is not None
+            and best_slice is not None
+            and best_slice_overlap >= min(2, len(query_terms))
+        ):
+            response = _build_academic_lookup_fast_path_response(
+                retrieval_response,
+                canonical_evidence,
+                matched_record=best_record,
+                matched_slice=best_slice,
+            )
+            answer_token_estimate = _estimate_response_tokens(response)
+            return AnswerExecutionResult(
+                response=response,
+                runtime_trace=_build_runtime_trace(
+                    request_id=request_id,
+                    response=response,
+                    retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                    synthesis_elapsed_seconds=0.0,
+                    evidence_token_estimate=evidence_token_estimate,
+                    answer_token_estimate=answer_token_estimate,
+                    runtime_budget=budget,
+                    budget_exhausted_phase=None,
+                ),
+            )
 
-    if (
-        retrieval_response.route_label == "mixed"
-        and retrieval_response.status == "success"
-        and retrieval_response.supplemental_route is not None
-        and not retrieval_response.evidence_pruned
-        and not retrieval_response.gaps
-        and _is_cross_domain_effect_query(query)
-        and primary_route_record is not None
-        and primary_route_slice is not None
-        and supplemental_route_record is not None
-        and supplemental_route_slice is not None
-        and primary_route_overlap >= min(2, len(query_terms))
-        and supplemental_route_overlap >= min(2, len(query_terms))
-    ):
-        response = _build_mixed_cross_domain_fast_path_response(
-            retrieval_response,
-            canonical_evidence,
-            matched_primary_record=primary_route_record,
-            matched_primary_slice=primary_route_slice,
-            matched_supplemental_record=supplemental_route_record,
-            matched_supplemental_slice=supplemental_route_slice,
-        )
+    local_fast_path_response = _build_local_answer_candidate(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        require_clean_runtime=True,
+    )
+    if local_fast_path_response is not None:
+        response = local_fast_path_response
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(
             response=response,
@@ -1055,6 +1211,13 @@ async def execute_answer_pipeline_with_trace(
                 budget_exhausted_phase=None,
             ),
         )
+
+    local_guardrail_candidate = _build_local_answer_candidate(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        require_clean_runtime=False,
+    )
 
     if canonical_evidence and not _has_query_evidence_overlap(
         query,
@@ -1167,6 +1330,12 @@ async def execute_answer_pipeline_with_trace(
         canonical_evidence,
         draft,
     )
+    if _local_candidate_should_override(
+        query=query,
+        generated_response=response,
+        local_candidate=local_guardrail_candidate,
+    ):
+        response = local_guardrail_candidate
     synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
     answer_token_estimate = _estimate_response_tokens(response)
 
