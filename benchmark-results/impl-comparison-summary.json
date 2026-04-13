@@ -1,0 +1,327 @@
+{
+  "dataset": "tests\\fixtures\\benchmark_phase5_cases.json",
+  "repo_wasc": "D:\\study\\WASC",
+  "repo_wasc1": "D:\\study\\WASC1",
+  "cases": [
+    {
+      "case_id": "policy-01",
+      "query": "latest climate order version",
+      "expected_route": "policy"
+    },
+    {
+      "case_id": "policy-02",
+      "query": "latest methane registry update",
+      "expected_route": "policy"
+    },
+    {
+      "case_id": "policy-03",
+      "query": "industrial emissions guidance effective date",
+      "expected_route": "policy"
+    },
+    {
+      "case_id": "academic-01",
+      "query": "grounded search evidence packing paper",
+      "expected_route": "academic"
+    },
+    {
+      "case_id": "academic-02",
+      "query": "evidence normalization benchmark paper",
+      "expected_route": "academic"
+    },
+    {
+      "case_id": "academic-03",
+      "query": "latency-aware retrieval paper",
+      "expected_route": "academic"
+    },
+    {
+      "case_id": "industry-01",
+      "query": "semiconductor packaging capacity forecast 2026",
+      "expected_route": "industry"
+    },
+    {
+      "case_id": "industry-02",
+      "query": "battery recycling market share 2025",
+      "expected_route": "industry"
+    },
+    {
+      "case_id": "mixed-01",
+      "query": "autonomous driving policy impact on industry",
+      "expected_route": "mixed"
+    },
+    {
+      "case_id": "mixed-02",
+      "query": "AI chip export controls effect on academic research",
+      "expected_route": "mixed"
+    }
+  ],
+  "results": {
+    "wasc": [
+      {
+        "case_id": "policy-01",
+        "query": "latest climate order version",
+        "expected_route": "policy",
+        "route_label": "policy",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained policy match: \"Ministry of Commerce AI chip export controls notice\" (Ministry of Commerce; version 2026 export control notice; effective 2026-04-15).",
+        "error": null
+      },
+      {
+        "case_id": "policy-02",
+        "query": "latest methane registry update",
+        "expected_route": "policy",
+        "route_label": "policy",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained policy match: \"Ministry of Commerce AI chip export controls notice\" (Ministry of Commerce; version 2026 export control notice; effective 2026-04-15).",
+        "error": null
+      },
+      {
+        "case_id": "policy-03",
+        "query": "industrial emissions guidance effective date",
+        "expected_route": "policy",
+        "route_label": "policy",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained policy match: \"Ministry of Commerce AI chip export controls notice\" (Ministry of Commerce; version 2026 export control notice; effective 2026-04-15).",
+        "error": null
+      },
+      {
+        "case_id": "academic-01",
+        "query": "grounded search evidence packing paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 2,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained academic match: \"Grounded search evidence packing\" (Chen, 2026, peer-reviewed).",
+        "error": null
+      },
+      {
+        "case_id": "academic-02",
+        "query": "evidence normalization benchmark paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained academic match: \"Evidence normalization for retrieval grounded systems\" (Lin, 2025, peer-reviewed).",
+        "error": null
+      },
+      {
+        "case_id": "academic-03",
+        "query": "latency-aware retrieval paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained academic match: \"Multi-source evidence ranking with constrained latency\" (Garcia, 2026, preprint).",
+        "error": null
+      },
+      {
+        "case_id": "industry-01",
+        "query": "semiconductor packaging capacity forecast 2026",
+        "expected_route": "industry",
+        "route_label": "industry",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 0,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained industry match: \"SEMI outlook for semiconductor packaging capacity\".",
+        "error": null
+      },
+      {
+        "case_id": "industry-02",
+        "query": "battery recycling market share 2025",
+        "expected_route": "industry",
+        "route_label": "industry",
+        "elapsed_ms": 1,
+        "sources_count": 1,
+        "uncertainties_count": 0,
+        "answer_status": "grounded_success",
+        "response_preview": "Closest retained industry match: \"Reuters battery recycling market share outlook 2025\".",
+        "error": null
+      },
+      {
+        "case_id": "mixed-01",
+        "query": "autonomous driving policy impact on industry",
+        "expected_route": "mixed",
+        "route_label": "mixed",
+        "elapsed_ms": 1,
+        "sources_count": 2,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Retained cross-domain evidence includes policy \"State Council autonomous driving pilot regulation\" and industry \"BYD autonomous driving supplier investment update\".",
+        "error": null
+      },
+      {
+        "case_id": "mixed-02",
+        "query": "AI chip export controls effect on academic research",
+        "expected_route": "mixed",
+        "route_label": "mixed",
+        "elapsed_ms": 1,
+        "sources_count": 2,
+        "uncertainties_count": 1,
+        "answer_status": "grounded_success",
+        "response_preview": "Retained cross-domain evidence includes policy \"Ministry of Commerce AI chip export controls notice\" and academic \"Export controls and academic AI chip research\".",
+        "error": null
+      }
+    ],
+    "wasc1": [
+      {
+        "case_id": "policy-01",
+        "query": "latest climate order version",
+        "expected_route": "policy",
+        "route_label": "mixed",
+        "elapsed_ms": 6659,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "Challenging a slew of state climate-related laws and programs, President Trump's April 8, 2025 executive order (EO) set the stage for more legal fights",
+        "error": null
+      },
+      {
+        "case_id": "policy-02",
+        "query": "latest methane registry update",
+        "expected_route": "policy",
+        "route_label": "mixed",
+        "elapsed_ms": 6336,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "ACR's methodology update allows for additional methane capture afforded by voluntary installation of automated landfill gas control beyond",
+        "error": null
+      },
+      {
+        "case_id": "policy-03",
+        "query": "industrial emissions guidance effective date",
+        "expected_route": "policy",
+        "route_label": "mixed",
+        "elapsed_ms": 7999,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "Industrial Emissions Directive. FuelsEurope supports the IED as the policy tool that regulate emissions from industrial sites to the air and water in particular and contribute to d...",
+        "error": null
+      },
+      {
+        "case_id": "academic-01",
+        "query": "grounded search evidence packing paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 5025,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "This paper introduces TreeBench, a benchmark designed to rigorously evaluate visual grounded reasoning (VGR) or “thinking with images” in",
+        "error": null
+      },
+      {
+        "case_id": "academic-02",
+        "query": "evidence normalization benchmark paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 4289,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "by YL Liu · 2024 · Cited by 33 — A framework which formalizes the benchmark design process into five modules. ECBD specifies the role each module plays in helping practitioners col...",
+        "error": null
+      },
+      {
+        "case_id": "academic-03",
+        "query": "latency-aware retrieval paper",
+        "expected_route": "academic",
+        "route_label": "academic",
+        "elapsed_ms": 4135,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "This work presents VectorLiterAG, a latency-aware RAG serving system that explicitly orchestrates data placement and execution across retrieval and",
+        "error": null
+      },
+      {
+        "case_id": "industry-01",
+        "query": "semiconductor packaging capacity forecast 2026",
+        "expected_route": "industry",
+        "route_label": "industry",
+        "elapsed_ms": 6303,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "The market is projected to grow from USD 54.17 billion in 2026 to USD 118.48 billion by 2034, exhibiting a CAGR of 10.28% during the forecast",
+        "error": null
+      },
+      {
+        "case_id": "industry-02",
+        "query": "battery recycling market share 2025",
+        "expected_route": "industry",
+        "route_label": "mixed",
+        "elapsed_ms": 6925,
+        "sources_count": 3,
+        "uncertainties_count": 0,
+        "answer_status": null,
+        "response_preview": "Battery Recycling Market to Reach $19.8 Billion Globally by 2030. Boston: According to the latest study from BCC Research, “**Battery Recycling: Global Markets**” is expected to gr...",
+        "error": null
+      },
+      {
+        "case_id": "mixed-01",
+        "query": "autonomous driving policy impact on industry",
+        "expected_route": "mixed",
+        "route_label": "mixed",
+        "elapsed_ms": 5026,
+        "sources_count": 0,
+        "uncertainties_count": 1,
+        "answer_status": null,
+        "response_preview": "来源不足",
+        "error": null
+      },
+      {
+        "case_id": "mixed-02",
+        "query": "AI chip export controls effect on academic research",
+        "expected_route": "mixed",
+        "route_label": "mixed",
+        "elapsed_ms": 5032,
+        "sources_count": 0,
+        "uncertainties_count": 1,
+        "answer_status": null,
+        "response_preview": "来源不足",
+        "error": null
+      }
+    ]
+  },
+  "summary": {
+    "wasc": {
+      "total_cases": 10,
+      "route_accuracy": 1.0,
+      "avg_latency_ms": 1.1,
+      "p95_latency_ms": 2,
+      "avg_sources": 1.2,
+      "uncertainty_rate": 0.8,
+      "non_empty_response_rate": 1.0,
+      "grounded_success_rate": 1.0,
+      "error_rate": 0.0
+    },
+    "wasc1": {
+      "total_cases": 10,
+      "route_accuracy": 0.6,
+      "avg_latency_ms": 5772.9,
+      "p95_latency_ms": 7999,
+      "avg_sources": 2.4,
+      "uncertainty_rate": 0.2,
+      "non_empty_response_rate": 1.0,
+      "grounded_success_rate": null,
+      "error_rate": 0.0
+    }
+  }
+}
