@@ -1208,8 +1208,10 @@ def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(
     monkeypatch,
 ) -> None:
     import skill.api.entry as api_entry
+    from skill.synthesis.cache import ANSWER_CACHE
 
     monkeypatch.setenv("WASC_SYNTHESIS_DEADLINE_SECONDS", "0")
+    ANSWER_CACHE.clear()
 
     def _unexpected_default_adapter_registry() -> dict[str, object]:
         raise AssertionError("default adapter registry should not be used")
@@ -1264,6 +1266,7 @@ def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(
             json={"query": "climate takes effect on May 1"},
         )
     finally:
+        ANSWER_CACHE.clear()
         del api_entry.app.state.adapter_registry
         del api_entry.app.state.model_client
 

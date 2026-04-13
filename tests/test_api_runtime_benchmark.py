@@ -13,6 +13,7 @@ from skill.benchmark.report import summarize_benchmark_runs
 from skill.benchmark.repeatability import evaluate_repeatability
 from skill.orchestrator.intent import ClassificationResult
 from skill.retrieval.models import RetrievalHit
+from skill.synthesis.cache import ANSWER_CACHE
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "benchmark_phase5_cases.json"
 
@@ -98,6 +99,7 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
 ) -> None:
     import skill.api.entry as api_entry
 
+    ANSWER_CACHE.clear()
     cases = load_benchmark_cases(FIXTURE_PATH)
     model_client = _DeterministicModelClient()
 
@@ -127,6 +129,7 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
             output_dir=tmp_path,
         )
     finally:
+        ANSWER_CACHE.clear()
         del api_entry.app.state.adapter_registry
         del api_entry.app.state.model_client
 
@@ -153,4 +156,76 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
 
     repeatability = evaluate_repeatability(records)
     assert repeatability["all_repeatable"] is True
-    assert model_client.call_count > 0
+    assert model_client.call_count < len(records)
+
+
+def test_answer_endpoint_reuses_cached_grounded_success_for_normalized_queries(
+    monkeypatch,
+) -> None:
+    import skill.api.entry as api_entry
+
+    ANSWER_CACHE.clear()
+    adapter_call_count = 0
+
+    async def _policy_adapter(_: str) -> list[RetrievalHit]:
+        nonlocal adapter_call_count
+        adapter_call_count += 1
+        return [
+            RetrievalHit(
+                source_id="policy_official_registry",
+                title="Climate Order 2026",
+                url="https://www.gov.cn/policy/climate-order-2026",
+                snippet="The Climate Order takes effect on May 1, 2026.",
+                authority="State Council",
+                jurisdiction="CN",
+                publication_date="2026-04-01",
+                effective_date="2026-05-01",
+                version="2026-04 edition",
+            )
+        ]
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("policy fast path should skip generation")
+
+    monkeypatch.setattr(
+        api_entry,
+        "classify_query",
+        lambda _query: ClassificationResult(
+            route_label="policy",
+            primary_route="policy",
+            supplemental_route=None,
+            reason_code="policy_hit",
+            scores={"policy": 4, "academic": 0, "industry": 0},
+        ),
+    )
+
+    api_entry.app.state.adapter_registry = {
+        "policy_official_registry": _policy_adapter,
+    }
+    api_entry.app.state.model_client = _NeverCalledModelClient()
+
+    try:
+        client = TestClient(api_entry.app)
+        first = client.post("/answer", json={"query": "latest climate order version"})
+        calls_after_first = adapter_call_count
+        second = client.post(
+            "/answer",
+            json={"query": "  LATEST   climate ORDER version  "},
+        )
+    finally:
+        ANSWER_CACHE.clear()
+        del api_entry.app.state.adapter_registry
+        del api_entry.app.state.model_client
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls_after_first > 0
+    assert adapter_call_count == calls_after_first
+    second_payload = second.json()
+    assert second_payload["answer_status"] == "grounded_success"
+    assert "runtime_trace" not in second_payload
+    assert "latency_budget_ok" not in second_payload
+    assert "token_budget_ok" not in second_payload

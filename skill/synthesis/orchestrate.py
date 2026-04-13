@@ -20,6 +20,7 @@ from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
 from skill.retrieval.priority import score_query_alignment
 from skill.orchestrator.query_traits import derive_query_traits
+from skill.synthesis.cache import ANSWER_CACHE, CachedAnswerEntry
 from skill.synthesis.citation_check import validate_answer_citations
 from skill.synthesis.generator import (
     ModelBackendError,
@@ -1099,6 +1100,50 @@ def _build_runtime_trace(
     )
 
 
+def _cached_entry_within_budget(
+    entry: CachedAnswerEntry,
+    *,
+    runtime_budget: RuntimeBudget,
+) -> bool:
+    if entry.evidence_token_estimate > runtime_budget.evidence_token_budget:
+        return False
+    if (
+        entry.answer_token_estimate is not None
+        and entry.answer_token_estimate > runtime_budget.answer_token_budget
+    ):
+        return False
+    return True
+
+
+def _should_cache_response(response: AnswerResponse) -> bool:
+    return (
+        response.answer_status == "grounded_success"
+        and response.retrieval_status == "success"
+        and response.failure_reason is None
+        and not response.gaps
+        and not response.uncertainty_notes
+    )
+
+
+def _maybe_cache_response(
+    *,
+    query: str,
+    plan,
+    response: AnswerResponse,
+    evidence_token_estimate: int,
+    answer_token_estimate: int | None,
+) -> None:
+    if not _should_cache_response(response):
+        return
+    ANSWER_CACHE.put(
+        query=query,
+        plan=plan,
+        response=response,
+        evidence_token_estimate=evidence_token_estimate,
+        answer_token_estimate=answer_token_estimate,
+    )
+
+
 async def execute_answer_pipeline_with_trace(
     plan,
     query: str,
@@ -1117,6 +1162,25 @@ async def execute_answer_pipeline_with_trace(
             budget.retrieval_deadline_seconds,
         ),
     )
+    cached_entry = ANSWER_CACHE.get(query=query, plan=retrieval_plan)
+    if cached_entry is not None and _cached_entry_within_budget(
+        cached_entry,
+        runtime_budget=budget,
+    ):
+        response = cached_entry.response
+        return AnswerExecutionResult(
+            response=response,
+            runtime_trace=_build_runtime_trace(
+                request_id=request_id,
+                response=response,
+                retrieval_elapsed_seconds=0.0,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=cached_entry.evidence_token_estimate,
+                answer_token_estimate=cached_entry.answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+            ),
+        )
     retrieval_response = await execute_retrieval_pipeline(
         plan=retrieval_plan,
         query=query,
@@ -1175,6 +1239,13 @@ async def execute_answer_pipeline_with_trace(
                 matched_slice=best_slice,
             )
             answer_token_estimate = _estimate_response_tokens(response)
+            _maybe_cache_response(
+                query=query,
+                plan=retrieval_plan,
+                response=response,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+            )
             return AnswerExecutionResult(
                 response=response,
                 runtime_trace=_build_runtime_trace(
@@ -1198,6 +1269,13 @@ async def execute_answer_pipeline_with_trace(
     if local_fast_path_response is not None:
         response = local_fast_path_response
         answer_token_estimate = _estimate_response_tokens(response)
+        _maybe_cache_response(
+            query=query,
+            plan=retrieval_plan,
+            response=response,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+        )
         return AnswerExecutionResult(
             response=response,
             runtime_trace=_build_runtime_trace(
@@ -1345,6 +1423,14 @@ async def execute_answer_pipeline_with_trace(
             retrieval_response,
             canonical_evidence,
             reason="grounded output would exceed the answer token budget.",
+        )
+    else:
+        _maybe_cache_response(
+            query=query,
+            plan=retrieval_plan,
+            response=response,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
         )
 
     return AnswerExecutionResult(
