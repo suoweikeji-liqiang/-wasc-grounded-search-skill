@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wasc-routing-skill"
-version = "0.1.0"
-description = "Phase 1 deterministic routing core for WASC search skill"
+version = "1.0.0"
+description = "Browser-free grounded search Skill for WASC competition tasks"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

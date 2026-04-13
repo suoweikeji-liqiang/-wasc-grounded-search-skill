@@ -1,4 +1,4 @@
-"""FastAPI entrypoint for Phase 1 routing API."""
+"""FastAPI entrypoint for the WASC search Skill API."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
 
 execute_answer_pipeline = execute_answer_pipeline_with_trace
 
-app = FastAPI(title="WASC Phase 1 Routing API", version="0.1.0")
+app = FastAPI(title="WASC High-Precision Search Skill API", version="1.0.0")
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 
