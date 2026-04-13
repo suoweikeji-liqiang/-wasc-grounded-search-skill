@@ -68,6 +68,7 @@ class RetrievalPlan:
     supplemental_route: ConcreteRoute | None
     first_wave_sources: tuple[PlannedSourceStep, ...]
     fallback_sources: tuple[PlannedSourceStep, ...]
+    query_variant_budget: int = 3
     per_source_timeout_seconds: float = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds: float = OVERALL_RETRIEVAL_DEADLINE_SECONDS
     global_concurrency_cap: int = GLOBAL_CONCURRENCY_CAP

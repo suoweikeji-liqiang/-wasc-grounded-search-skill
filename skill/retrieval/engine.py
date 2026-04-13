@@ -17,6 +17,7 @@ from skill.retrieval.models import (
     RetrievalStatus,
     SourceExecutionResult,
 )
+from skill.retrieval.query_variants import build_query_variants
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 
@@ -74,6 +75,22 @@ def _normalize_hits(raw_hits: list[Any], source_id: str) -> tuple[RetrievalHit, 
             )
         )
     return tuple(normalized)
+
+
+def _dedupe_hits(hits: list[RetrievalHit]) -> tuple[RetrievalHit, ...]:
+    deduped: list[RetrievalHit] = []
+    seen: set[tuple[str, str, str]] = set()
+    for hit in hits:
+        key = (
+            hit.source_id,
+            hit.url.strip().lower(),
+            hit.title.strip().lower(),
+        )
+        if key in seen:
+            continue
+        deduped.append(hit)
+        seen.add(key)
+    return tuple(deduped)
 
 
 async def _run_single_source(
@@ -138,7 +155,79 @@ async def _run_single_source(
     )
 
 
+async def _run_source_step(
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    timeout_seconds: float,
+    semaphore: asyncio.Semaphore | None = None,
+) -> SourceExecutionResult:
+    source_id = step.source.source_id
+    variants = build_query_variants(
+        query=query,
+        route_label=plan.route_label,
+        primary_route=plan.primary_route,
+        supplemental_route=plan.supplemental_route,
+        target_route=step.source.route,
+        variant_limit=plan.query_variant_budget,
+    )
+
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + max(0.0, timeout_seconds)
+    merged_hits: list[RetrievalHit] = []
+    last_failure_reason: RetrievalFailureReason = "no_hits"
+
+    for variant in variants:
+        remaining = deadline_at - loop.time()
+        if remaining <= 0:
+            break
+
+        attempt = await _run_single_source(
+            source_id=source_id,
+            query=variant.query,
+            adapter_registry=adapter_registry,
+            timeout_seconds=remaining,
+            semaphore=semaphore,
+        )
+        if attempt.status == "success":
+            merged_hits.extend(attempt.hits)
+            continue
+
+        failure_reason = attempt.failure_reason or "adapter_error"
+        if failure_reason == "no_hits":
+            last_failure_reason = failure_reason
+            continue
+
+        if merged_hits:
+            return SourceExecutionResult(
+                source_id=source_id,
+                status="success",
+                hits=_dedupe_hits(merged_hits),
+            )
+
+        return attempt
+
+    if merged_hits:
+        return SourceExecutionResult(
+            source_id=source_id,
+            status="success",
+            hits=_dedupe_hits(merged_hits),
+        )
+
+    if loop.time() >= deadline_at:
+        last_failure_reason = "timeout"
+
+    return SourceExecutionResult(
+        source_id=source_id,
+        status="failure_gaps",
+        failure_reason=last_failure_reason,
+        gaps=(source_id,),
+    )
+
+
 async def _run_first_wave(
+    plan: RetrievalPlan,
     first_wave_steps: tuple[PlannedSourceStep, ...],
     query: str,
     adapter_registry: Mapping[str, Adapter],
@@ -152,8 +241,9 @@ async def _run_first_wave(
     for step in first_wave_steps:
         source_id = step.source.source_id
         task = asyncio.create_task(
-            _run_single_source(
-                source_id=source_id,
+            _run_source_step(
+                step=step,
+                plan=plan,
                 query=query,
                 adapter_registry=adapter_registry,
                 timeout_seconds=per_source_timeout_seconds,
@@ -218,6 +308,7 @@ async def run_retrieval(
     loop = asyncio.get_running_loop()
     deadline_at = loop.time() + max(0.0, plan.overall_deadline_seconds)
     first_wave_results = await _run_first_wave(
+        plan=plan,
         first_wave_steps=first_wave_steps,
         query=query,
         adapter_registry=adapter_registry,
@@ -225,7 +316,7 @@ async def run_retrieval(
         overall_timeout_seconds=max(0.0, deadline_at - loop.time()),
         concurrency_cap=plan.global_concurrency_cap,
     )
-    allowed_fallback_transitions: dict[tuple[str, RetrievalFailureReason], str] = {}
+    allowed_fallback_transitions: dict[tuple[str, RetrievalFailureReason], PlannedSourceStep] = {}
     for fallback_step in plan.fallback_sources:
         fallback_from_source_id = fallback_step.fallback_from_source_id
         if fallback_from_source_id is None:
@@ -234,7 +325,7 @@ async def run_retrieval(
             transition_key = (fallback_from_source_id, trigger_reason)
             allowed_fallback_transitions.setdefault(
                 transition_key,
-                fallback_step.source.source_id,
+                fallback_step,
             )
 
     all_attempt_results: list[SourceExecutionResult] = []
@@ -268,15 +359,20 @@ async def run_retrieval(
                 failure_reason = "timeout"
                 break
 
-            fallback_source_id = allowed_fallback_transitions.get(
+            fallback_step = allowed_fallback_transitions.get(
                 (current_source, failure_reason)
             )
-            if fallback_source_id is None or fallback_source_id in visited_sources:
+            if fallback_step is None:
+                break
+
+            fallback_source_id = fallback_step.source.source_id
+            if fallback_source_id in visited_sources:
                 break
 
             visited_sources.add(fallback_source_id)
-            fallback_result = await _run_single_source(
-                source_id=fallback_source_id,
+            fallback_result = await _run_source_step(
+                step=fallback_step,
+                plan=plan,
                 query=query,
                 adapter_registry=adapter_registry,
                 timeout_seconds=min(plan.per_source_timeout_seconds, remaining),

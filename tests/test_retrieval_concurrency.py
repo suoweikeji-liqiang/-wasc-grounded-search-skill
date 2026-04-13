@@ -151,7 +151,8 @@ def test_run_retrieval_first_wave_only_excludes_policy_official_web_allowlist_fa
     )
 
     assert max_active_calls == 2
-    assert sorted(observed_calls) == sorted(first_wave_ids)
+    assert sorted(set(observed_calls)) == sorted(first_wave_ids)
+    assert len(observed_calls) <= len(first_wave_ids) * plan.query_variant_budget
     assert "policy_official_web_allowlist_fallback" not in observed_calls
     assert not fallback_called
     assert outcome.status == "success"
