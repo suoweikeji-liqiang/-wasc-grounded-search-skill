@@ -42,17 +42,25 @@ _DOMAIN_METADATA: dict[str, tuple[str, str]] = {
     "www.bis.gov": ("U.S. Department of Commerce", "US"),
 }
 
-_ISO_DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
+_ISO_DATE_RE = re.compile(r"(20\d{2})[-./](\d{2})[-./](\d{2})")
 _CHINESE_DATE_RE = re.compile(r"(20\d{2})年(\d{1,2})月(\d{1,2})日")
 _AUTHORITY_RE = re.compile(r"(?:Authority|发布机关|发布单位)[:：]\s*(.+)")
 _PUBLICATION_RE = re.compile(r"(?:Publication date|发布日期|发布时间)[:：]\s*([^\n]+)")
 _EFFECTIVE_RE = re.compile(r"(?:Effective date|生效日期|施行日期)[:：]\s*([^\n]+)")
 _VERSION_RE = re.compile(r"(?:Version|版本)[:：]\s*([^\n]+)")
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def is_official_policy_url(url: str) -> bool:
     host = (urlsplit(url).hostname or "").lower()
     return host in OFFICIAL_POLICY_ALLOWLIST
+
+
+def _strip_markup(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = _TAG_RE.sub("", value)
+    return " ".join(cleaned.split())
 
 
 def _normalize_date(value: str | None) -> str | None:
@@ -107,6 +115,68 @@ def extract_policy_metadata(
         "effective_date": effective_date,
         "version": version_match.group(1).strip() if version_match else None,
     }
+
+
+def parse_gov_policy_search_response(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("code") == 1001:
+        return []
+    search_vo = payload.get("searchVO")
+    if not isinstance(search_vo, dict):
+        return []
+    cat_map = search_vo.get("catMap")
+    if not isinstance(cat_map, dict):
+        return []
+
+    category_priority = {
+        "gongwen": 0,
+        "bumenfile": 1,
+        "gongbao": 2,
+        "otherfile": 3,
+    }
+    records: list[dict[str, object]] = []
+    for category_name, bucket in cat_map.items():
+        if not isinstance(bucket, dict):
+            continue
+        items = bucket.get("listVO")
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            raw_url = item.get("url")
+            title = _strip_markup(str(item.get("title") or ""))
+            if not raw_url or not title:
+                continue
+            url = str(raw_url)
+            summary = _strip_markup(str(item.get("summary") or ""))
+            pcode = _strip_markup(str(item.get("pcode") or ""))
+            authority = _strip_markup(str(item.get("puborg") or "")) or policy_domain_metadata(url)[0]
+            jurisdiction = policy_domain_metadata(url)[1]
+            snippet = " ".join(part for part in (summary, pcode) if part) or title
+            records.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "authority": authority,
+                    "jurisdiction": jurisdiction,
+                    "publication_date": _normalize_date(str(item.get("pubtimeStr") or "")),
+                    "effective_date": None,
+                    "version": None,
+                    "_category_priority": category_priority.get(category_name, 9),
+                }
+            )
+
+    records.sort(
+        key=lambda item: (
+            item["_category_priority"],
+            -(int((item["publication_date"] or "0000-00-00").replace("-", ""))),
+            item["url"],
+        ),
+    )
+    return records
 
 
 def preferred_policy_domains(query: str, *, fallback: bool) -> tuple[str, ...]:

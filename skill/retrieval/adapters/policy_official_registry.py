@@ -6,6 +6,7 @@ from typing import Any
 
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
+from skill.retrieval.live.clients.policy_registry import search_policy_registry
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
 from skill.retrieval.live.parsers.policy import (
     extract_policy_metadata,
@@ -16,6 +17,8 @@ from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "policy_official_registry"
+_MIN_REGISTRY_SCORE = 3
+_MIN_OPEN_WEB_SCORE = 3
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
         "title": "数据出境安全评估办法（2025修订版）",
@@ -178,6 +181,41 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
 
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live official-policy hits discovered on official domains."""
+    try:
+        registry_records = await search_policy_registry(query=query, max_results=5)
+    except Exception:
+        registry_records = []
+    if registry_records:
+        ranked_registry_records = sorted(
+            (
+                item
+                for item in registry_records
+                if _score(query, item) >= _MIN_REGISTRY_SCORE
+            ),
+            key=lambda item: (
+                _score(query, item),
+                item.get("publication_date") or "",
+                item["url"],
+            ),
+            reverse=True,
+        )
+        if ranked_registry_records:
+            return [
+                RetrievalHit(
+                    source_id=_SOURCE_ID,
+                    title=str(item["title"]),
+                    url=str(item["url"]),
+                    snippet=str(item["snippet"]),
+                    authority=str(item["authority"]) if item.get("authority") is not None else None,
+                    jurisdiction=str(item["jurisdiction"]) if item.get("jurisdiction") is not None else None,
+                    publication_date=str(item["publication_date"]) if item.get("publication_date") is not None else None,
+                    effective_date=str(item["effective_date"]) if item.get("effective_date") is not None else None,
+                    version=str(item["version"]) if item.get("version") is not None else None,
+                )
+                for item in ranked_registry_records
+                if item.get("title") and item.get("url")
+            ]
+
     config = LiveRetrievalConfig.from_env()
     seen_urls: set[str] = set()
     candidates = []
@@ -215,20 +253,38 @@ async def search_live(query: str) -> list[RetrievalHit]:
             metadata["publication_date"] is None and metadata["effective_date"] is None
         ):
             continue
+        result_snippet = candidate.snippet or page_text[:320]
+        ranking_snippet = " ".join(
+            part.strip()
+            for part in (
+                candidate.snippet or "",
+                page_text[:800],
+            )
+            if part and part.strip()
+        )
         payload = {
             "title": candidate.title,
             "url": candidate.url,
-            "snippet": candidate.snippet or page_text[:320],
+            "snippet": result_snippet,
             "authority": metadata["authority"],
             "publication_date": metadata["publication_date"],
             "effective_date": metadata["effective_date"],
             "version": metadata["version"],
         }
+        alignment_score = _score(
+            query,
+            {
+                **payload,
+                "snippet": ranking_snippet or result_snippet,
+            },
+        )
+        if alignment_score < _MIN_OPEN_WEB_SCORE:
+            continue
         ranked.append(
             {
                 **payload,
                 "_jurisdiction": metadata["jurisdiction"],
-                "_score": _score(query, payload),
+                "_score": alignment_score,
                 "_metadata_bonus": int(metadata["version"] is not None)
                 + int(metadata["effective_date"] is not None)
                 + int(metadata["publication_date"] is not None),
@@ -249,11 +305,11 @@ async def search_live(query: str) -> list[RetrievalHit]:
             title=str(item["title"]),
             url=str(item["url"]),
             snippet=str(item["snippet"]),
-            authority=str(item["authority"]) if item["authority"] is not None else None,
-            jurisdiction=str(item["_jurisdiction"]) if item["_jurisdiction"] is not None else None,
-            publication_date=str(item["publication_date"]) if item["publication_date"] is not None else None,
-            effective_date=str(item["effective_date"]) if item["effective_date"] is not None else None,
-            version=str(item["version"]) if item["version"] is not None else None,
+            authority=str(item["authority"]) if item.get("authority") is not None else None,
+            jurisdiction=str(item["_jurisdiction"]) if item.get("_jurisdiction") is not None else None,
+            publication_date=str(item["publication_date"]) if item.get("publication_date") is not None else None,
+            effective_date=str(item["effective_date"]) if item.get("effective_date") is not None else None,
+            version=str(item["version"]) if item.get("version") is not None else None,
         )
         for item in ranked[:5]
     ]
