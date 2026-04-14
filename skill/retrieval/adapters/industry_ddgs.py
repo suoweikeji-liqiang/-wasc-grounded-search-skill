@@ -199,6 +199,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
         except Exception:
             page_text = ""
         snippet = build_industry_snippet(
+            query=query,
             candidate_snippet=candidate.snippet,
             page_text=page_text,
         )
