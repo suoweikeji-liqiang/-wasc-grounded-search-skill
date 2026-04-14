@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_fixture_shortcuts(monkeypatch) -> None:
+    monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "0")
+
 
 def test_industry_live_adapter_aggregates_candidates_and_assigns_tiers(monkeypatch) -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
@@ -197,3 +204,101 @@ def test_industry_live_adapter_extracts_deep_relevant_page_excerpt_for_ranking(
     assert len(hits) >= 1
     assert hits[0].title == "SEMI market data update"
     assert "semiconductor packaging capacity" in hits[0].snippet.lower()
+
+
+def test_industry_live_adapter_merges_official_sec_filings_for_company_filing_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="Tesla battery production commentary",
+                url="https://www.reuters.com/markets/tesla-battery-production-commentary",
+                snippet="Trusted news commentary on Tesla battery production.",
+            )
+        ]
+
+    async def _fake_search_sec_filings(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        assert query == "Tesla 10-K battery supply guidance"
+        assert max_results == 3
+        return [
+            {
+                "title": "Tesla, Inc. Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/1318605/000110465925042659/tsla-20241231x10k.htm",
+                "snippet": "Official SEC filing for Tesla annual report and business guidance.",
+                "credibility_tier": "company_official",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**kwargs: object) -> str:
+        url = str(kwargs["url"])
+        if "sec.gov" in url:
+            return (
+                "Tesla annual report discusses battery supply, production capacity, and guidance."
+            )
+        return "Trusted news commentary on Tesla battery production."
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "search_sec_filings", _fake_search_sec_filings)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("Tesla 10-K battery supply guidance"))
+
+    assert len(hits) >= 1
+    assert hits[0].title == "Tesla, Inc. Form 10-K filing"
+    assert hits[0].credibility_tier == "company_official"
+    assert hits[0].url.startswith("https://www.sec.gov/")
+
+
+def test_industry_live_adapter_uses_structured_sec_hits_without_fetching_sec_pages(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    fetched_urls: list[str] = []
+
+    async def _empty_search_multi_engine(**_: object) -> list[object]:
+        return []
+
+    async def _fake_search_sec_filings(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        assert query == "NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls"
+        assert max_results == 3
+        return [
+            {
+                "title": "NVIDIA Corporation Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000010/nvda-20260131x10k.htm",
+                "snippet": "Official SEC filing discussing supply chain and export control risk factors.",
+                "credibility_tier": "company_official",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**kwargs: object) -> str:
+        fetched_urls.append(str(kwargs["url"]))
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+    monkeypatch.setattr(adapter, "search_sec_filings", _fake_search_sec_filings)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls"
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "NVIDIA Corporation Form 10-K filing"
+    assert hits[0].credibility_tier == "company_official"
+    assert all("sec.gov" not in url for url in fetched_urls)

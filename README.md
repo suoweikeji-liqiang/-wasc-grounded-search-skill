@@ -27,7 +27,7 @@ Current local release state:
 
 Latest verified automated checks:
 
-- Full test suite: `232 passed`
+- Full test suite: `259 passed`
 - Phase 4 answer-focused suite: `35 passed`
 
 Sample benchmark artifact in this repository:
@@ -57,9 +57,9 @@ These numbers come from a prior fixture-heavy benchmark snapshot and should not 
 
 - deterministic routing with browser automation disabled at the API contract level
 - concurrent multi-source retrieval with bounded fallback behavior
-- live academic retrieval from Asta MCP, Semantic Scholar, and arXiv
-- multi-engine open-web discovery for industry retrieval
-- official-domain discovery and metadata extraction for policy retrieval
+- live academic retrieval from Asta MCP, Semantic Scholar, OpenAlex, Europe PMC, and arXiv-backed paths
+- multi-engine open-web discovery for industry retrieval with official SEC EDGAR supplement for filing-oriented company queries
+- official-domain discovery and metadata extraction for policy retrieval with public official coverage expanded to Chinese law-library domains and the US Federal Register API
 - canonical evidence normalization and deduplication before synthesis
 - grounded answer generation with citation validation
 - explicit answer states: `grounded_success`, `insufficient_evidence`, `retrieval_failure`

@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_fixture_shortcuts(monkeypatch) -> None:
+    monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "0")
+
 
 def test_asta_mcp_live_adapter_preserves_scholarly_metadata(monkeypatch) -> None:
     import skill.retrieval.adapters.academic_asta_mcp as adapter
@@ -344,4 +351,101 @@ def test_semantic_scholar_live_adapter_falls_back_to_search_discovery_when_api_i
 
     assert len(hits) == 1
     assert hits[0].doi == "10.5555/evidence.2026.10"
+    assert hits[0].evidence_level == "peer_reviewed"
+
+
+def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_misses(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        return []
+
+    async def _fake_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        return [
+            {
+                "title": "Grounded Search Evidence Packing",
+                "url": "https://doi.org/10.5555/evidence.2026.10",
+                "snippet": "OpenAlex metadata record for the paper.",
+                "doi": "10.5555/evidence.2026.10",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _empty_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _fake_openalex)
+
+    hits = asyncio.run(adapter.search_live("grounded search evidence packing paper"))
+
+    assert len(hits) == 1
+    assert hits[0].title == "Grounded Search Evidence Packing"
+    assert hits[0].doi == "10.5555/evidence.2026.10"
+    assert hits[0].first_author == "Lin"
+    assert hits[0].year == 2026
+
+
+def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_misses(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _empty_search_arxiv(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "synthetic bone graft review paper"
+        assert max_results == 5
+        return []
+
+    async def _fake_search_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "synthetic bone graft review paper"
+        assert max_results == 5
+        return [
+            {
+                "title": "A Review of Synthetic Bone Grafts in Lumbar Interbody Fusion.",
+                "url": "https://europepmc.org/article/MED/41899792",
+                "snippet": "Review article indexed by Europe PMC.",
+                "doi": "10.3390/bioengineering13030262",
+                "first_author": "Wise",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _empty_search_arxiv)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _fake_search_europe_pmc)
+
+    hits = asyncio.run(adapter.search_live("synthetic bone graft review paper"))
+
+    assert len(hits) == 1
+    assert hits[0].title == "A Review of Synthetic Bone Grafts in Lumbar Interbody Fusion."
+    assert hits[0].doi == "10.3390/bioengineering13030262"
+    assert hits[0].first_author == "Wise"
+    assert hits[0].year == 2026
     assert hits[0].evidence_level == "peer_reviewed"

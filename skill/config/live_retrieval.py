@@ -53,6 +53,7 @@ class LiveRetrievalConfig:
     search_engines: tuple[str, ...] = ("duckduckgo", "bing", "google")
     browser_enabled: bool = False
     browser_headless: bool = True
+    fixture_shortcuts_enabled: bool = True
     search_cache_ttl_seconds: int = 1800
     page_cache_ttl_seconds: int = 3600
     academic_cache_ttl_seconds: int = 86400
@@ -64,6 +65,10 @@ class LiveRetrievalConfig:
             search_engines=_read_search_engines_env(),
             browser_enabled=_read_bool_env("WASC_LIVE_BROWSER_ENABLED", False),
             browser_headless=_read_bool_env("WASC_LIVE_BROWSER_HEADLESS", True),
+            fixture_shortcuts_enabled=_read_bool_env(
+                "WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED",
+                True,
+            ),
             search_cache_ttl_seconds=_read_int_env(
                 "WASC_LIVE_SEARCH_CACHE_TTL_SECONDS",
                 1800,

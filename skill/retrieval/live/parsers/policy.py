@@ -10,14 +10,42 @@ OFFICIAL_POLICY_ALLOWLIST: frozenset[str] = frozenset(
     {
         "gov.cn",
         "www.gov.cn",
+        "flk.npc.gov.cn",
+        "wb.flk.npc.gov.cn",
+        "npc.gov.cn",
+        "www.npc.gov.cn",
         "cac.gov.cn",
         "www.cac.gov.cn",
         "mee.gov.cn",
         "www.mee.gov.cn",
         "mofcom.gov.cn",
         "www.mofcom.gov.cn",
+        "miit.gov.cn",
+        "www.miit.gov.cn",
         "samr.gov.cn",
         "www.samr.gov.cn",
+        "federalregister.gov",
+        "www.federalregister.gov",
+        "govinfo.gov",
+        "www.govinfo.gov",
+        "nist.gov",
+        "www.nist.gov",
+        "fda.gov",
+        "www.fda.gov",
+        "ftc.gov",
+        "www.ftc.gov",
+        "cisa.gov",
+        "www.cisa.gov",
+        "epa.gov",
+        "www.epa.gov",
+        "fincen.gov",
+        "www.fincen.gov",
+        "legislation.gov.uk",
+        "www.legislation.gov.uk",
+        "ofcom.org.uk",
+        "www.ofcom.org.uk",
+        "sec.gov",
+        "www.sec.gov",
         "eur-lex.europa.eu",
         "taxation-customs.ec.europa.eu",
         "bis.gov",
@@ -28,14 +56,42 @@ OFFICIAL_POLICY_ALLOWLIST: frozenset[str] = frozenset(
 _DOMAIN_METADATA: dict[str, tuple[str, str]] = {
     "gov.cn": ("State Council", "CN"),
     "www.gov.cn": ("State Council", "CN"),
+    "flk.npc.gov.cn": ("National People's Congress", "CN"),
+    "wb.flk.npc.gov.cn": ("National People's Congress", "CN"),
+    "npc.gov.cn": ("National People's Congress", "CN"),
+    "www.npc.gov.cn": ("National People's Congress", "CN"),
     "cac.gov.cn": ("Cyberspace Administration of China", "CN"),
     "www.cac.gov.cn": ("Cyberspace Administration of China", "CN"),
     "mee.gov.cn": ("Ministry of Ecology and Environment", "CN"),
     "www.mee.gov.cn": ("Ministry of Ecology and Environment", "CN"),
     "mofcom.gov.cn": ("Ministry of Commerce", "CN"),
     "www.mofcom.gov.cn": ("Ministry of Commerce", "CN"),
+    "miit.gov.cn": ("Ministry of Industry and Information Technology", "CN"),
+    "www.miit.gov.cn": ("Ministry of Industry and Information Technology", "CN"),
     "samr.gov.cn": ("State Administration for Market Regulation", "CN"),
     "www.samr.gov.cn": ("State Administration for Market Regulation", "CN"),
+    "federalregister.gov": ("Federal Register", "US"),
+    "www.federalregister.gov": ("Federal Register", "US"),
+    "govinfo.gov": ("GovInfo", "US"),
+    "www.govinfo.gov": ("GovInfo", "US"),
+    "nist.gov": ("National Institute of Standards and Technology", "US"),
+    "www.nist.gov": ("National Institute of Standards and Technology", "US"),
+    "fda.gov": ("U.S. Food and Drug Administration", "US"),
+    "www.fda.gov": ("U.S. Food and Drug Administration", "US"),
+    "ftc.gov": ("Federal Trade Commission", "US"),
+    "www.ftc.gov": ("Federal Trade Commission", "US"),
+    "cisa.gov": ("Cybersecurity and Infrastructure Security Agency", "US"),
+    "www.cisa.gov": ("Cybersecurity and Infrastructure Security Agency", "US"),
+    "epa.gov": ("Environmental Protection Agency", "US"),
+    "www.epa.gov": ("Environmental Protection Agency", "US"),
+    "fincen.gov": ("Financial Crimes Enforcement Network", "US"),
+    "www.fincen.gov": ("Financial Crimes Enforcement Network", "US"),
+    "legislation.gov.uk": ("UK legislation", "UK"),
+    "www.legislation.gov.uk": ("UK legislation", "UK"),
+    "ofcom.org.uk": ("Ofcom", "UK"),
+    "www.ofcom.org.uk": ("Ofcom", "UK"),
+    "sec.gov": ("U.S. Securities and Exchange Commission", "US"),
+    "www.sec.gov": ("U.S. Securities and Exchange Commission", "US"),
     "eur-lex.europa.eu": ("European Union", "EU"),
     "taxation-customs.ec.europa.eu": ("European Commission", "EU"),
     "bis.gov": ("U.S. Department of Commerce", "US"),
@@ -181,13 +237,87 @@ def parse_gov_policy_search_response(payload: object) -> list[dict[str, object]]
 
 def preferred_policy_domains(query: str, *, fallback: bool) -> tuple[str, ...]:
     normalized = query.lower()
-    if "ai act" in normalized or "eu" in normalized or "cbam" in normalized:
+    if (
+        "ai act" in normalized
+        or "eu " in normalized
+        or "eu-" in normalized
+        or "directive" in normalized
+        or "nis2" in normalized
+        or "dsa" in normalized
+        or "dma" in normalized
+        or "data act" in normalized
+        or "battery regulation" in normalized
+        or "cbam" in normalized
+    ):
         primary = ("eur-lex.europa.eu", "taxation-customs.ec.europa.eu")
-    elif "export control" in normalized or "bis" in normalized or "u.s." in normalized or "us " in normalized:
-        primary = ("bis.gov",)
+    elif (
+        "uk " in normalized
+        or "united kingdom" in normalized
+        or "ofcom" in normalized
+        or "online safety act" in normalized
+    ):
+        primary = ("legislation.gov.uk", "ofcom.org.uk")
+    elif "fda" in normalized or "laboratory developed tests" in normalized or "pccp" in normalized:
+        primary = ("fda.gov", "federalregister.gov")
+    elif "ftc" in normalized or "noncompete" in normalized:
+        primary = ("ftc.gov", "federalregister.gov")
+    elif (
+        "fincen" in normalized
+        or "beneficial ownership" in normalized
+        or "corporate transparency act" in normalized
+        or "boi" in normalized
+    ):
+        primary = ("fincen.gov", "federalregister.gov")
+    elif "cisa" in normalized or "circia" in normalized or "ransom" in normalized:
+        primary = ("cisa.gov", "govinfo.gov")
+    elif (
+        "epa" in normalized
+        or "pfas" in normalized
+        or "drinking water" in normalized
+        or "methane rule" in normalized
+    ):
+        primary = ("epa.gov", "federalregister.gov")
+    elif "nist" in normalized or "fips" in normalized:
+        primary = ("nist.gov", "govinfo.gov")
+    elif "sec" in normalized or "item 1.05" in normalized or "cybersecurity disclosure" in normalized:
+        primary = ("sec.gov", "federalregister.gov")
+    elif (
+        "federal register" in normalized
+        or "federal" in normalized
+        or "u.s." in normalized
+        or "us " in normalized
+        or "epa" in normalized
+        or "methane rule" in normalized
+        or "cfr" in normalized
+    ):
+        primary = ("federalregister.gov", "govinfo.gov")
+    elif "export control" in normalized or "bis" in normalized:
+        primary = ("bis.gov", "federalregister.gov")
+    elif "公司法" in query or "法律" in query or "条例" in query or "司法解释" in query:
+        primary = ("flk.npc.gov.cn", "gov.cn")
     else:
-        primary = ("gov.cn", "cac.gov.cn", "mee.gov.cn", "mofcom.gov.cn")
+        primary = ("gov.cn", "miit.gov.cn", "flk.npc.gov.cn")
 
     if fallback:
-        return primary + ("samr.gov.cn",)
+        return primary + ("cac.gov.cn", "samr.gov.cn")
     return primary
+
+
+def preferred_policy_search_engines(configured_engines: tuple[str, ...]) -> tuple[str, ...]:
+    preferred = tuple(
+        engine
+        for engine in ("bing", "duckduckgo")
+        if engine in configured_engines
+    )
+    if preferred:
+        return preferred
+
+    filtered = tuple(
+        engine
+        for engine in configured_engines
+        if engine != "google"
+    )
+    if filtered:
+        return filtered
+
+    return configured_engines[:1] if configured_engines else ("duckduckgo",)

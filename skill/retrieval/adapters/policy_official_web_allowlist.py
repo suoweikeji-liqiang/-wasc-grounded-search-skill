@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -13,10 +14,15 @@ from skill.retrieval.live.parsers.policy import (
     extract_policy_metadata,
     is_official_policy_url,
     preferred_policy_domains,
+    preferred_policy_search_engines,
 )
 from skill.retrieval.models import RetrievalHit
 
 SOURCE_ID = "policy_official_web_allowlist_fallback"
+_SEARCH_TIMEOUT_SECONDS = 2.4
+_SEARCH_MAX_RESULTS = 3
+_CANDIDATE_LIMIT = 5
+_PAGE_FETCH_TIMEOUT_SECONDS = 1.0
 
 _RAW_FIXTURES: tuple[dict[str, Any], ...] = (
     {
@@ -44,6 +50,16 @@ _RAW_FIXTURES: tuple[dict[str, Any], ...] = (
         "snippet": "Secondary interpretation from a non-authoritative site.",
     },
 )
+
+
+def _detach_task(task: asyncio.Task[object]) -> None:
+    def _consume_result(done_task: asyncio.Task[object]) -> None:
+        try:
+            done_task.result()
+        except BaseException:
+            return
+
+    task.add_done_callback(_consume_result)
 
 
 def _is_allowlisted(url: str) -> bool:
@@ -81,80 +97,151 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
     ]
 
 
+async def _rank_candidate(
+    *,
+    query: str,
+    candidate: Any,
+    config: LiveRetrievalConfig,
+) -> dict[str, Any] | None:
+    if not is_official_policy_url(candidate.url):
+        return None
+    try:
+        page_text = await fetch_page_text(
+            url=candidate.url,
+            browser_enabled=config.browser_enabled,
+            browser_headless=config.browser_headless,
+            timeout_seconds=_PAGE_FETCH_TIMEOUT_SECONDS,
+            max_chars=1200,
+        )
+    except Exception:
+        page_text = ""
+    metadata = extract_policy_metadata(
+        url=candidate.url,
+        page_text="\n".join(
+            part
+            for part in (
+                page_text,
+                getattr(candidate, "title", ""),
+                getattr(candidate, "snippet", ""),
+                candidate.url,
+            )
+            if part
+        ),
+    )
+    if metadata["authority"] is None or (
+        metadata["publication_date"] is None
+        and metadata["effective_date"] is None
+        and _score(
+            query,
+            {
+                "title": candidate.title,
+                "snippet": candidate.snippet or page_text[:320],
+            },
+        )
+        <= 0
+    ):
+        return None
+    snippet = candidate.snippet or page_text[:320]
+    return {
+        "title": candidate.title,
+        "url": candidate.url,
+        "snippet": snippet,
+        "authority": metadata["authority"],
+        "jurisdiction": metadata["jurisdiction"],
+        "publication_date": metadata["publication_date"],
+        "effective_date": metadata["effective_date"],
+        "version": metadata["version"],
+        "_score": _score(
+            query,
+            {
+                "title": candidate.title,
+                "snippet": snippet,
+            },
+        ),
+    }
+
+
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live allowlisted-policy hits from broader official discovery."""
     config = LiveRetrievalConfig.from_env()
-    seen_urls: set[str] = set()
-    candidates = []
-    for domain in preferred_policy_domains(query, fallback=True):
+    engines = preferred_policy_search_engines(config.search_engines)
+    preferred_domains = preferred_policy_domains(query, fallback=True)
+    async with asyncio.timeout(_SEARCH_TIMEOUT_SECONDS):
         try:
-            discovered = await search_multi_engine(
-                query=f"{query} site:{domain}",
-                engines=config.search_engines,
-                max_results=4,
+            search_results = await search_multi_engine(
+                query=query,
+                engines=engines,
+                max_results=max(_SEARCH_MAX_RESULTS * 2, _CANDIDATE_LIMIT),
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
-            continue
-        for item in discovered:
+            search_results = []
+
+        seen_urls: set[str] = set()
+        candidates: list[Any] = []
+        ranked_candidates = sorted(
+            (
+                candidate
+                for candidate in search_results
+                if is_official_policy_url(candidate.url)
+            ),
+            key=lambda candidate: (
+                (
+                    preferred_domains.index((urlsplit(candidate.url).hostname or "").lower())
+                    if (urlsplit(candidate.url).hostname or "").lower() in preferred_domains
+                    else 99
+                ),
+                candidate.url,
+            ),
+        )
+        for item in ranked_candidates:
             if item.url in seen_urls:
                 continue
             seen_urls.add(item.url)
             candidates.append(item)
+            if len(candidates) >= _CANDIDATE_LIMIT:
+                break
 
-    ranked = []
-    for candidate in candidates:
-        if not is_official_policy_url(candidate.url):
-            continue
-        try:
-            page_text = await fetch_page_text(
-                url=candidate.url,
-                browser_enabled=config.browser_enabled,
-                browser_headless=config.browser_headless,
-                timeout_seconds=6.0,
-                max_chars=1200,
+        rank_tasks = [
+            asyncio.create_task(
+                _rank_candidate(
+                    query=query,
+                    candidate=candidate,
+                    config=config,
+                )
             )
-        except Exception:
-            page_text = ""
-        metadata = extract_policy_metadata(url=candidate.url, page_text=page_text)
-        if metadata["authority"] is None or (
-            metadata["publication_date"] is None and metadata["effective_date"] is None
-        ):
-            continue
-        ranked.append(
-            {
-                "title": candidate.title,
-                "url": candidate.url,
-                "snippet": candidate.snippet or page_text[:320],
-                "authority": metadata["authority"],
-                "jurisdiction": metadata["jurisdiction"],
-                "publication_date": metadata["publication_date"],
-                "effective_date": metadata["effective_date"],
-                "version": metadata["version"],
-                "_score": _score(
-                    query,
-                    {
-                        "title": candidate.title,
-                        "snippet": candidate.snippet or page_text[:320],
-                    },
-                ),
-            }
-        )
+            for candidate in candidates
+        ]
+        try:
+            rank_results = await asyncio.gather(*rank_tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            for task in rank_tasks:
+                if not task.done():
+                    task.cancel()
+                _detach_task(task)
+            raise
+        ranked = [
+            item
+            for item in rank_results
+            if not isinstance(item, Exception) and item is not None
+        ]
 
-    ranked.sort(key=lambda item: (item["_score"], item["url"]), reverse=True)
-    return [
-        RetrievalHit(
-            source_id=SOURCE_ID,
-            title=str(item["title"]),
-            url=str(item["url"]),
-            snippet=str(item["snippet"]),
-            authority=str(item["authority"]) if item["authority"] is not None else None,
-            jurisdiction=str(item["jurisdiction"]) if item["jurisdiction"] is not None else None,
-            publication_date=str(item["publication_date"]) if item["publication_date"] is not None else None,
-            effective_date=str(item["effective_date"]) if item["effective_date"] is not None else None,
-            version=str(item["version"]) if item["version"] is not None else None,
-        )
-        for item in ranked[:5]
-    ]
+        ranked.sort(key=lambda item: (item["_score"], item["url"]), reverse=True)
+        return [
+            RetrievalHit(
+                source_id=SOURCE_ID,
+                title=str(item["title"]),
+                url=str(item["url"]),
+                snippet=str(item["snippet"]),
+                authority=str(item["authority"]) if item["authority"] is not None else None,
+                jurisdiction=str(item["jurisdiction"]) if item["jurisdiction"] is not None else None,
+                publication_date=str(item["publication_date"]) if item["publication_date"] is not None else None,
+                effective_date=str(item["effective_date"]) if item["effective_date"] is not None else None,
+                version=str(item["version"]) if item["version"] is not None else None,
+            )
+            for item in ranked[:5]
+        ]
 
 
 async def search(query: str) -> list[RetrievalHit]:

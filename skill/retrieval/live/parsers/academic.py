@@ -191,3 +191,131 @@ def parse_arxiv_feed(xml_text: str) -> list[dict[str, object]]:
             }
         )
     return records
+
+
+def _abstract_from_inverted_index(index: object) -> str | None:
+    if not isinstance(index, dict) or not index:
+        return None
+    positioned_terms: list[tuple[int, str]] = []
+    for term, positions in index.items():
+        if not isinstance(term, str) or not isinstance(positions, list):
+            continue
+        for position in positions:
+            if isinstance(position, int):
+                positioned_terms.append((position, term))
+    if not positioned_terms:
+        return None
+    ordered = [term for _, term in sorted(positioned_terms, key=lambda item: item[0])]
+    return " ".join(ordered)
+
+
+def parse_openalex_response(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+
+    records: list[dict[str, object]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        title = _safe_str(item.get("display_name")) or _safe_str(item.get("title"))
+        if title is None:
+            continue
+        doi = _safe_str(item.get("doi"))
+        authorships = item.get("authorships")
+        first_author = None
+        if isinstance(authorships, list) and authorships:
+            first_authorship = authorships[0]
+            if isinstance(first_authorship, dict):
+                author = first_authorship.get("author")
+                if isinstance(author, dict):
+                    first_author = _safe_str(author.get("display_name"))
+
+        location_url = None
+        for key in ("primary_location", "best_oa_location"):
+            location = item.get(key)
+            if not isinstance(location, dict):
+                continue
+            location_url = _safe_str(location.get("landing_page_url")) or _safe_str(
+                location.get("pdf_url")
+            )
+            if location_url:
+                break
+
+        abstract = _abstract_from_inverted_index(item.get("abstract_inverted_index"))
+        work_type = (_safe_str(item.get("type")) or "").lower()
+        evidence_level = (
+            "peer_reviewed"
+            if doi or work_type in {"article", "journal-article", "review", "review-article"}
+            else "metadata_only"
+        )
+
+        records.append(
+            {
+                "title": title,
+                "url": doi or location_url or _safe_str(item.get("id")) or "",
+                "snippet": abstract or title,
+                "doi": doi.removeprefix("https://doi.org/") if doi else None,
+                "first_author": first_author,
+                "year": _safe_int(item.get("publication_year")),
+                "evidence_level": evidence_level,
+            }
+        )
+    return records
+
+
+def parse_europe_pmc_response(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    result_list = payload.get("resultList")
+    if not isinstance(result_list, dict):
+        return []
+    results = result_list.get("result")
+    if not isinstance(results, list):
+        return []
+
+    records: list[dict[str, object]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        title = _safe_str(item.get("title"))
+        if title is None:
+            continue
+        source = _safe_str(item.get("source")) or "MED"
+        record_id = _safe_str(item.get("id")) or _safe_str(item.get("pmid"))
+        doi = _safe_str(item.get("doi"))
+        if doi:
+            url = f"https://doi.org/{doi}"
+        elif record_id:
+            url = f"https://europepmc.org/article/{source}/{record_id}"
+        else:
+            continue
+
+        author_string = _safe_str(item.get("authorString")) or ""
+        first_author = author_string.split(",", 1)[0].strip() or None
+        pub_type = (_safe_str(item.get("pubType")) or "").lower()
+        evidence_level = "preprint" if source == "PPR" else "peer_reviewed"
+        if "review" in pub_type and evidence_level != "preprint":
+            evidence_level = "peer_reviewed"
+
+        snippet_parts = [
+            _safe_str(item.get("journalTitle")) or "",
+            author_string,
+            _safe_str(item.get("firstPublicationDate")) or "",
+        ]
+        snippet = " ".join(part for part in snippet_parts if part).strip() or title
+
+        records.append(
+            {
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "doi": doi,
+                "first_author": first_author,
+                "year": _safe_int(item.get("pubYear")),
+                "evidence_level": evidence_level,
+            }
+        )
+    return records

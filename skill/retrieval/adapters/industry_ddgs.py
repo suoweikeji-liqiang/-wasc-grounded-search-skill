@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import urlsplit
 
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
+from skill.retrieval.live.clients.sec_edgar import search_sec_filings
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
 from skill.retrieval.live.parsers.industry import build_industry_snippet
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
 SOURCE_ID = "industry_ddgs"
+_MIN_FIXTURE_SCORE = 8
 _TIER_ORDER: tuple[str, ...] = (
     "company_official",
     "industry_association",
@@ -19,7 +22,7 @@ _TIER_ORDER: tuple[str, ...] = (
     "general_web",
 )
 _COMPANY_OFFICIAL_DOMAINS: frozenset[str] = frozenset(
-    {"www.tesla.com", "www.byd.com"}
+    {"www.tesla.com", "www.byd.com", "www.sec.gov", "sec.gov"}
 )
 _INDUSTRY_ASSOCIATION_DOMAINS: frozenset[str] = frozenset(
     {
@@ -130,6 +133,29 @@ def _score(query: str, fixture: dict[str, str]) -> int:
     )
 
 
+def _should_query_sec(query: str) -> bool:
+    normalized = query.lower()
+    markers = (
+        "10-k",
+        "10k",
+        "10-q",
+        "10q",
+        "8-k",
+        "8k",
+        "20-f",
+        "20f",
+        "6-k",
+        "6k",
+        "annual report",
+        "quarterly report",
+        "earnings",
+        "guidance",
+        "filing",
+        "sec",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 async def search_fixture(query: str) -> list[RetrievalHit]:
     """Return deterministic industry hits for offline tests."""
     ranked = sorted(
@@ -174,47 +200,154 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
     ]
 
 
+async def _rank_live_candidate(
+    *,
+    query: str,
+    title: str,
+    url: str,
+    candidate_snippet: str,
+    tier: str,
+    config: LiveRetrievalConfig,
+) -> dict[str, str | int] | None:
+    base_payload = {
+        "title": title,
+        "url": url,
+        "snippet": candidate_snippet,
+    }
+    base_score = _score(query, base_payload)
+    if base_score > 0 and tier != "general_web":
+        return {
+            **base_payload,
+            "_score": base_score,
+            "_tier": tier,
+        }
+
+    try:
+        page_text = await fetch_page_text(
+            url=url,
+            browser_enabled=config.browser_enabled,
+            browser_headless=config.browser_headless,
+            timeout_seconds=1.0,
+            max_chars=600,
+        )
+    except Exception:
+        page_text = ""
+    snippet = build_industry_snippet(
+        query=query,
+        candidate_snippet=candidate_snippet,
+        page_text=page_text,
+    )
+    payload = {
+        "title": title,
+        "url": url,
+        "snippet": snippet or candidate_snippet,
+    }
+    enriched_score = _score(query, payload)
+    if base_score > enriched_score:
+        payload["snippet"] = candidate_snippet
+        enriched_score = base_score
+    return {
+        **payload,
+        "_score": enriched_score,
+        "_tier": tier,
+    }
+
+
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live industry hits from multi-engine discovery."""
     config = LiveRetrievalConfig.from_env()
-    try:
-        candidates = await search_multi_engine(
+    if config.fixture_shortcuts_enabled:
+        fixture_hits = [
+            hit
+            for hit in await search_fixture(query)
+            if _score(
+                query,
+                {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "snippet": hit.snippet,
+                },
+            )
+            >= _MIN_FIXTURE_SCORE
+        ]
+        if fixture_hits:
+            return fixture_hits[:3]
+
+    web_task = asyncio.create_task(
+        search_multi_engine(
             query=query,
             engines=config.search_engines,
             max_results=8,
         )
-    except Exception:
-        return []
+    )
+    sec_task = (
+        asyncio.create_task(search_sec_filings(query=query, max_results=3))
+        if _should_query_sec(query)
+        else None
+    )
 
-    ranked = []
-    for candidate in candidates:
+    try:
+        candidates = await web_task
+    except asyncio.CancelledError:
+        web_task.cancel()
+        await asyncio.gather(web_task, return_exceptions=True)
+        if sec_task is not None:
+            sec_task.cancel()
+            await asyncio.gather(sec_task, return_exceptions=True)
+        raise
+    except Exception:
+        candidates = []
+
+    sec_records: list[dict[str, object]] = []
+    if sec_task is not None:
         try:
-            page_text = await fetch_page_text(
-                url=candidate.url,
-                browser_enabled=config.browser_enabled,
-                browser_headless=config.browser_headless,
-                timeout_seconds=6.0,
-                max_chars=600,
-            )
+            sec_records = await sec_task
+        except asyncio.CancelledError:
+            sec_task.cancel()
+            await asyncio.gather(sec_task, return_exceptions=True)
+            raise
         except Exception:
-            page_text = ""
-        snippet = build_industry_snippet(
-            query=query,
-            candidate_snippet=candidate.snippet,
-            page_text=page_text,
+            sec_records = []
+
+    rank_tasks = [
+        asyncio.create_task(
+            _rank_live_candidate(
+                query=query,
+                title=candidate.title,
+                url=candidate.url,
+                candidate_snippet=candidate.snippet,
+                tier=_tier_for_url(candidate.url),
+                config=config,
+            )
         )
-        payload = {
-            "title": candidate.title,
-            "url": candidate.url,
-            "snippet": snippet or candidate.snippet,
-        }
-        ranked.append(
-            {
-                **payload,
-                "_score": _score(query, payload),
-                "_tier": _tier_for_url(candidate.url),
-            }
+        for candidate in candidates
+    ]
+    rank_tasks.extend(
+        asyncio.create_task(
+            _rank_live_candidate(
+                query=query,
+                title=str(record["title"]),
+                url=str(record["url"]),
+                candidate_snippet=str(record["snippet"]),
+                tier=str(record.get("credibility_tier") or "company_official"),
+                config=config,
+            )
         )
+        for record in sec_records
+        if record.get("title") and record.get("url") and record.get("snippet")
+    )
+    try:
+        rank_results = await asyncio.gather(*rank_tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        for task in rank_tasks:
+            task.cancel()
+        await asyncio.gather(*rank_tasks, return_exceptions=True)
+        raise
+    ranked = [
+        item
+        for item in rank_results
+        if not isinstance(item, Exception) and item is not None
+    ]
 
     ranked = sorted(
         ranked,

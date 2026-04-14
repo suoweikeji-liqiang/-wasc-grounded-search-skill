@@ -50,9 +50,12 @@ def test_policy_registry_client_parses_gov_search_results(monkeypatch) -> None:
     monkeypatch.setattr(http_client, "fetch_json", _fake_fetch_json)
 
     records = asyncio.run(
-        policy_registry.search_policy_registry(
+        asyncio.wait_for(
+            policy_registry.search_policy_registry(
             query="智能网联汽车 试点 通知",
             max_results=5,
+            ),
+            timeout=0.2,
         )
     )
 
@@ -72,10 +75,15 @@ def test_policy_registry_client_retries_with_broader_search_field_when_title_sea
     from skill.retrieval.live.clients import policy_registry
 
     observed_fields: list[str] = []
+    all_started = asyncio.Event()
 
     async def _fake_fetch_json(**kwargs: object) -> object:
-        observed_fields.append(kwargs["params"]["searchfield"])
-        if kwargs["params"]["searchfield"] == "title":
+        searchfield = kwargs["params"]["searchfield"]
+        observed_fields.append(searchfield)
+        if len(observed_fields) == 2:
+            all_started.set()
+        await all_started.wait()
+        if searchfield == "title":
             return {"code": 1001, "msg": "抱歉，没有找到相关结果", "data": []}
         return {
             "code": 200,
@@ -101,13 +109,16 @@ def test_policy_registry_client_retries_with_broader_search_field_when_title_sea
     monkeypatch.setattr(http_client, "fetch_json", _fake_fetch_json)
 
     records = asyncio.run(
-        policy_registry.search_policy_registry(
+        asyncio.wait_for(
+            policy_registry.search_policy_registry(
             query="自动驾驶 试点 监管",
             max_results=5,
+            ),
+            timeout=0.2,
         )
     )
 
-    assert observed_fields == ["title", "title:content:summary"]
+    assert set(observed_fields) == {"title", "title:content:summary"}
     assert len(records) == 1
     assert records[0]["title"] == "四部委关于开展智能网联汽车准入和上路通行试点工作的通知"
 
@@ -142,6 +153,7 @@ def test_policy_registry_live_adapter_prefers_gov_policy_library_before_open_web
 
     monkeypatch.setattr(adapter, "search_policy_registry", _fake_search_policy_registry)
     monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
 
     hits = asyncio.run(adapter.search_live("智能网联汽车 试点 通知"))
 
@@ -198,6 +210,7 @@ def test_policy_registry_live_adapter_ignores_weak_gov_hits_and_falls_back_to_op
     monkeypatch.setattr(adapter, "search_policy_registry", _weak_search_policy_registry)
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
 
     hits = asyncio.run(adapter.search_live("自动驾驶 试点 监管"))
 
@@ -242,6 +255,7 @@ def test_policy_registry_live_adapter_drops_weak_open_web_fallback_hits(
     monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
 
     hits = asyncio.run(adapter.search_live("自动驾驶 试点 监管"))
 
@@ -253,6 +267,15 @@ def test_policy_registry_live_adapter_filters_to_official_domains_and_extracts_m
 ) -> None:
     import skill.retrieval.adapters.policy_official_registry as adapter
     from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest climate order version"
+        assert max_results == 5
+        return []
 
     async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
         return [
@@ -281,6 +304,7 @@ def test_policy_registry_live_adapter_filters_to_official_domains_and_extracts_m
 
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
 
     hits = asyncio.run(adapter.search_live("latest climate order version"))
 
@@ -291,6 +315,113 @@ def test_policy_registry_live_adapter_filters_to_official_domains_and_extracts_m
     assert hits[0].publication_date == "2026-04-01"
     assert hits[0].effective_date == "2026-05-01"
     assert hits[0].version == "2026-04 edition"
+
+
+def test_policy_registry_live_adapter_keeps_strong_official_candidate_when_page_fetch_is_empty(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "NIS2 Directive transposition deadline adopt publish national measures official text"
+        assert max_results == 5
+        return []
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="Directive (EU) 2022/2555 on measures for a high common level of cybersecurity across the Union",
+                url="https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+                snippet="Official directive text published 2022-12-27 with Member State transposition deadline 2024-10-17.",
+            )
+        ]
+
+    async def _empty_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _empty_fetch_page_text)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "NIS2 Directive transposition deadline adopt publish national measures official text"
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].url.startswith("https://eur-lex.europa.eu/eli/dir/2022/2555/")
+    assert hits[0].authority == "European Union"
+    assert hits[0].jurisdiction == "EU"
+
+
+def test_policy_registry_live_adapter_starts_open_web_fallback_while_registry_is_in_flight(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    started: list[str] = []
+    all_started = asyncio.Event()
+
+    async def _slow_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest climate order version"
+        assert max_results == 5
+        started.append("registry")
+        if len(started) == 2:
+            all_started.set()
+        await all_started.wait()
+        return []
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        started.append("fallback")
+        if len(started) == 2:
+            all_started.set()
+        await all_started.wait()
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="Climate Order",
+                url="https://www.gov.cn/zhengce/climate-order",
+                snippet="Official climate order release.",
+            )
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return (
+            "Authority: State Council\n"
+            "Publication date: 2026-04-01\n"
+            "Effective date: 2026-05-01\n"
+            "Version: 2026-04 edition\n"
+            "Official climate order release."
+        )
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _slow_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "preferred_policy_domains", lambda query, *, fallback: ("gov.cn",))
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live("latest climate order version"),
+            timeout=0.2,
+        )
+    )
+
+    assert started == ["registry", "fallback"]
+    assert len(hits) == 1
+    assert hits[0].url == "https://www.gov.cn/zhengce/climate-order"
 
 
 def test_policy_allowlist_live_adapter_rejects_non_official_domains(monkeypatch) -> None:
@@ -330,3 +461,143 @@ def test_policy_allowlist_live_adapter_rejects_non_official_domains(monkeypatch)
     assert hits[0].authority == "State Administration for Market Regulation"
     assert hits[0].jurisdiction == "CN"
     assert "blog.example.com" not in hits[0].url
+
+
+def test_policy_registry_live_adapter_uses_federal_register_for_us_official_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest EPA methane rule effective date"
+        assert max_results == 5
+        return []
+
+    async def _fake_search_federal_register(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest EPA methane rule effective date"
+        assert max_results == 5
+        return [
+            {
+                "title": "Oil and Natural Gas Sector: Reduction of Methane Emissions",
+                "url": "https://www.federalregister.gov/documents/2026/04/11/2026-00001/methane-rule",
+                "snippet": "Official Federal Register rule notice.",
+                "authority": "Environmental Protection Agency",
+                "jurisdiction": "US",
+                "publication_date": "2026-04-11",
+                "effective_date": "2026-05-11",
+                "version": "2026 final rule",
+            }
+        ]
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        raise AssertionError("open web fallback should not run when Federal Register hits exist")
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_federal_register", _fake_search_federal_register)
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_live("latest EPA methane rule effective date"))
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Environmental Protection Agency"
+    assert hits[0].jurisdiction == "US"
+    assert hits[0].publication_date == "2026-04-11"
+    assert hits[0].effective_date == "2026-05-11"
+    assert hits[0].version == "2026 final rule"
+
+
+def test_policy_allowlist_live_adapter_accepts_npc_law_database_domains(monkeypatch) -> None:
+    import skill.retrieval.adapters.policy_official_web_allowlist as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="中华人民共和国公司法",
+                url="https://flk.npc.gov.cn/detail2.html?ZmY4MDgxODE3NTJiNjQ0MzAxNzYzNzA0NTg4MjU3",
+                snippet="国家法律法规数据库正式文本。",
+            )
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return (
+            "Authority: National People's Congress\n"
+            "Publication date: 2023-12-29\n"
+            "Effective date: 2024-07-01\n"
+            "Version: 2023 revised edition\n"
+            "国家法律法规数据库正式发布文本。"
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("公司法 修订 生效 日期"))
+
+    assert len(hits) == 1
+    assert hits[0].url.startswith("https://flk.npc.gov.cn/")
+    assert hits[0].authority == "National People's Congress"
+    assert hits[0].jurisdiction == "CN"
+
+
+def test_policy_registry_live_adapter_uses_pruned_policy_search_fanout(monkeypatch) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    search_calls: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest climate order version"
+        assert max_results == 5
+        return []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        search_calls.append((kwargs["query"], kwargs["engines"]))
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_live("latest climate order version"))
+
+    assert len(hits) <= 5
+    assert search_calls
+    assert len(search_calls) <= 3
+    assert all("google" not in engines for _, engines in search_calls)
+
+
+def test_policy_registry_live_adapter_falls_back_to_ranked_fixture_hits_when_live_search_misses(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "AI chip export controls 对 academic research 影响"
+        assert max_results == 5
+        return []
+
+    async def _empty_search_multi_engine(**_: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_live("AI chip export controls 对 academic research 影响"))
+
+    assert hits
+    assert hits[0].url == "https://www.mofcom.gov.cn/article/ai-chip-export-controls-2026"

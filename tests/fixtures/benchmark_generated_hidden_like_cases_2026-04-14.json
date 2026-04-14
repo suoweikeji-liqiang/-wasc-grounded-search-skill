@@ -1,0 +1,252 @@
+[
+  {
+    "case_id": "gen-policy-01",
+    "query": "FinCEN beneficial ownership information reporting deadline for a U.S. company created on February 3, 2025 Corporate Transparency Act official guidance",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-02",
+    "query": "FDA final rule laboratory developed tests phase-in timeline Stage 1 compliance date MDR correction removal reporting official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-03",
+    "query": "EU AI Act prohibited AI practices exact application date official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-04",
+    "query": "EU AI Act GPAI obligations timeline and main obligations application date official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-05",
+    "query": "Digital Services Act VLOP VLOSE systemic risk assessments audit frequency deadline official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-06",
+    "query": "NIS2 Directive transposition deadline adopt publish national measures official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-07",
+    "query": "EPA final PFAS drinking water rule compliance deadlines monitoring official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-08",
+    "query": "FTC final rule noncompete clauses effective date senior executives existing noncompetes official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-09",
+    "query": "CIRCIA reporting deadlines hours covered cyber incidents ransom payments official CISA",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-policy-10",
+    "query": "UK Online Safety Act enforcement regulator core enforcement powers official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-academic-01",
+    "query": "2025 paper mixture-of-experts routing stability load balancing auxiliary loss collapse mitigation",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-02",
+    "query": "2025 2026 arXiv test-time scaling large language models compute-optimal inference best-of-n reranking",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-03",
+    "query": "2025 diffusion transformer DiT consistency distillation accelerated sampling fewer steps",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-04",
+    "query": "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-05",
+    "query": "2025 2026 vision-language model medical imaging report generation hallucination reduction evaluation",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-06",
+    "query": "2025 LLM agent tool-use benchmarks web navigation reproducibility open-source dataset",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-07",
+    "query": "2025 federated learning foundation models personalization parameter-efficient finetuning LoRA privacy",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-08",
+    "query": "2025 2026 post-training RLHF alternatives DPO IPO KTO preference optimization comparison papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-09",
+    "query": "2025 long-context LLMs positional encoding extrapolation RoPE scaling YaRN evaluation",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-academic-10",
+    "query": "2025 2026 Europe PMC single-cell foundation model transcriptomics transformer pretraining cell type annotation",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen-industry-01",
+    "query": "TSMC 2025 capex guidance range official earnings materials",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-02",
+    "query": "NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-03",
+    "query": "Microsoft FY2025 Form 10-K segment revenue definitions Intelligent Cloud Productivity More Personal Computing",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-04",
+    "query": "Rivian 2025 annual report Form 10-K liquidity going concern disclosure",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-05",
+    "query": "Boeing 2025 Form 10-K backlog definition order cancellation policy",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-06",
+    "query": "JPMorgan Chase 2025 Form 10-K CET1 ratio Basel III endgame discussion",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-07",
+    "query": "Ford 2025 Form 10-K warranty accrual accounting policy changes",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-08",
+    "query": "ExxonMobil 2025 Form 10-K proved reserves SEC definition reporting basis",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-09",
+    "query": "FDA CGMP inspection classification OAI VAI NAI definitions official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-industry-10",
+    "query": "IATA 2026 aviation demand forecast passenger traffic RPK growth official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-mixed-01",
+    "query": "EU AI Act GPAI transparency documentation obligations official text and Commission guidance cross-check with industry model card AI Act readiness",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-02",
+    "query": "California SB 253 SB 261 covered entity revenue thresholds first reporting years 2025 2026 updates and company Scope 3 alignment disclosures",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-03",
+    "query": "EU Battery Regulation 2023 1542 carbon footprint declaration battery passport due diligence deadlines and battery pass pilot manufacturer announcement",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-04",
+    "query": "FCC Cyber Trust Mark minimum security requirements eligibility scope and ETSI EN 303 645 mapping with vendor readiness page",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-05",
+    "query": "EU Digital Markets Act designated gatekeepers core platform services messaging interoperability obligations and Apple Meta DMA compliance docs",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-06",
+    "query": "UK Online Safety Act Ofcom 2025 2026 compliance milestones illegal harms codes and platform policy changes tied to Ofcom codes",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-07",
+    "query": "EPA PFAS drinking water standards MCL values compliance milestones and water utility capex estimates public statements",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-08",
+    "query": "IMO GHG strategy 2025 2026 shipping fuel compliance instruments green methanol ammonia LCA studies and carrier alternative-fuels announcement",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-09",
+    "query": "EU Data Act application date connected products data holder obligations vendor API contract update and academic legal commentary trade-secret safeguards",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-mixed-10",
+    "query": "SEC cybersecurity disclosure rules Form 8-K Item 1.05 timing annual disclosure expectations and company 10-K 8-K language updates",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen-hard-01",
+    "query": "NIST FIPS 203 ML-KEM-768 public key private key ciphertext shared secret byte lengths table",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-hard-02",
+    "query": "NIST FIPS 204 ML-DSA largest signature size parameter set bytes table",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-hard-03",
+    "query": "EU AI Act prohibited practices GPAI Annex III high-risk obligations compliance timing months after entry into force articles",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-hard-04",
+    "query": "RFC 9700 OAuth 2.1 legacy authorization flows grant types removed discouraged sections",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-hard-05",
+    "query": "W3C WebAuthn Level 3 normative term for passkey discoverable credential residentKey required implication",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-hard-06",
+    "query": "Chromium CHIPS cookie attribute name requests partitioning Set-Cookie token string official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-hard-07",
+    "query": "FR reglement UE 2024 1689 definition systeme d IA article officiel",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-hard-08",
+    "query": "ES guia FDA Predetermined Change Control Plan PCCP tres componentes requeridos seccion oficial",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen-hard-09",
+    "query": "中文 IETF HTTP Message Signatures Signature-Input ABNF 组件标识符 参数 规则名 小节",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen-hard-10",
+    "query": "2025 2026 arXiv LLM watermarking robustness to paraphrasing false-positive rate alpha main experiments",
+    "expected_route": "academic"
+  }
+]

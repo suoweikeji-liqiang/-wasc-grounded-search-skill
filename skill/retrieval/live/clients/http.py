@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import Mapping
 
 import httpx
@@ -15,6 +17,11 @@ _DEFAULT_HEADERS = {
 }
 
 
+def _trust_env() -> bool:
+    raw = (os.getenv("WASC_LIVE_HTTP_TRUST_ENV") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 async def fetch_text(
     *,
     url: str,
@@ -25,10 +32,16 @@ async def fetch_text(
     merged_headers = dict(_DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        response = await client.get(url, params=params, headers=merged_headers)
-        response.raise_for_status()
-        return response.text
+    timeout_config = httpx.Timeout(timeout)
+    async with asyncio.timeout(timeout):
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout_config,
+            trust_env=_trust_env(),
+        ) as client:
+            response = await client.get(url, params=params, headers=merged_headers)
+            response.raise_for_status()
+            return response.text
 
 
 async def fetch_json(
@@ -41,7 +54,13 @@ async def fetch_json(
     merged_headers = dict(_DEFAULT_HEADERS)
     if headers:
         merged_headers.update(headers)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        response = await client.get(url, params=params, headers=merged_headers)
-        response.raise_for_status()
-        return response.json()
+    timeout_config = httpx.Timeout(timeout)
+    async with asyncio.timeout(timeout):
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout_config,
+            trust_env=_trust_env(),
+        ) as client:
+            response = await client.get(url, params=params, headers=merged_headers)
+            response.raise_for_status()
+            return response.json()

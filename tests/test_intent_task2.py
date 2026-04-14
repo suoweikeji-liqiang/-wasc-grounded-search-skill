@@ -115,3 +115,31 @@ def test_derive_query_traits_avoids_false_effective_date_and_tracks_vs_cross_dom
     ):
         mixed_traits = derive_query_traits(query)
         assert mixed_traits.is_cross_domain_impact is True
+
+
+def test_classify_query_hidden_like_english_single_domain_queries_stay_concrete() -> None:
+    policy = classify_query(
+        "NIS2 Directive transposition deadline adopt publish national measures official text"
+    )
+    assert policy.route_label == "policy"
+    assert policy.primary_route == "policy"
+    assert policy.supplemental_route is None
+
+    academic = classify_query(
+        "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution"
+    )
+    assert academic.route_label == "academic"
+    assert academic.primary_route == "academic"
+    assert academic.supplemental_route is None
+
+    industry = classify_query("TSMC 2025 capex guidance range official earnings materials")
+    assert industry.route_label == "industry"
+    assert industry.primary_route == "industry"
+    assert industry.supplemental_route is None
+
+    standards = classify_query(
+        "RFC 9700 OAuth 2.1 legacy authorization flows grant types removed discouraged sections"
+    )
+    assert standards.route_label == "industry"
+    assert standards.primary_route == "industry"
+    assert standards.supplemental_route is None

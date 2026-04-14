@@ -92,6 +92,36 @@ ENGLISH_BENCHMARK_ROUTE_CASES = (
         "primary_route": "policy",
         "supplemental_route": "academic",
     },
+    {
+        "query": "NIS2 Directive transposition deadline adopt publish national measures official text",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "TSMC 2025 capex guidance range official earnings materials",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "NIST FIPS 203 ML-KEM-768 public key private key ciphertext shared secret byte lengths table",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "RFC 9700 OAuth 2.1 legacy authorization flows grant types removed discouraged sections",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
 )
 
 COMPETITION_STYLE_ROUTE_CASES = (

@@ -798,6 +798,48 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_chi
     assert "2026-04-01" in result.response.conclusion
 
 
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_deadline_official_text_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "policy deadline/offical-text lookup should use local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=(
+                "Digital Services Act VLOP VLOSE systemic risk assessments "
+                "audit frequency deadline official text"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Closest retained policy match" in result.response.conclusion
+    assert result.runtime_trace.latency_budget_ok is True
+
+
 def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
     monkeypatch,
 ) -> None:

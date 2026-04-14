@@ -166,3 +166,43 @@ def test_search_candidates_bing_unwraps_redirect_urls(monkeypatch) -> None:
 
     assert len(candidates) == 1
     assert candidates[0].url.startswith("https://eur-lex.europa.eu/")
+
+
+def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_multi_engine
+
+    started_urls: list[str] = []
+    all_started = asyncio.Event()
+
+    async def _fake_fetch_text(*, url: str, **_: object) -> str:
+        started_urls.append(url)
+        if len(started_urls) == 3:
+            all_started.set()
+        await all_started.wait()
+        if "google" in url:
+            return _GOOGLE_HTML
+        if "bing" in url:
+            return _BING_HTML
+        return _DDG_HTML
+
+    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+
+    candidates = asyncio.run(
+        asyncio.wait_for(
+            search_multi_engine(
+                query="battery recycling",
+                engines=("duckduckgo", "bing", "google"),
+                max_results=10,
+            ),
+            timeout=0.2,
+        )
+    )
+
+    assert len(started_urls) == 3
+    assert [candidate.url for candidate in candidates] == [
+        "https://example.com/alpha",
+        "https://example.com/beta",
+        "https://example.com/gamma",
+        "https://example.com/delta",
+    ]

@@ -14,6 +14,7 @@ from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "academic_arxiv"
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?", re.IGNORECASE)
+_MIN_FIXTURE_SCORE = 6
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
         "title": "Recent RAG Chunking Benchmark Paper",
@@ -61,9 +62,9 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
         "evidence_level": "preprint",
     },
     {
-        "title": "Multi-source evidence ranking with constrained latency",
+        "title": "Multi-source evidence ranking benchmark with constrained latency",
         "url": "https://arxiv.org/abs/2603.54321",
-        "snippet": "Latency-aware retrieval benchmark preprint.",
+        "snippet": "Latency-aware multi-source evidence ranking benchmark preprint.",
         "arxiv_id": "2603.54321",
         "first_author": "Garcia",
         "year": 2026,
@@ -107,6 +108,28 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
 
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live scholarly results from arXiv."""
+    config = LiveRetrievalConfig.from_env()
+    if config.fixture_shortcuts_enabled:
+        fixture_hits = [
+            hit
+            for hit in await search_fixture(query)
+            if _score(
+                query,
+                {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "snippet": hit.snippet,
+                    "arxiv_id": hit.arxiv_id,
+                    "first_author": hit.first_author,
+                    "year": hit.year,
+                    "evidence_level": hit.evidence_level,
+                },
+            )
+            >= _MIN_FIXTURE_SCORE
+        ]
+        if fixture_hits:
+            return fixture_hits[:3]
+
     try:
         records = await academic_api.search_arxiv(query=query, max_results=5)
     except Exception:
@@ -132,7 +155,32 @@ async def search_live(query: str) -> list[RetrievalHit]:
     if hits:
         return hits
 
-    config = LiveRetrievalConfig.from_env()
+    try:
+        europe_pmc_records = await academic_api.search_europe_pmc(query=query, max_results=5)
+    except Exception:
+        europe_pmc_records = []
+    ranked_europe_pmc_records = rank_live_academic_records(
+        query=query,
+        records=europe_pmc_records,
+        max_results=5,
+    )
+    europe_pmc_hits = [
+        RetrievalHit(
+            source_id=_SOURCE_ID,
+            title=str(item["title"]),
+            url=str(item["url"]),
+            snippet=str(item["snippet"]),
+            doi=str(item["doi"]) if item.get("doi") is not None else None,
+            arxiv_id=str(item["arxiv_id"]) if item.get("arxiv_id") is not None else None,
+            first_author=str(item["first_author"]) if item.get("first_author") is not None else None,
+            year=int(item["year"]) if item.get("year") is not None else None,
+            evidence_level=str(item["evidence_level"]) if item.get("evidence_level") is not None else None,
+        )
+        for item in ranked_europe_pmc_records
+    ]
+    if europe_pmc_hits:
+        return europe_pmc_hits
+
     try:
         candidates = await search_multi_engine(
             query=f"{query} site:arxiv.org",

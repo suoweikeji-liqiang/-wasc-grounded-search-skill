@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
@@ -40,6 +41,16 @@ _ENGINE_CONFIG = {
 }
 
 
+def _detach_task(task: asyncio.Task[object]) -> None:
+    def _consume_result(done_task: asyncio.Task[object]) -> None:
+        try:
+            done_task.result()
+        except BaseException:
+            return
+
+    task.add_done_callback(_consume_result)
+
+
 def _canonical_url(url: str) -> str:
     parts = urlsplit(url)
     path = parts.path.rstrip("/") or "/"
@@ -56,6 +67,7 @@ async def search_candidates(
     html = await http_client.fetch_text(
         url=config["url"],
         params=config["params"](query),
+        timeout=2.0,
     )
     parser = config["parser"]
     parsed = parser(html)
@@ -78,16 +90,32 @@ async def search_multi_engine(
 ) -> list[SearchCandidate]:
     deduped: list[SearchCandidate] = []
     seen: set[str] = set()
-
-    for engine in engines:
-        try:
-            candidates = await search_candidates(
+    tasks = {
+        engine: asyncio.create_task(
+            search_candidates(
                 query=query,
                 engine=engine,
                 max_results=max_results,
             )
-        except Exception:
+        )
+        for engine in engines
+    }
+    try:
+        results = await asyncio.gather(
+            *(tasks[engine] for engine in engines),
+            return_exceptions=True,
+        )
+    except asyncio.CancelledError:
+        for task in tasks.values():
+            if not task.done():
+                task.cancel()
+            _detach_task(task)
+        raise
+
+    for engine, result in zip(engines, results):
+        if isinstance(result, Exception):
             continue
+        candidates = result
         for candidate in candidates:
             canonical = _canonical_url(candidate.url)
             if canonical in seen:
