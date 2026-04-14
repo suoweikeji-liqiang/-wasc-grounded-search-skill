@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from skill.retrieval.adapters.academic_live_common import rank_live_academic_records
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.retrieval.live.clients import academic_api
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
@@ -110,6 +111,11 @@ async def search_live(query: str) -> list[RetrievalHit]:
         records = await academic_api.search_arxiv(query=query, max_results=5)
     except Exception:
         records = []
+    ranked_records = rank_live_academic_records(
+        query=query,
+        records=records,
+        max_results=5,
+    )
     hits = [
         RetrievalHit(
             source_id=_SOURCE_ID,
@@ -121,8 +127,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
             year=int(item["year"]) if item.get("year") is not None else None,
             evidence_level=str(item["evidence_level"]) if item.get("evidence_level") is not None else None,
         )
-        for item in records
-        if item.get("title") and item.get("url")
+        for item in ranked_records
     ]
     if hits:
         return hits
@@ -137,7 +142,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
     except Exception:
         return []
 
-    fallback_hits: list[RetrievalHit] = []
+    fallback_records: list[dict[str, Any]] = []
     for candidate in candidates:
         arxiv_match = _ARXIV_ID_RE.search(candidate.url)
         if arxiv_match is None:
@@ -145,18 +150,34 @@ async def search_live(query: str) -> list[RetrievalHit]:
         arxiv_id = arxiv_match.group(1)
         year_prefix = arxiv_id[:2]
         year = 2000 + int(year_prefix) if year_prefix.isdigit() else None
-        fallback_hits.append(
-            RetrievalHit(
-                source_id=_SOURCE_ID,
-                title=candidate.title,
-                url=candidate.url,
-                snippet=candidate.snippet,
-                arxiv_id=arxiv_id,
-                year=year,
-                evidence_level="preprint",
-            )
+        fallback_records.append(
+            {
+                "title": candidate.title,
+                "url": candidate.url,
+                "snippet": candidate.snippet,
+                "arxiv_id": arxiv_id,
+                "year": year,
+                "evidence_level": "preprint",
+            }
         )
-    return fallback_hits
+    ranked_fallback_records = rank_live_academic_records(
+        query=query,
+        records=fallback_records,
+        max_results=5,
+    )
+    return [
+        RetrievalHit(
+            source_id=_SOURCE_ID,
+            title=str(item["title"]),
+            url=str(item["url"]),
+            snippet=str(item["snippet"]),
+            arxiv_id=str(item["arxiv_id"]) if item.get("arxiv_id") is not None else None,
+            first_author=str(item["first_author"]) if item.get("first_author") is not None else None,
+            year=int(item["year"]) if item.get("year") is not None else None,
+            evidence_level=str(item["evidence_level"]) if item.get("evidence_level") is not None else None,
+        )
+        for item in ranked_fallback_records
+    ]
 
 
 async def search(query: str) -> list[RetrievalHit]:
