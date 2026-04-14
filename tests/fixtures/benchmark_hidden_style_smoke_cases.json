@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "smoke-policy-01",
+    "query": "自动驾驶试点监管办法什么时候实施",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "smoke-policy-02",
+    "query": "智能网联汽车 试点 监管 通知",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "smoke-academic-01",
+    "query": "有哪些 grounded search evidence packing 论文",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "smoke-academic-02",
+    "query": "多源 evidence ranking benchmark 论文",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "smoke-industry-01",
+    "query": "advanced packaging capacity outlook 2026",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "smoke-industry-02",
+    "query": "动力电池回收市场份额预测",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "smoke-mixed-01",
+    "query": "自动驾驶试点监管变化对产业投资影响",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "smoke-mixed-02",
+    "query": "AI chip export controls 对 academic research 影响",
+    "expected_route": "mixed"
+  }
+]

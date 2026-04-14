@@ -13,6 +13,7 @@ from skill.api.entry import app
 from skill.config.routes import ROUTE_SOURCE_FAMILIES
 
 FIXTURE_PATH = Path(__file__).with_name("fixtures") / "phase1_queries.json"
+HIDDEN_SMOKE_FIXTURE_PATH = Path(__file__).with_name("fixtures") / "benchmark_hidden_style_smoke_cases.json"
 EXPECTED_RESPONSE_KEYS = {
     "route_label",
     "source_families",
@@ -123,6 +124,57 @@ COMPETITION_STYLE_ROUTE_CASES = (
 LEGACY_EXPLICIT_CROSS_DOMAIN_CASES = (
     {
         "query": "\u7814\u7a76\u4e0e\u76d1\u7ba1\u534f\u540c\u6846\u67b6",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "academic",
+    },
+)
+
+HIDDEN_STYLE_SMOKE_ROUTE_CASES = (
+    {
+        "query": "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u529e\u6cd5\u4ec0\u4e48\u65f6\u5019\u5b9e\u65bd",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u667a\u80fd\u7f51\u8054\u6c7d\u8f66 \u8bd5\u70b9 \u76d1\u7ba1 \u901a\u77e5",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u6709\u54ea\u4e9b grounded search evidence packing \u8bba\u6587",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u591a\u6e90 evidence ranking benchmark \u8bba\u6587",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "advanced packaging capacity outlook 2026",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd",
+        "route_label": "mixed",
+        "primary_route": "policy",
+        "supplemental_route": "industry",
+    },
+    {
+        "query": "AI chip export controls \u5bf9 academic research \u5f71\u54cd",
         "route_label": "mixed",
         "primary_route": "policy",
         "supplemental_route": "academic",
@@ -263,6 +315,29 @@ def test_competition_style_queries_route_to_expected_domains(
 
 @pytest.mark.parametrize("case", LEGACY_EXPLICIT_CROSS_DOMAIN_CASES, ids=lambda case: case["query"])
 def test_legacy_explicit_cross_domain_markers_still_route_correctly(
+    client: TestClient,
+    case: dict[str, str | None],
+) -> None:
+    payload = client.post("/route", json={"query": case["query"]}).json()
+
+    assert payload["route_label"] == case["route_label"]
+    assert payload["primary_route"] == case["primary_route"]
+    assert payload["supplemental_route"] == case["supplemental_route"]
+
+
+def test_hidden_style_smoke_manifest_stays_route_aligned() -> None:
+    payload = json.loads(HIDDEN_SMOKE_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    assert [item["query"] for item in payload] == [
+        case["query"] for case in HIDDEN_STYLE_SMOKE_ROUTE_CASES
+    ]
+    assert [item["expected_route"] for item in payload] == [
+        case["route_label"] for case in HIDDEN_STYLE_SMOKE_ROUTE_CASES
+    ]
+
+
+@pytest.mark.parametrize("case", HIDDEN_STYLE_SMOKE_ROUTE_CASES, ids=lambda case: case["query"])
+def test_hidden_style_smoke_queries_route_to_expected_domains(
     client: TestClient,
     case: dict[str, str | None],
 ) -> None:

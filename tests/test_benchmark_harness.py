@@ -11,6 +11,7 @@ from skill.api.schema import AnswerRequest, AnswerResponse
 from skill.orchestrator.budget import RuntimeTrace
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "benchmark_phase5_cases.json"
+HIDDEN_SMOKE_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "benchmark_hidden_style_smoke_cases.json"
 
 
 def _build_fake_benchmark_app() -> FastAPI:
@@ -79,6 +80,33 @@ def test_load_benchmark_cases_preserves_locked_manifest_order() -> None:
         "battery recycling market share 2025",
         "autonomous driving policy impact on industry",
         "AI chip export controls effect on academic research",
+    ]
+
+
+def test_load_hidden_style_smoke_cases_preserves_manifest_order() -> None:
+    from skill.benchmark.harness import load_benchmark_cases
+
+    cases = load_benchmark_cases(HIDDEN_SMOKE_FIXTURE_PATH)
+
+    assert [case.case_id for case in cases] == [
+        "smoke-policy-01",
+        "smoke-policy-02",
+        "smoke-academic-01",
+        "smoke-academic-02",
+        "smoke-industry-01",
+        "smoke-industry-02",
+        "smoke-mixed-01",
+        "smoke-mixed-02",
+    ]
+    assert [case.expected_route for case in cases] == [
+        "policy",
+        "policy",
+        "academic",
+        "academic",
+        "industry",
+        "industry",
+        "mixed",
+        "mixed",
     ]
 
 
