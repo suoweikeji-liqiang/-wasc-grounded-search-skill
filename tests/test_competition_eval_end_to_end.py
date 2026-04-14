@@ -1,6 +1,8 @@
-"""End-to-end competition-style answer regressions using live default adapters."""
+"""End-to-end competition-style answer regressions using fixture-mode adapters."""
 
 from __future__ import annotations
+
+import os
 
 from fastapi.testclient import TestClient
 
@@ -33,12 +35,18 @@ def _post_answer(query: str) -> dict[str, object]:
     import skill.api.entry as api_entry
 
     ANSWER_CACHE.clear()
+    previous_mode = os.environ.get("WASC_RETRIEVAL_MODE")
+    os.environ["WASC_RETRIEVAL_MODE"] = "fixture"
     api_entry.app.state.model_client = _NeverCalledModelClient()
     try:
         client = TestClient(api_entry.app)
         response = client.post("/answer", json={"query": query})
     finally:
         ANSWER_CACHE.clear()
+        if previous_mode is None:
+            os.environ.pop("WASC_RETRIEVAL_MODE", None)
+        else:
+            os.environ["WASC_RETRIEVAL_MODE"] = previous_mode
         del api_entry.app.state.model_client
 
     assert response.status_code == 200

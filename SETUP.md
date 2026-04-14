@@ -6,7 +6,7 @@ This guide explains how to run the WASC High-Precision Search Skill locally for 
 
 - Python `3.12+`
 - PowerShell or another shell able to export environment variables
-- network access for live MiniMax-backed `/answer` runs
+- network access for live retrieval and MiniMax-backed `/answer` runs
 
 ## Install
 
@@ -23,6 +23,12 @@ python -m venv .venv
 pip install -e .[dev]
 ```
 
+### 3. Optional: install headless Chromium for browser fallback
+
+```powershell
+playwright install chromium
+```
+
 ## Environment Variables
 
 ### Required For Live `/answer`
@@ -37,6 +43,28 @@ Example:
 ```powershell
 $env:MINIMAX_KEY="your-minimax-key"
 ```
+
+### Retrieval Mode And Live Source Controls
+
+```powershell
+$env:WASC_RETRIEVAL_MODE="live"
+$env:WASC_LIVE_SEARCH_ENGINES="duckduckgo,bing,google"
+$env:WASC_LIVE_BROWSER_ENABLED="0"
+$env:WASC_LIVE_BROWSER_HEADLESS="1"
+```
+
+Optional:
+
+- `SEMANTIC_SCHOLAR_API_KEY`
+- `WASC_LIVE_SEARCH_CACHE_TTL_SECONDS`
+- `WASC_LIVE_PAGE_CACHE_TTL_SECONDS`
+- `WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS`
+
+Notes:
+
+- `WASC_RETRIEVAL_MODE="live"` is the default runtime mode
+- `WASC_RETRIEVAL_MODE="fixture"` keeps adapter behavior deterministic for offline checks
+- browser mode is headless-only by design
 
 ### Optional Runtime Budget Overrides
 
@@ -110,21 +138,28 @@ Artifacts written to `benchmark-results/`:
 
 ```powershell
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-pytest -q
+python -m pytest -q
 ```
 
 ### Answer path coverage
 
 ```powershell
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q
+python -m pytest tests/test_answer_contracts.py tests/test_answer_state_mapping.py tests/test_answer_generator.py tests/test_answer_citation_check.py tests/test_answer_integration.py tests/test_api_answer_endpoint.py -q
 ```
 
 ### Benchmark path coverage
 
 ```powershell
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-pytest tests/test_benchmark_repeatability.py tests/test_api_runtime_benchmark.py -q
+python -m pytest tests/test_benchmark_repeatability.py tests/test_api_runtime_benchmark.py -q
+```
+
+### Live retrieval support coverage
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+python -m pytest tests/test_retrieval_live_config.py tests/test_live_search_discovery.py tests/test_live_browser_fetch.py tests/test_academic_live_adapters.py tests/test_industry_live_adapter.py tests/test_policy_live_adapters.py -q
 ```
 
 ## Benchmark Review
@@ -144,6 +179,8 @@ Latest recorded values in this workspace:
 - `latency_p95_ms: 1`
 - `latency_budget_pass_rate: 1.0`
 - `token_budget_pass_rate: 1.0`
+
+These values were produced by an earlier fixture-heavy benchmark snapshot. Expect higher latency once live retrieval is enabled.
 
 ## Troubleshooting
 
@@ -175,7 +212,7 @@ Use:
 
 ```powershell
 $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
-pytest -q
+python -m pytest -q
 ```
 
 This exercises the deterministic regression suite without requiring a live provider call for every test.
@@ -200,4 +237,3 @@ For WASC-style submission packaging, this repository now includes:
 - `LICENSE`
 
 A demo video link can be added later without changing the runtime or API contracts.
-

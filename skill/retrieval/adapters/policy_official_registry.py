@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.retrieval.live.clients.browser_fetch import fetch_page_text
+from skill.retrieval.live.clients.search_discovery import search_multi_engine
+from skill.retrieval.live.parsers.policy import (
+    extract_policy_metadata,
+    is_official_policy_url,
+    preferred_policy_domains,
+)
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
@@ -145,8 +153,8 @@ def _score(query: str, fixture: dict[str, Any]) -> int:
     )
 
 
-async def search(query: str) -> list[RetrievalHit]:
-    """Return deterministic official-policy hits from registry-like fixtures."""
+async def search_fixture(query: str) -> list[RetrievalHit]:
+    """Return deterministic official-policy hits for offline tests."""
     ranked = sorted(
         _FIXTURES,
         key=lambda item: (_score(query, item), item["url"]),
@@ -166,3 +174,91 @@ async def search(query: str) -> list[RetrievalHit]:
         )
         for item in ranked
     ]
+
+
+async def search_live(query: str) -> list[RetrievalHit]:
+    """Return live official-policy hits discovered on official domains."""
+    config = LiveRetrievalConfig.from_env()
+    seen_urls: set[str] = set()
+    candidates = []
+    for domain in preferred_policy_domains(query, fallback=False):
+        try:
+            discovered = await search_multi_engine(
+                query=f"{query} site:{domain}",
+                engines=config.search_engines,
+                max_results=4,
+            )
+        except Exception:
+            continue
+        for item in discovered:
+            if item.url in seen_urls:
+                continue
+            seen_urls.add(item.url)
+            candidates.append(item)
+
+    ranked = []
+    for candidate in candidates:
+        if not is_official_policy_url(candidate.url):
+            continue
+        try:
+            page_text = await fetch_page_text(
+                url=candidate.url,
+                browser_enabled=config.browser_enabled,
+                browser_headless=config.browser_headless,
+                timeout_seconds=6.0,
+                max_chars=1200,
+            )
+        except Exception:
+            page_text = ""
+        metadata = extract_policy_metadata(url=candidate.url, page_text=page_text)
+        if metadata["authority"] is None or (
+            metadata["publication_date"] is None and metadata["effective_date"] is None
+        ):
+            continue
+        payload = {
+            "title": candidate.title,
+            "url": candidate.url,
+            "snippet": candidate.snippet or page_text[:320],
+            "authority": metadata["authority"],
+            "publication_date": metadata["publication_date"],
+            "effective_date": metadata["effective_date"],
+            "version": metadata["version"],
+        }
+        ranked.append(
+            {
+                **payload,
+                "_jurisdiction": metadata["jurisdiction"],
+                "_score": _score(query, payload),
+                "_metadata_bonus": int(metadata["version"] is not None)
+                + int(metadata["effective_date"] is not None)
+                + int(metadata["publication_date"] is not None),
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item["_score"],
+            item["_metadata_bonus"],
+            item["url"],
+        ),
+        reverse=True,
+    )
+    return [
+        RetrievalHit(
+            source_id=_SOURCE_ID,
+            title=str(item["title"]),
+            url=str(item["url"]),
+            snippet=str(item["snippet"]),
+            authority=str(item["authority"]) if item["authority"] is not None else None,
+            jurisdiction=str(item["_jurisdiction"]) if item["_jurisdiction"] is not None else None,
+            publication_date=str(item["publication_date"]) if item["publication_date"] is not None else None,
+            effective_date=str(item["effective_date"]) if item["effective_date"] is not None else None,
+            version=str(item["version"]) if item["version"] is not None else None,
+        )
+        for item in ranked[:5]
+    ]
+
+
+async def search(query: str) -> list[RetrievalHit]:
+    """Backward-compatible deterministic adapter path for direct tests."""
+    return await search_fixture(query)

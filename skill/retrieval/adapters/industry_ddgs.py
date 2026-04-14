@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.retrieval.live.clients.browser_fetch import fetch_page_text
+from skill.retrieval.live.clients.search_discovery import search_multi_engine
+from skill.retrieval.live.parsers.industry import build_industry_snippet
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
@@ -126,8 +130,8 @@ def _score(query: str, fixture: dict[str, str]) -> int:
     )
 
 
-async def search(query: str) -> list[RetrievalHit]:
-    """Return industry hits annotated with deterministic credibility tiers."""
+async def search_fixture(query: str) -> list[RetrievalHit]:
+    """Return deterministic industry hits for offline tests."""
     ranked = sorted(
         (
             {
@@ -168,3 +172,88 @@ async def search(query: str) -> list[RetrievalHit]:
         )
         for item in selected
     ]
+
+
+async def search_live(query: str) -> list[RetrievalHit]:
+    """Return live industry hits from multi-engine discovery."""
+    config = LiveRetrievalConfig.from_env()
+    try:
+        candidates = await search_multi_engine(
+            query=query,
+            engines=config.search_engines,
+            max_results=8,
+        )
+    except Exception:
+        return []
+
+    ranked = []
+    for candidate in candidates:
+        try:
+            page_text = await fetch_page_text(
+                url=candidate.url,
+                browser_enabled=config.browser_enabled,
+                browser_headless=config.browser_headless,
+                timeout_seconds=6.0,
+                max_chars=600,
+            )
+        except Exception:
+            page_text = ""
+        snippet = build_industry_snippet(
+            candidate_snippet=candidate.snippet,
+            page_text=page_text,
+        )
+        payload = {
+            "title": candidate.title,
+            "url": candidate.url,
+            "snippet": snippet or candidate.snippet,
+        }
+        ranked.append(
+            {
+                **payload,
+                "_score": _score(query, payload),
+                "_tier": _tier_for_url(candidate.url),
+            }
+        )
+
+    ranked = sorted(
+        ranked,
+        key=lambda item: (
+            item["_score"],
+            -_TIER_ORDER.index(item["_tier"]),
+            item["url"],
+        ),
+        reverse=True,
+    )
+    positive = [item for item in ranked if int(item["_score"]) > 0]
+    selected = positive[:3] if positive else ranked[:3]
+
+    if not any(item["_tier"] == "company_official" for item in selected):
+        best_company_official = next(
+            (
+                item
+                for item in ranked
+                if item["_tier"] == "company_official" and int(item["_score"]) > 0
+            ),
+            None,
+        )
+        if best_company_official is not None:
+            selected = [item for item in selected if item["url"] != best_company_official["url"]]
+            if len(selected) >= 3:
+                selected = selected[:2]
+            selected.append(best_company_official)
+
+    return [
+        RetrievalHit(
+            source_id=SOURCE_ID,
+            title=item["title"],
+            url=item["url"],
+            snippet=item["snippet"],
+            credibility_tier=str(item["_tier"]),
+        )
+        for item in selected
+    ]
+
+
+async def search(query: str) -> list[RetrievalHit]:
+    """Backward-compatible deterministic adapter path for direct tests."""
+    return await search_fixture(query)

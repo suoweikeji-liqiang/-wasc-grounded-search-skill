@@ -122,3 +122,31 @@ def test_default_model_client_accepts_legacy_minimax_key_name(monkeypatch) -> No
     client = api_entry._default_model_client()
 
     assert client.api_key == "legacy-key"
+
+
+def test_default_adapter_registry_uses_live_adapter_functions_by_default(monkeypatch) -> None:
+    import skill.api.entry as api_entry
+
+    monkeypatch.delenv("WASC_RETRIEVAL_MODE", raising=False)
+
+    registry = api_entry._default_adapter_registry()
+
+    assert registry["policy_official_registry"].__name__ == "search_live"
+    assert registry["policy_official_web_allowlist_fallback"].__name__ == "search_live"
+    assert registry["academic_semantic_scholar"].__name__ == "search_live"
+    assert registry["academic_arxiv"].__name__ == "search_live"
+    assert registry["industry_ddgs"].__name__ == "search_live"
+
+
+def test_default_adapter_registry_can_force_fixture_mode(monkeypatch) -> None:
+    import skill.api.entry as api_entry
+
+    monkeypatch.setenv("WASC_RETRIEVAL_MODE", "fixture")
+
+    registry = api_entry._default_adapter_registry()
+
+    assert registry["policy_official_registry"].__name__ == "search_fixture"
+    assert registry["policy_official_web_allowlist_fallback"].__name__ == "search_fixture"
+    assert registry["academic_semantic_scholar"].__name__ == "search_fixture"
+    assert registry["academic_arxiv"].__name__ == "search_fixture"
+    assert registry["industry_ddgs"].__name__ == "search_fixture"

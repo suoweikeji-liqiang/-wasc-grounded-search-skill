@@ -1,13 +1,14 @@
 # WASC High-Precision Search Skill
 
-Low-cost, high-precision search Skill for WASC competition tasks across policy/regulation, industry information, academic literature, and mixed-domain queries.
+High-precision grounded search Skill for WASC competition tasks across policy/regulation, industry information, academic literature, and mixed-domain queries.
 
 ## Why This Project
 
-This repository ships a browser-free search pipeline designed for the WASC April challenge. It focuses on three things that matter in the competition:
+This repository ships a grounded search pipeline designed for the WASC April challenge. It focuses on three things that matter in the competition:
 
 - grounded answers instead of unsupported synthesis
-- low latency and bounded token usage
+- live retrieval coverage for hidden queries
+- bounded latency and token usage
 - repeatable behavior across repeated benchmark runs
 
 The system exposes three structured API surfaces:
@@ -29,7 +30,7 @@ Latest verified automated checks:
 - Full test suite: `172 passed`
 - Phase 4 answer-focused suite: `33 passed`
 
-Latest live benchmark artifact:
+Sample benchmark artifact in this repository:
 
 - File: [`./benchmark-results/benchmark-summary.json`](./benchmark-results/benchmark-summary.json)
 - `total_runs: 50`
@@ -40,6 +41,8 @@ Latest live benchmark artifact:
 - `latency_p95_ms: 1`
 - `latency_budget_pass_rate: 1.0`
 - `token_budget_pass_rate: 1.0`
+
+These numbers come from a prior fixture-heavy benchmark snapshot and should not be read as representative of live-retrieval latency.
 
 ## Capability Summary
 
@@ -52,8 +55,11 @@ Latest live benchmark artifact:
 
 ### Core Behaviors
 
-- deterministic routing with browser automation disabled
+- deterministic routing with browser automation disabled at the API contract level
 - concurrent multi-source retrieval with bounded fallback behavior
+- live academic retrieval from Semantic Scholar and arXiv
+- multi-engine open-web discovery for industry retrieval
+- official-domain discovery and metadata extraction for policy retrieval
 - canonical evidence normalization and deduplication before synthesis
 - grounded answer generation with citation validation
 - explicit answer states: `grounded_success`, `insufficient_evidence`, `retrieval_failure`
@@ -62,7 +68,7 @@ Latest live benchmark artifact:
 
 ### Explicit Non-Goals
 
-- Playwright or browser automation in the main path
+- MCP or admin-platform infrastructure
 - chat-first multi-step agent behavior
 - heavy multi-model orchestration
 - broad productization beyond the competition-focused search skill
@@ -99,7 +105,15 @@ python -m venv .venv
 pip install -e .[dev]
 ```
 
-### 3. Export the MiniMax credential
+### 3. Optional: install the headless browser runtime
+
+The live retrieval path can use headless Playwright as a fallback for pages that do not yield usable content over plain HTTP.
+
+```powershell
+playwright install chromium
+```
+
+### 4. Export the MiniMax credential
 
 The live `/answer` path reads either `MINIMAX_API_KEY` or `MINIMAX_KEY`.
 
@@ -109,13 +123,33 @@ PowerShell:
 $env:MINIMAX_KEY="your-minimax-key"
 ```
 
-### 4. Start the API
+### 5. Optional: configure live retrieval
+
+Default runtime retrieval mode is `live`.
+
+PowerShell:
+
+```powershell
+$env:WASC_RETRIEVAL_MODE="live"
+$env:WASC_LIVE_BROWSER_ENABLED="0"
+$env:WASC_LIVE_BROWSER_HEADLESS="1"
+```
+
+Optional Semantic Scholar credential:
+
+```powershell
+$env:SEMANTIC_SCHOLAR_API_KEY="your-semantic-scholar-key"
+```
+
+Set `WASC_RETRIEVAL_MODE="fixture"` if you need deterministic offline adapter behavior.
+
+### 6. Start the API
 
 ```powershell
 uvicorn skill.api.entry:app --host 0.0.0.0 --port 8000
 ```
 
-### 5. Try the endpoints
+### 7. Try the endpoints
 
 Route:
 
@@ -229,11 +263,22 @@ Defaults in code:
 - synthesis deadline: `2.0` seconds
 - answer token budget: `1200`
 
+Live retrieval also reads:
+
+- `WASC_RETRIEVAL_MODE`
+- `WASC_LIVE_SEARCH_ENGINES`
+- `WASC_LIVE_BROWSER_ENABLED`
+- `WASC_LIVE_BROWSER_HEADLESS`
+- `WASC_LIVE_SEARCH_CACHE_TTL_SECONDS`
+- `WASC_LIVE_PAGE_CACHE_TTL_SECONDS`
+- `WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS`
+- `SEMANTIC_SCHOLAR_API_KEY`
+
 ## Competition Fit
 
 This project is aligned to the WASC competition constraints captured in the local competition brief file included in the repository:
 
-- browser-free core path
+- grounded retrieval with live coverage for unknown policy, academic, and industry queries
 - support for policy, industry, and academic tasks
 - structured, judge-readable output
 - repeatability over repeated benchmark runs
@@ -242,6 +287,8 @@ This project is aligned to the WASC competition constraints captured in the loca
 ## Known Limitations
 
 - The live `/answer` path requires a valid MiniMax key in the environment.
+- Live retrieval depends on network reachability for the configured sources.
+- Headless browser fallback requires `playwright install chromium` if enabled.
 - The project archive still carries two advisory debts from the `v1.0` audit.
 - No demo video or screen recording is included in this repository yet.
 

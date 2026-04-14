@@ -15,20 +15,34 @@ from skill.api.schema import (
     RouteRequest,
     RouteResponse,
 )
+from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.orchestrator.budget import AnswerExecutionResult, RuntimeBudget
 from skill.orchestrator.intent import classify_query
 from skill.orchestrator.planner import plan_route
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
-from skill.retrieval.adapters.academic_arxiv import search as academic_arxiv_search
-from skill.retrieval.adapters.academic_semantic_scholar import (
-    search as academic_semantic_scholar_search,
+from skill.retrieval.adapters.academic_arxiv import (
+    search_fixture as academic_arxiv_search_fixture,
 )
-from skill.retrieval.adapters.industry_ddgs import search as industry_ddgs_search
+from skill.retrieval.adapters.academic_arxiv import search_live as academic_arxiv_search_live
+from skill.retrieval.adapters.academic_semantic_scholar import (
+    search_fixture as academic_semantic_scholar_search_fixture,
+)
+from skill.retrieval.adapters.academic_semantic_scholar import (
+    search_live as academic_semantic_scholar_search_live,
+)
+from skill.retrieval.adapters.industry_ddgs import search_fixture as industry_ddgs_search_fixture
+from skill.retrieval.adapters.industry_ddgs import search_live as industry_ddgs_search_live
 from skill.retrieval.adapters.policy_official_registry import (
-    search as policy_official_registry_search,
+    search_fixture as policy_official_registry_search_fixture,
+)
+from skill.retrieval.adapters.policy_official_registry import (
+    search_live as policy_official_registry_search_live,
 )
 from skill.retrieval.adapters.policy_official_web_allowlist import (
-    search as policy_official_web_allowlist_search,
+    search_fixture as policy_official_web_allowlist_search_fixture,
+)
+from skill.retrieval.adapters.policy_official_web_allowlist import (
+    search_live as policy_official_web_allowlist_search_live,
 )
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.orchestrate import execute_retrieval_pipeline
@@ -43,12 +57,21 @@ Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 
 
 def _default_adapter_registry() -> Mapping[str, Adapter]:
+    config = LiveRetrievalConfig.from_env()
+    if config.mode == "fixture":
+        return {
+            "policy_official_registry": policy_official_registry_search_fixture,
+            "policy_official_web_allowlist_fallback": policy_official_web_allowlist_search_fixture,
+            "academic_semantic_scholar": academic_semantic_scholar_search_fixture,
+            "academic_arxiv": academic_arxiv_search_fixture,
+            "industry_ddgs": industry_ddgs_search_fixture,
+        }
     return {
-        "policy_official_registry": policy_official_registry_search,
-        "policy_official_web_allowlist_fallback": policy_official_web_allowlist_search,
-        "academic_semantic_scholar": academic_semantic_scholar_search,
-        "academic_arxiv": academic_arxiv_search,
-        "industry_ddgs": industry_ddgs_search,
+        "policy_official_registry": policy_official_registry_search_live,
+        "policy_official_web_allowlist_fallback": policy_official_web_allowlist_search_live,
+        "academic_semantic_scholar": academic_semantic_scholar_search_live,
+        "academic_arxiv": academic_arxiv_search_live,
+        "industry_ddgs": industry_ddgs_search_live,
     }
 
 

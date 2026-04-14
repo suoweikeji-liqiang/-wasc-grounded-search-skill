@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
+from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.retrieval.live.clients import academic_api
+from skill.retrieval.live.clients.search_discovery import search_multi_engine
 from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "academic_semantic_scholar"
+_DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
         "title": "RAG Chunking Survey: Recent Papers and Benchmarks",
@@ -78,8 +84,8 @@ def _score(query: str, fixture: dict[str, Any]) -> int:
     )
 
 
-async def search(query: str) -> list[RetrievalHit]:
-    """Return scholarly results tied to Semantic Scholar source identity."""
+async def search_fixture(query: str) -> list[RetrievalHit]:
+    """Return deterministic scholarly results for offline tests."""
     ranked = sorted(
         _FIXTURES,
         key=lambda item: (_score(query, item), item["url"]),
@@ -99,3 +105,61 @@ async def search(query: str) -> list[RetrievalHit]:
         )
         for item in ranked
     ]
+
+
+async def search_live(query: str) -> list[RetrievalHit]:
+    """Return live scholarly results from Semantic Scholar."""
+    try:
+        records = await academic_api.search_semantic_scholar(query=query, max_results=5)
+    except Exception:
+        records = []
+    hits = [
+        RetrievalHit(
+            source_id=_SOURCE_ID,
+            title=str(item["title"]),
+            url=str(item["url"]),
+            snippet=str(item["snippet"]),
+            doi=str(item["doi"]) if item.get("doi") is not None else None,
+            arxiv_id=str(item["arxiv_id"]) if item.get("arxiv_id") is not None else None,
+            first_author=str(item["first_author"]) if item.get("first_author") is not None else None,
+            year=int(item["year"]) if item.get("year") is not None else None,
+            evidence_level=str(item["evidence_level"]) if item.get("evidence_level") is not None else None,
+        )
+        for item in records
+        if item.get("title") and item.get("url")
+    ]
+    if hits:
+        return hits
+
+    config = LiveRetrievalConfig.from_env()
+    try:
+        candidates = await search_multi_engine(
+            query=f"{query} site:doi.org",
+            engines=config.search_engines,
+            max_results=5,
+        )
+    except Exception:
+        return []
+
+    fallback_hits: list[RetrievalHit] = []
+    for candidate in candidates:
+        host = (urlsplit(candidate.url).hostname or "").lower()
+        doi_match = _DOI_RE.search(candidate.url)
+        if host != "doi.org" and "semanticscholar.org" not in host and doi_match is None:
+            continue
+        fallback_hits.append(
+            RetrievalHit(
+                source_id=_SOURCE_ID,
+                title=candidate.title,
+                url=candidate.url,
+                snippet=candidate.snippet,
+                doi=doi_match.group(0) if doi_match else None,
+                evidence_level="peer_reviewed" if doi_match else "metadata_only",
+            )
+        )
+    return fallback_hits
+
+
+async def search(query: str) -> list[RetrievalHit]:
+    """Backward-compatible deterministic adapter path for direct tests."""
+    return await search_fixture(query)
