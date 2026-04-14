@@ -16,6 +16,86 @@ def _safe_str(value: object | None) -> str | None:
     return str(value)
 
 
+def _safe_int(value: object | None) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _first_author(authors: object) -> str | None:
+    if not isinstance(authors, list) or not authors:
+        return None
+    first = authors[0]
+    if not isinstance(first, dict):
+        return None
+    return _safe_str(first.get("name"))
+
+
+def _extract_arxiv_id(url: str | None) -> str | None:
+    if not url:
+        return None
+    path = urlsplit(url).path.rstrip("/")
+    if "/abs/" not in path:
+        return None
+    candidate = path.split("/")[-1]
+    if candidate:
+        return candidate.removesuffix(".pdf")
+    return None
+
+
+def _asta_record(item: dict[str, object]) -> dict[str, object] | None:
+    title = _safe_str(item.get("title"))
+    url = _safe_str(item.get("url"))
+    if title is None or url is None:
+        return None
+
+    abstract = _safe_str(item.get("abstract"))
+    tldr = item.get("tldr")
+    tldr_text = None
+    if isinstance(tldr, dict):
+        tldr_text = _safe_str(tldr.get("text"))
+    snippet = abstract or tldr_text or title
+    authors = item.get("authors")
+    year = _safe_int(item.get("year"))
+    venue = (_safe_str(item.get("venue")) or "").strip()
+    external_ids = item.get("externalIds")
+    doi = None
+    arxiv_id = _extract_arxiv_id(url)
+    if isinstance(external_ids, dict):
+        doi = _safe_str(external_ids.get("DOI")) or _safe_str(external_ids.get("doi"))
+        arxiv_id = (
+            _safe_str(external_ids.get("ArXiv"))
+            or _safe_str(external_ids.get("arXiv"))
+            or arxiv_id
+        )
+
+    url_lower = url.lower()
+    venue_lower = venue.lower()
+    if doi:
+        evidence_level = "peer_reviewed"
+    elif arxiv_id or "arxiv" in url_lower or "arxiv" in venue_lower:
+        evidence_level = "preprint"
+    elif venue:
+        evidence_level = "peer_reviewed"
+    else:
+        evidence_level = "metadata_only"
+
+    return {
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "doi": doi,
+        "arxiv_id": arxiv_id,
+        "first_author": _first_author(authors),
+        "year": year,
+        "evidence_level": evidence_level,
+    }
+
+
 def parse_semantic_scholar_response(payload: object) -> list[dict[str, object]]:
     if not isinstance(payload, dict):
         return []
@@ -39,13 +119,8 @@ def parse_semantic_scholar_response(payload: object) -> list[dict[str, object]]:
             doi = _safe_str(external_ids.get("DOI"))
             arxiv_id = _safe_str(external_ids.get("ArXiv"))
         authors = item.get("authors")
-        first_author = None
-        if isinstance(authors, list) and authors:
-            first = authors[0]
-            if isinstance(first, dict):
-                first_author = _safe_str(first.get("name"))
-        year_value = item.get("year")
-        year = int(year_value) if isinstance(year_value, int) else None
+        first_author = _first_author(authors)
+        year = _safe_int(item.get("year"))
         evidence_level = "peer_reviewed" if doi else "metadata_only"
         records.append(
             {
@@ -59,6 +134,31 @@ def parse_semantic_scholar_response(payload: object) -> list[dict[str, object]]:
                 "evidence_level": evidence_level,
             }
         )
+    return records
+
+
+def parse_asta_search_result(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    structured = payload.get("structuredContent")
+    if not isinstance(structured, dict):
+        return []
+    result = structured.get("result")
+    if result is None:
+        return []
+    if isinstance(result, dict):
+        parsed = _asta_record(result)
+        return [parsed] if parsed is not None else []
+    if not isinstance(result, list):
+        return []
+
+    records: list[dict[str, object]] = []
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        parsed = _asta_record(item)
+        if parsed is not None:
+            records.append(parsed)
     return records
 
 

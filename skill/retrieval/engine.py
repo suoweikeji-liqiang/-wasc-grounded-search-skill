@@ -98,7 +98,6 @@ async def _run_single_source(
     query: str,
     adapter_registry: Mapping[str, Adapter],
     timeout_seconds: float,
-    semaphore: asyncio.Semaphore | None = None,
 ) -> SourceExecutionResult:
     adapter = adapter_registry.get(source_id)
     if adapter is None:
@@ -124,11 +123,7 @@ async def _run_single_source(
         )
 
     try:
-        if semaphore is not None:
-            async with semaphore:
-                raw_hits = await _invoke_adapter()
-        else:
-            raw_hits = await _invoke_adapter()
+        raw_hits = await _invoke_adapter()
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -155,13 +150,13 @@ async def _run_single_source(
     )
 
 
-async def _run_source_step(
+async def _run_source_variants(
+    *,
     step: PlannedSourceStep,
     plan: RetrievalPlan,
     query: str,
     adapter_registry: Mapping[str, Adapter],
-    timeout_seconds: float,
-    semaphore: asyncio.Semaphore | None = None,
+    deadline_at: float,
 ) -> SourceExecutionResult:
     source_id = step.source.source_id
     variants = build_query_variants(
@@ -174,7 +169,6 @@ async def _run_source_step(
     )
 
     loop = asyncio.get_running_loop()
-    deadline_at = loop.time() + max(0.0, timeout_seconds)
     merged_hits: list[RetrievalHit] = []
     last_failure_reason: RetrievalFailureReason = "no_hits"
 
@@ -188,7 +182,6 @@ async def _run_source_step(
             query=variant.query,
             adapter_registry=adapter_registry,
             timeout_seconds=remaining,
-            semaphore=semaphore,
         )
         if attempt.status == "success":
             merged_hits.extend(attempt.hits)
@@ -224,6 +217,54 @@ async def _run_source_step(
         failure_reason=last_failure_reason,
         gaps=(source_id,),
     )
+
+
+async def _run_source_step(
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    timeout_seconds: float,
+    semaphore: asyncio.Semaphore | None = None,
+) -> SourceExecutionResult:
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + max(0.0, timeout_seconds)
+    if semaphore is None:
+        return await _run_source_variants(
+            step=step,
+            plan=plan,
+            query=query,
+            adapter_registry=adapter_registry,
+            deadline_at=deadline_at,
+        )
+
+    remaining = deadline_at - loop.time()
+    if remaining <= 0:
+        return SourceExecutionResult(
+            source_id=step.source.source_id,
+            status="failure_gaps",
+            failure_reason="timeout",
+            gaps=(step.source.source_id,),
+        )
+    try:
+        await asyncio.wait_for(semaphore.acquire(), timeout=remaining)
+    except asyncio.TimeoutError:
+        return SourceExecutionResult(
+            source_id=step.source.source_id,
+            status="failure_gaps",
+            failure_reason="timeout",
+            gaps=(step.source.source_id,),
+        )
+    try:
+        return await _run_source_variants(
+            step=step,
+            plan=plan,
+            query=query,
+            adapter_registry=adapter_registry,
+            deadline_at=deadline_at,
+        )
+    finally:
+        semaphore.release()
 
 
 async def _run_first_wave(

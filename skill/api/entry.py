@@ -20,6 +20,10 @@ from skill.orchestrator.budget import AnswerExecutionResult, RuntimeBudget
 from skill.orchestrator.intent import classify_query
 from skill.orchestrator.planner import plan_route
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
+from skill.retrieval.adapters.academic_asta_mcp import (
+    search_fixture as academic_asta_mcp_search_fixture,
+)
+from skill.retrieval.adapters.academic_asta_mcp import search_live as academic_asta_mcp_search_live
 from skill.retrieval.adapters.academic_arxiv import (
     search_fixture as academic_arxiv_search_fixture,
 )
@@ -62,6 +66,7 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
         return {
             "policy_official_registry": policy_official_registry_search_fixture,
             "policy_official_web_allowlist_fallback": policy_official_web_allowlist_search_fixture,
+            "academic_asta_mcp": academic_asta_mcp_search_fixture,
             "academic_semantic_scholar": academic_semantic_scholar_search_fixture,
             "academic_arxiv": academic_arxiv_search_fixture,
             "industry_ddgs": industry_ddgs_search_fixture,
@@ -69,6 +74,7 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
     return {
         "policy_official_registry": policy_official_registry_search_live,
         "policy_official_web_allowlist_fallback": policy_official_web_allowlist_search_live,
+        "academic_asta_mcp": academic_asta_mcp_search_live,
         "academic_semantic_scholar": academic_semantic_scholar_search_live,
         "academic_arxiv": academic_arxiv_search_live,
         "industry_ddgs": industry_ddgs_search_live,

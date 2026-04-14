@@ -18,11 +18,12 @@ _POLICY_SOURCE_PRIORITY: dict[str, int] = {
     "policy_official_web_allowlist_fallback": 1,
 }
 _ACADEMIC_ALLOWED_SOURCES: frozenset[str] = frozenset(
-    {"academic_semantic_scholar", "academic_arxiv"}
+    {"academic_asta_mcp", "academic_semantic_scholar", "academic_arxiv"}
 )
 _ACADEMIC_SOURCE_PRIORITY: dict[str, int] = {
-    "academic_semantic_scholar": 0,
-    "academic_arxiv": 1,
+    "academic_asta_mcp": 0,
+    "academic_semantic_scholar": 1,
+    "academic_arxiv": 2,
 }
 _INDUSTRY_TIER_PRIORITY: dict[str | None, int] = {
     "company_official": 0,

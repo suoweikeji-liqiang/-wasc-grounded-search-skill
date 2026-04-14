@@ -109,6 +109,7 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
         "policy_official_web_allowlist_fallback": _make_adapter(
             "policy_official_web_allowlist_fallback"
         ),
+        "academic_asta_mcp": _make_adapter("academic_asta_mcp"),
         "academic_semantic_scholar": _make_adapter("academic_semantic_scholar"),
         "academic_arxiv": _make_adapter("academic_arxiv"),
         "industry_ddgs": _make_adapter("industry_ddgs"),

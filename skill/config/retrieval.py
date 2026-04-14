@@ -14,7 +14,11 @@ GLOBAL_CONCURRENCY_CAP: Final[int] = 6
 DOMAIN_FIRST_WAVE_SOURCES: Final[Mapping[ConcreteRoute, tuple[str, ...]]] = MappingProxyType(
     {
         "policy": ("policy_official_registry",),
-        "academic": ("academic_semantic_scholar", "academic_arxiv"),
+        "academic": (
+            "academic_asta_mcp",
+            "academic_semantic_scholar",
+            "academic_arxiv",
+        ),
         "industry": ("industry_ddgs",),
     }
 )
@@ -43,11 +47,18 @@ SOURCE_BACKUP_CHAIN: Final[Mapping[str, Mapping[str, str | None]]] = MappingProx
                 "rate_limited": None,
             }
         ),
-        "academic_semantic_scholar": MappingProxyType(
+        "academic_asta_mcp": MappingProxyType(
             {
                 "no_hits": None,
                 "timeout": None,
                 "rate_limited": None,
+            }
+        ),
+        "academic_semantic_scholar": MappingProxyType(
+            {
+                "no_hits": "academic_asta_mcp",
+                "timeout": "academic_asta_mcp",
+                "rate_limited": "academic_asta_mcp",
             }
         ),
         "academic_arxiv": MappingProxyType(
@@ -71,6 +82,7 @@ SOURCE_CREDIBILITY_TIERS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "policy_official_registry": "official_government",
         "policy_official_web_allowlist_fallback": "regulator",
+        "academic_asta_mcp": "citation_index",
         "academic_semantic_scholar": "academic_metadata",
         "academic_arxiv": "paper_repository",
         "industry_ddgs": "trusted_news",

@@ -24,6 +24,14 @@ def test_mixed_supplemental_route_uses_strongest_single_source() -> None:
     assert SUPPLEMENTAL_STRONGEST_SOURCE["industry"] == "industry_ddgs"
 
 
+def test_academic_route_first_wave_prefers_asta_before_other_scholarly_sources() -> None:
+    assert DOMAIN_FIRST_WAVE_SOURCES["academic"] == (
+        "academic_asta_mcp",
+        "academic_semantic_scholar",
+        "academic_arxiv",
+    )
+
+
 def test_industry_source_has_credibility_tier_mapping() -> None:
     assert "industry_ddgs" in SOURCE_CREDIBILITY_TIERS
     assert SOURCE_CREDIBILITY_TIERS["industry_ddgs"] == "trusted_news"
@@ -63,20 +71,27 @@ def test_policy_allowlist_adapter_emits_only_official_policy_domains() -> None:
 
 
 def test_academic_adapters_emit_scholarly_source_ids_only() -> None:
+    from skill.retrieval.adapters.academic_asta_mcp import search as search_asta
     from skill.retrieval.adapters.academic_arxiv import search as search_arxiv
     from skill.retrieval.adapters.academic_semantic_scholar import (
         search as search_semantic_scholar,
     )
 
+    asta_hits = asyncio.run(search_asta("graph neural retrieval"))
     semantic_hits = asyncio.run(search_semantic_scholar("graph neural retrieval"))
     arxiv_hits = asyncio.run(search_arxiv("graph neural retrieval"))
-    all_hits = semantic_hits + arxiv_hits
+    all_hits = asta_hits + semantic_hits + arxiv_hits
 
+    assert asta_hits
     assert semantic_hits
     assert arxiv_hits
     assert all_hits
     assert all(
-        hit.source_id in {"academic_semantic_scholar", "academic_arxiv"}
+        hit.source_id in {
+            "academic_asta_mcp",
+            "academic_semantic_scholar",
+            "academic_arxiv",
+        }
         for hit in all_hits
     )
 
@@ -137,6 +152,12 @@ def test_prioritize_hits_policy_domain_first_d15_before_generic_relevance() -> N
 def test_prioritize_hits_academic_excludes_non_scholarly_candidates() -> None:
     hits = [
         RetrievalHit(
+            source_id="academic_asta_mcp",
+            title="Asta paper match",
+            url="https://www.semanticscholar.org/paper/asta-123",
+            snippet="Scholarly source from Asta.",
+        ),
+        RetrievalHit(
             source_id="academic_semantic_scholar",
             title="Semantic Scholar paper",
             url="https://www.semanticscholar.org/paper/123",
@@ -157,7 +178,10 @@ def test_prioritize_hits_academic_excludes_non_scholarly_candidates() -> None:
         supplemental_route=None,
     )
 
-    assert [hit.source_id for hit in ordered] == ["academic_semantic_scholar"]
+    assert [hit.source_id for hit in ordered] == [
+        "academic_asta_mcp",
+        "academic_semantic_scholar",
+    ]
 
 
 def test_prioritize_hits_industry_tier_then_recency_within_tier() -> None:

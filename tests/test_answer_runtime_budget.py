@@ -1142,6 +1142,7 @@ def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path(
 
 def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_grounded_search_evidence_packing() -> None:
     from skill.orchestrator.budget import RuntimeBudget
+    from skill.retrieval.adapters.academic_asta_mcp import search as asta_search
     from skill.retrieval.adapters.academic_arxiv import search as arxiv_search
     from skill.retrieval.adapters.academic_semantic_scholar import (
         search as semantic_scholar_search,
@@ -1161,6 +1162,7 @@ def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_g
             plan=_build_plan("academic", "academic", None),
             query="grounded search evidence packing paper",
             adapter_registry={
+                "academic_asta_mcp": asta_search,
                 "academic_semantic_scholar": semantic_scholar_search,
                 "academic_arxiv": arxiv_search,
             },

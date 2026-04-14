@@ -27,8 +27,8 @@ Current local release state:
 
 Latest verified automated checks:
 
-- Full test suite: `172 passed`
-- Phase 4 answer-focused suite: `33 passed`
+- Full test suite: `232 passed`
+- Phase 4 answer-focused suite: `35 passed`
 
 Sample benchmark artifact in this repository:
 
@@ -57,7 +57,7 @@ These numbers come from a prior fixture-heavy benchmark snapshot and should not 
 
 - deterministic routing with browser automation disabled at the API contract level
 - concurrent multi-source retrieval with bounded fallback behavior
-- live academic retrieval from Semantic Scholar and arXiv
+- live academic retrieval from Asta MCP, Semantic Scholar, and arXiv
 - multi-engine open-web discovery for industry retrieval
 - official-domain discovery and metadata extraction for policy retrieval
 - canonical evidence normalization and deduplication before synthesis
@@ -139,6 +139,12 @@ Optional Semantic Scholar credential:
 
 ```powershell
 $env:SEMANTIC_SCHOLAR_API_KEY="your-semantic-scholar-key"
+```
+
+Optional Asta MCP credential for higher academic-search rate limits:
+
+```powershell
+$env:S2_API_KEY="your-semantic-scholar-or-asta-key"
 ```
 
 Set `WASC_RETRIEVAL_MODE="fixture"` if you need deterministic offline adapter behavior.
@@ -272,6 +278,10 @@ Live retrieval also reads:
 - `WASC_LIVE_SEARCH_CACHE_TTL_SECONDS`
 - `WASC_LIVE_PAGE_CACHE_TTL_SECONDS`
 - `WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS`
+- `WASC_ASTA_MCP_API_KEY`
+- `WASC_ASTA_MCP_ENDPOINT`
+- `WASC_ASTA_MCP_TIMEOUT_SECONDS`
+- `S2_API_KEY`
 - `SEMANTIC_SCHOLAR_API_KEY`
 
 ## Competition Fit

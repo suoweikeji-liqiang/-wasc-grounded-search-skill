@@ -55,7 +55,11 @@ $env:WASC_LIVE_BROWSER_HEADLESS="1"
 
 Optional:
 
+- `S2_API_KEY`
 - `SEMANTIC_SCHOLAR_API_KEY`
+- `WASC_ASTA_MCP_API_KEY`
+- `WASC_ASTA_MCP_ENDPOINT`
+- `WASC_ASTA_MCP_TIMEOUT_SECONDS`
 - `WASC_LIVE_SEARCH_CACHE_TTL_SECONDS`
 - `WASC_LIVE_PAGE_CACHE_TTL_SECONDS`
 - `WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS`
@@ -65,6 +69,8 @@ Notes:
 - `WASC_RETRIEVAL_MODE="live"` is the default runtime mode
 - `WASC_RETRIEVAL_MODE="fixture"` keeps adapter behavior deterministic for offline checks
 - browser mode is headless-only by design
+- the academic route now tries `academic_asta_mcp`, `academic_semantic_scholar`, then `academic_arxiv`
+- `S2_API_KEY` or `WASC_ASTA_MCP_API_KEY` raises the rate limit for Asta MCP requests
 
 ### Optional Runtime Budget Overrides
 

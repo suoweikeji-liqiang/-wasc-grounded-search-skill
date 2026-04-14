@@ -133,6 +133,7 @@ def test_default_adapter_registry_uses_live_adapter_functions_by_default(monkeyp
 
     assert registry["policy_official_registry"].__name__ == "search_live"
     assert registry["policy_official_web_allowlist_fallback"].__name__ == "search_live"
+    assert registry["academic_asta_mcp"].__name__ == "search_live"
     assert registry["academic_semantic_scholar"].__name__ == "search_live"
     assert registry["academic_arxiv"].__name__ == "search_live"
     assert registry["industry_ddgs"].__name__ == "search_live"
@@ -147,6 +148,7 @@ def test_default_adapter_registry_can_force_fixture_mode(monkeypatch) -> None:
 
     assert registry["policy_official_registry"].__name__ == "search_fixture"
     assert registry["policy_official_web_allowlist_fallback"].__name__ == "search_fixture"
+    assert registry["academic_asta_mcp"].__name__ == "search_fixture"
     assert registry["academic_semantic_scholar"].__name__ == "search_fixture"
     assert registry["academic_arxiv"].__name__ == "search_fixture"
     assert registry["industry_ddgs"].__name__ == "search_fixture"

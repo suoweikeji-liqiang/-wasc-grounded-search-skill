@@ -33,6 +33,7 @@
     "primary_route": "academic",
     "supplemental_route": "industry",
     "expected_primary_first_wave": [
+      "academic_asta_mcp",
       "academic_semantic_scholar",
       "academic_arxiv"
     ],
