@@ -328,3 +328,47 @@ def test_build_evidence_pack_keeps_trimmed_high_value_record_over_weaker_one() -
     assert pack.clipped is True
     assert [record.evidence_id for record in pack.canonical_evidence] == ["strong-record"]
     assert [slice_.text for slice_ in pack.canonical_evidence[0].retained_slices] == ["strong-high"]
+
+
+def test_build_evidence_pack_preserves_metadata_anchored_slice_when_trimming() -> None:
+    from skill.evidence.pack import build_evidence_pack
+    from skill.evidence.score import score_evidence_records
+
+    policy_record = _make_canonical(
+        evidence_id="policy-effective-record",
+        domain="policy",
+        source_id="policy_official_registry",
+        route_role="primary",
+        credibility_tier="official_government",
+        authority="State Council",
+        jurisdiction="CN",
+        jurisdiction_status="observed",
+        publication_date="2026-04-01",
+        effective_date="2026-05-01",
+        version="2026-04 edition",
+        version_status="observed",
+        slice_specs=(
+            ("The order modernizes compliance workflows across agencies.", 0.80, 4),
+            ("Effective date: 2026-05-01. Version 2026-04 edition.", 0.55, 4),
+        ),
+    )
+    supplemental = _make_canonical(
+        evidence_id="supplemental-support",
+        domain="industry",
+        source_id="industry_ddgs",
+        route_role="supplemental",
+        credibility_tier="trusted_news",
+        slice_specs=(("Industry response summary.", 0.60, 3),),
+    )
+
+    ranked = score_evidence_records([supplemental, policy_record])
+    pack = build_evidence_pack(ranked, token_budget=7, top_k=2, supplemental_min_items=1)
+
+    assert pack.clipped is True
+    assert [record.evidence_id for record in pack.canonical_evidence] == [
+        "policy-effective-record",
+        "supplemental-support",
+    ]
+    assert [slice_.text for slice_ in pack.canonical_evidence[0].retained_slices] == [
+        "Effective date: 2026-05-01. Version 2026-04 edition."
+    ]

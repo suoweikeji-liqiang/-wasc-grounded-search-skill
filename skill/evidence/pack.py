@@ -22,6 +22,26 @@ def _with_updated_tokens(record: CanonicalEvidence) -> CanonicalEvidence:
     return updated
 
 
+def _slice_metadata_anchor_bonus(record: CanonicalEvidence, slice_text: str) -> float:
+    normalized_text = slice_text.casefold()
+    bonus = 0.0
+
+    for anchor in (record.publication_date, record.effective_date, record.version):
+        if anchor and anchor.casefold() in normalized_text:
+            bonus += 0.35
+
+    if record.year is not None and str(record.year) in slice_text:
+        bonus += 0.2
+
+    if sum(character.isdigit() for character in slice_text) >= 4:
+        bonus += 0.15
+
+    if any(separator in slice_text for separator in (":", ";", "|", "\t")):
+        bonus += 0.1
+
+    return min(bonus, 1.0)
+
+
 def _select_top_k(
     records: list[CanonicalEvidence],
     *,
@@ -68,9 +88,20 @@ def _trim_lowest_scoring_slice(records: list[CanonicalEvidence]) -> bool:
             continue
         lowest_slice = min(
             enumerate(record.retained_slices),
-            key=lambda entry: (entry[1].score, entry[1].token_estimate, entry[1].text),
+            key=lambda entry: (
+                entry[1].score + _slice_metadata_anchor_bonus(record, entry[1].text),
+                entry[1].token_estimate,
+                entry[1].text,
+            ),
         )
-        candidates.append((lowest_slice[1].score, lowest_slice[1].token_estimate, record.evidence_id, index))
+        candidates.append(
+            (
+                lowest_slice[1].score + _slice_metadata_anchor_bonus(record, lowest_slice[1].text),
+                lowest_slice[1].token_estimate,
+                record.evidence_id,
+                index,
+            )
+        )
 
     if not candidates:
         return False
@@ -80,7 +111,8 @@ def _trim_lowest_scoring_slice(records: list[CanonicalEvidence]) -> bool:
     lowest_slice_index = min(
         range(len(record.retained_slices)),
         key=lambda idx: (
-            record.retained_slices[idx].score,
+            record.retained_slices[idx].score
+            + _slice_metadata_anchor_bonus(record, record.retained_slices[idx].text),
             record.retained_slices[idx].token_estimate,
             record.retained_slices[idx].text,
         ),

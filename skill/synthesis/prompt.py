@@ -16,13 +16,10 @@ def _serialize_evidence(record: CanonicalEvidence) -> dict[str, object]:
         "route_role": record.route_role,
         "authority": record.authority,
         "jurisdiction": record.jurisdiction,
-        "jurisdiction_status": record.jurisdiction_status,
         "publication_date": record.publication_date,
         "effective_date": record.effective_date,
         "version": record.version,
-        "version_status": record.version_status,
         "evidence_level": record.evidence_level,
-        "canonical_match_confidence": record.canonical_match_confidence,
         "doi": record.doi,
         "arxiv_id": record.arxiv_id,
         "first_author": record.first_author,
@@ -31,7 +28,6 @@ def _serialize_evidence(record: CanonicalEvidence) -> dict[str, object]:
             {
                 "source_record_id": slice_.source_record_id,
                 "text": slice_.text,
-                "source_span": slice_.source_span,
             }
             for slice_ in record.retained_slices
         ],
@@ -49,7 +45,7 @@ def build_grounded_answer_prompt(
     evidence_blob = json.dumps(
         [_serialize_evidence(record) for record in canonical_evidence],
         ensure_ascii=True,
-        indent=2,
+        separators=(",", ":"),
     )
     gaps_blob = json.dumps(list(retrieval_gaps), ensure_ascii=True)
     clipped_value = "true" if evidence_clipped else "false"
@@ -58,7 +54,8 @@ def build_grounded_answer_prompt(
         "You are a grounded answer generator.\n"
         "Return JSON only with fields conclusion, key_points, sources, uncertainty_notes.\n"
         "Each key_points item must contain key_point_id, statement, citations.\n"
-        "Each citation must contain evidence_id, source_record_id, source_url, quote_text.\n"
+        "Each citation must contain evidence_id and source_record_id.\n"
+        "source_url and quote_text are optional and will be backfilled from evidence.\n"
         "Preserve concrete entities, years, versions, publication dates, and effective dates when evidence provides them.\n"
         "Do not replace specific titles or grounded dates with generic summaries.\n"
         "For mixed-route evidence, keep both primary and supplemental route coverage when both are supported by evidence.\n"

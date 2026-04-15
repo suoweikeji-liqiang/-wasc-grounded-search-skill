@@ -97,7 +97,7 @@ class MiniMaxTextClient:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.1,
-            "reasoning_split": True,
+            "reasoning_split": False,
         }
         request = Request(
             url=f"{self.base_url.rstrip('/')}/chat/completions",
@@ -145,11 +145,13 @@ def _require_field(payload: dict[str, object], field_name: str) -> object:
 
 
 def _parse_citation(payload: dict[str, object]) -> ClaimCitation:
+    source_url = payload.get("source_url")
+    quote_text = payload.get("quote_text")
     return ClaimCitation(
         evidence_id=str(_require_field(payload, "evidence_id")),
         source_record_id=str(_require_field(payload, "source_record_id")),
-        source_url=str(_require_field(payload, "source_url")),
-        quote_text=str(_require_field(payload, "quote_text")),
+        source_url="" if source_url is None else str(source_url),
+        quote_text="" if quote_text is None else str(quote_text),
     )
 
 

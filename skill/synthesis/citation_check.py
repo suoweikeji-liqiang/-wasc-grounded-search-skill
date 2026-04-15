@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+import unicodedata
+from dataclasses import dataclass, replace
 
 from skill.evidence.models import CanonicalEvidence
 from skill.synthesis.models import KeyPoint, StructuredAnswerDraft
@@ -20,6 +22,15 @@ def _slice_text_by_source_id(record: CanonicalEvidence) -> dict[str, str]:
     return {slice_.source_record_id: slice_.text for slice_ in record.retained_slices}
 
 
+def _normalize_quote_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    normalized = "".join(
+        " " if unicodedata.category(character).startswith(("P", "S")) else character
+        for character in normalized
+    )
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 def validate_answer_citations(
     draft: StructuredAnswerDraft,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -35,6 +46,7 @@ def validate_answer_citations(
             continue
 
         point_valid = True
+        validated_citations = []
         for citation in key_point.citations:
             record = evidence_index.get(citation.evidence_id)
             if record is None:
@@ -51,14 +63,32 @@ def validate_answer_citations(
                 point_valid = False
                 continue
 
-            if citation.quote_text != slice_text and citation.quote_text not in slice_text:
-                issues.append(
-                    f"{key_point.key_point_id}: quote_text mismatch for {citation.source_record_id}"
+            quote_text = citation.quote_text.strip()
+            if quote_text:
+                normalized_quote = _normalize_quote_text(quote_text)
+                normalized_slice = _normalize_quote_text(slice_text)
+                if (
+                    citation.quote_text != slice_text
+                    and citation.quote_text not in slice_text
+                    and normalized_quote != normalized_slice
+                    and normalized_quote not in normalized_slice
+                ):
+                    issues.append(
+                        f"{key_point.key_point_id}: quote_text mismatch for {citation.source_record_id}"
+                    )
+                    point_valid = False
+                    continue
+
+            validated_citations.append(
+                replace(
+                    citation,
+                    source_url=record.canonical_url,
+                    quote_text=slice_text,
                 )
-                point_valid = False
+            )
 
         if point_valid:
-            validated_key_points.append(key_point)
+            validated_key_points.append(replace(key_point, citations=validated_citations))
 
     return CitationCheckResult(
         validated_key_points=tuple(validated_key_points),

@@ -181,6 +181,40 @@ def test_validate_answer_citations_rejects_quote_mismatch() -> None:
     assert any("quote_text" in issue for issue in result.issues)
 
 
+def test_validate_answer_citations_backfills_quote_text_and_source_url() -> None:
+    draft = _draft_with_citation(
+        ClaimCitation(
+            evidence_id="policy-1",
+            source_record_id="policy-1-slice-1",
+            source_url="",
+            quote_text="",
+        )
+    )
+
+    result = validate_answer_citations(draft, (_policy_canonical(),))
+
+    assert result.grounded_key_point_count == 1
+    validated_citation = result.validated_key_points[0].citations[0]
+    assert validated_citation.source_url == "https://www.gov.cn/policy/climate-order-2026"
+    assert validated_citation.quote_text == "The Climate Order takes effect on May 1, 2026."
+
+
+def test_validate_answer_citations_accepts_normalized_quote_match() -> None:
+    draft = _draft_with_citation(
+        ClaimCitation(
+            evidence_id="policy-1",
+            source_record_id="policy-1-slice-1",
+            source_url="https://www.gov.cn/policy/climate-order-2026",
+            quote_text="The Climate Order takes effect on May 1 2026",
+        )
+    )
+
+    result = validate_answer_citations(draft, (_policy_canonical(),))
+
+    assert result.grounded_key_point_count == 1
+    assert result.issues == ()
+
+
 def test_build_uncertainty_notes_uses_required_prefixes() -> None:
     notes = build_uncertainty_notes(
         retrieval_status="partial",

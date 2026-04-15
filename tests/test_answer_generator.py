@@ -128,6 +128,8 @@ def test_build_grounded_answer_prompt_serializes_evidence_ids_and_retained_slice
     assert "paper-1-slice-1" in prompt
     assert "evidence_clipped: true" in prompt
     assert "Only one peer-reviewed source was retained." in prompt
+    assert "source_span" not in prompt
+    assert "Each citation must contain evidence_id and source_record_id." in prompt
 
 
 def test_generate_answer_draft_parses_structured_json_from_fake_client() -> None:
@@ -167,7 +169,7 @@ def test_generate_answer_draft_parses_structured_json_from_fake_client() -> None
     assert draft.sources[0].evidence_id == "policy-1"
 
 
-def test_generate_answer_draft_rejects_missing_quote_text() -> None:
+def test_generate_answer_draft_allows_missing_quote_text_and_source_url_for_backfill() -> None:
     model_client = _FakeModelClient(
         {
             "conclusion": "Incomplete citation payload",
@@ -179,7 +181,6 @@ def test_generate_answer_draft_rejects_missing_quote_text() -> None:
                         {
                             "evidence_id": "policy-1",
                             "source_record_id": "policy-1-slice-1",
-                            "source_url": "https://www.gov.cn/policy/climate-order-2026"
                         }
                     ]
                 }
@@ -189,8 +190,11 @@ def test_generate_answer_draft_rejects_missing_quote_text() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="quote_text"):
-        generate_answer_draft("prompt text", model_client=model_client)
+    draft = generate_answer_draft("prompt text", model_client=model_client)
+
+    assert draft.key_points[0].citations[0].source_record_id == "policy-1-slice-1"
+    assert draft.key_points[0].citations[0].source_url == ""
+    assert draft.key_points[0].citations[0].quote_text == ""
 
 
 def test_generate_answer_draft_rejects_non_object_citation_items() -> None:
@@ -392,7 +396,7 @@ def test_minimax_text_client_calls_openai_compatible_api(monkeypatch) -> None:
             {"role": "user", "content": "prompt text"},
         ],
         "temperature": 0.1,
-        "reasoning_split": True,
+        "reasoning_split": False,
     }
     assert response_text == "{\"conclusion\":\"ok\",\"key_points\":[],\"sources\":[],\"uncertainty_notes\":[]}"
 
