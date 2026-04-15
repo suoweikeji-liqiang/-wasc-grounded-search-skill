@@ -810,10 +810,10 @@ def test_execute_answer_pipeline_with_trace_enforces_answer_token_budget(
 
     assert model_client.call_count == 1
     assert result.response.answer_status == "insufficient_evidence"
-    assert (
-        result.response.conclusion
-        == "Available runtime budget was insufficient to complete grounded synthesis."
-    )
+    assert "Climate Order 2026" in result.response.conclusion
+    assert "still missing" in result.response.conclusion.lower()
+    assert result.response.key_points
+    assert result.response.sources
     assert any(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
@@ -859,8 +859,8 @@ def test_execute_answer_pipeline_with_trace_skips_generation_for_irrelevant_evid
 
     assert model_client.call_count == 0
     assert result.response.answer_status == "insufficient_evidence"
-    assert result.response.key_points == []
-    assert result.response.sources == []
+    assert result.response.key_points
+    assert result.response.sources
     assert any(
         note.startswith("Relevance gate:")
         for note in result.response.uncertainty_notes
@@ -1495,7 +1495,8 @@ def test_execute_answer_pipeline_with_trace_degrades_on_generation_backend_error
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert result.response.key_points == []
+    assert result.response.key_points
+    assert result.response.sources
     assert any(
         note.startswith("Generation backend:")
         for note in result.response.uncertainty_notes

@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 
 from skill.evidence.models import CanonicalEvidence, EvidencePack
+from skill.config.retrieval import SOURCE_BACKUP_CHAIN
 from skill.evidence.dedupe import collapse_evidence_records
 from skill.evidence.normalize import normalize_hit_candidates
 from skill.evidence.pack import build_evidence_pack
@@ -399,6 +400,10 @@ def _route_role_by_source(plan: RetrievalPlan) -> dict[str, str]:
     for step in (*plan.first_wave_sources, *plan.fallback_sources):
         if step.source.is_supplemental:
             route_roles[step.source.source_id] = "supplemental"
+    if plan.primary_route == "industry":
+        route_roles.setdefault("industry_ddgs", "primary")
+    elif plan.supplemental_route == "industry":
+        route_roles.setdefault("industry_ddgs", "supplemental")
     return route_roles
 
 
@@ -480,7 +485,16 @@ async def execute_retrieval_pipeline_with_trace(
                 "started_at_ms": source_result.started_at_ms,
                 "elapsed_ms": source_result.elapsed_ms,
                 "hit_count": len(source_result.hits),
+                "failure_reason": source_result.failure_reason,
+                "gaps": list(source_result.gaps),
                 "error_class": source_result.error_class,
+                "planner_backup_source_id": (
+                    SOURCE_BACKUP_CHAIN.get(source_result.source_id, {}).get(
+                        source_result.failure_reason or ""
+                    )
+                    if source_result.status != "success"
+                    else None
+                ),
                 "was_cancelled_by_deadline": source_result.was_cancelled_by_deadline,
             }
             for source_result in outcome.source_results

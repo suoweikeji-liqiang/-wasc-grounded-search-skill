@@ -37,6 +37,24 @@ from skill.retrieval.adapters.academic_semantic_scholar import (
 )
 from skill.retrieval.adapters.industry_ddgs import search_fixture as industry_ddgs_search_fixture
 from skill.retrieval.adapters.industry_ddgs import search_live as industry_ddgs_search_live
+from skill.retrieval.adapters.industry_news_rss import (
+    search_fixture as industry_news_rss_search_fixture,
+)
+from skill.retrieval.adapters.industry_news_rss import (
+    search_live as industry_news_rss_search_live,
+)
+from skill.retrieval.adapters.industry_official_or_filings import (
+    search_fixture as industry_official_or_filings_search_fixture,
+)
+from skill.retrieval.adapters.industry_official_or_filings import (
+    search_live as industry_official_or_filings_search_live,
+)
+from skill.retrieval.adapters.industry_web_discovery import (
+    search_fixture as industry_web_discovery_search_fixture,
+)
+from skill.retrieval.adapters.industry_web_discovery import (
+    search_live as industry_web_discovery_search_live,
+)
 from skill.retrieval.adapters.policy_official_registry import (
     search_fixture as policy_official_registry_search_fixture,
 )
@@ -71,6 +89,9 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
             "academic_asta_mcp": academic_asta_mcp_search_fixture,
             "academic_semantic_scholar": academic_semantic_scholar_search_fixture,
             "academic_arxiv": academic_arxiv_search_fixture,
+            "industry_official_or_filings": industry_official_or_filings_search_fixture,
+            "industry_web_discovery": industry_web_discovery_search_fixture,
+            "industry_news_rss": industry_news_rss_search_fixture,
             "industry_ddgs": industry_ddgs_search_fixture,
         }
     return {
@@ -79,6 +100,9 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
         "academic_asta_mcp": academic_asta_mcp_search_live,
         "academic_semantic_scholar": academic_semantic_scholar_search_live,
         "academic_arxiv": academic_arxiv_search_live,
+        "industry_official_or_filings": industry_official_or_filings_search_live,
+        "industry_web_discovery": industry_web_discovery_search_live,
+        "industry_news_rss": industry_news_rss_search_live,
         "industry_ddgs": industry_ddgs_search_live,
     }
 

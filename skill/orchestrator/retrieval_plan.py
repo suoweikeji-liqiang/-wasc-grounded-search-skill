@@ -101,6 +101,18 @@ def _build_primary_first_wave(primary_route: ConcreteRoute) -> list[PlannedSourc
 
 
 def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[PlannedSourceStep]:
+    if supplemental_route == "industry":
+        return [
+            PlannedSourceStep(
+                source=RetrievalSource(
+                    source_id=source_id,
+                    route=supplemental_route,
+                    is_supplemental=True,
+                ),
+            )
+            for source_id in DOMAIN_FIRST_WAVE_SOURCES[supplemental_route]
+            if source_id not in _FALLBACK_ONLY_SOURCES
+        ]
     supplemental_source_id = SUPPLEMENTAL_STRONGEST_SOURCE[supplemental_route]
     if supplemental_source_id in _FALLBACK_ONLY_SOURCES:
         raise ValueError(

@@ -22,6 +22,13 @@ from skill.retrieval.priority import score_query_alignment
 from skill.retrieval.query_variants import QueryVariant, build_query_variants
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
+_LEGACY_INDUSTRY_ADAPTER_FALLBACKS: frozenset[str] = frozenset(
+    {
+        "industry_official_or_filings",
+        "industry_web_discovery",
+        "industry_news_rss",
+    }
+)
 _ACADEMIC_VARIANT_PRIORITY: dict[str, int] = {
     "academic_source_hint": 0,
     "academic_topic_focus": 1,
@@ -487,6 +494,8 @@ async def _run_single_source(
     timeout_seconds: float,
 ) -> SourceExecutionResult:
     adapter = adapter_registry.get(source_id)
+    if adapter is None and source_id in _LEGACY_INDUSTRY_ADAPTER_FALLBACKS:
+        adapter = adapter_registry.get("industry_ddgs")
     if adapter is None:
         return SourceExecutionResult(
             source_id=source_id,

@@ -32,6 +32,22 @@ def build_uncertainty_notes(
         if record.domain == "academic"
         and (not scoped_ids or record.evidence_id in scoped_ids)
     )
+    all_academic_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == "academic"
+    )
+    relevant_industry_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == "industry"
+        and (not scoped_ids or record.evidence_id in scoped_ids)
+    )
+    all_industry_records = tuple(
+        record
+        for record in canonical_evidence
+        if record.domain == "industry"
+    )
 
     if (evidence_clipped or evidence_pruned) and not strong_local_grounding:
         details: list[str] = []
@@ -67,6 +83,26 @@ def build_uncertainty_notes(
     ):
         notes.append(
             "Academic match heuristic: at least one academic merge relied on heuristic citation matching."
+        )
+
+    if not strong_local_grounding and (relevant_academic_records or all_academic_records) and (
+        retrieval_status != "success"
+        or evidence_clipped
+        or evidence_pruned
+        or citation_issues
+    ):
+        notes.append(
+            "Academic coverage gap: retained academic evidence may miss corroborating papers, benchmarks, or reviewed versions."
+        )
+
+    if not strong_local_grounding and (relevant_industry_records or all_industry_records) and (
+        retrieval_status != "success"
+        or evidence_clipped
+        or evidence_pruned
+        or citation_issues
+    ):
+        notes.append(
+            "Industry coverage gap: retained industry evidence may miss corroborating filings, official disclosures, or full article-body context."
         )
 
     if citation_issues:

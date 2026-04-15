@@ -29,6 +29,9 @@ class BenchmarkRunRecord(BaseModel):
     latency_budget_ok: bool
     token_budget_ok: bool
     failure_reason: str | None = None
+    provider_prompt_tokens: int | None = Field(default=None, ge=0)
+    provider_completion_tokens: int | None = Field(default=None, ge=0)
+    provider_total_tokens: int | None = Field(default=None, ge=0)
     retrieval_trace: list[dict[str, object]] = Field(default_factory=list)
 
 

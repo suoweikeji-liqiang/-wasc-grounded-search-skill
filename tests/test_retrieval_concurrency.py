@@ -127,16 +127,11 @@ def test_primary_academic_plan_prefers_arxiv_ordering_only_for_explicit_europe_p
     assert europe_pmc_plan.fallback_sources == ()
 
 
-def test_mixed_route_uses_full_primary_plus_single_supplemental_source() -> None:
-    mixed_case = next(
-        item
-        for item in _load_cases()
-        if item["name"] == "mixed_primary_with_single_supplemental_source"
-    )
+def test_mixed_route_uses_full_primary_plus_split_industry_supplemental_sources() -> None:
     classification = ClassificationResult(
-        route_label=mixed_case["route_label"],
-        primary_route=mixed_case["primary_route"],
-        supplemental_route=mixed_case["supplemental_route"],
+        route_label="mixed",
+        primary_route="academic",
+        supplemental_route="industry",
         reason_code="explicit_cross_domain",
         scores={"policy": 0, "academic": 6, "industry": 5},
     )
@@ -144,14 +139,22 @@ def test_mixed_route_uses_full_primary_plus_single_supplemental_source() -> None
     plan = build_retrieval_plan(classification)
 
     primary_first_wave_ids = _source_ids_for(
-        plan, route=mixed_case["primary_route"], supplemental_only=False
+        plan, route="academic", supplemental_only=False
     )
     supplemental_first_wave_ids = _source_ids_for(
-        plan, route=mixed_case["supplemental_route"], supplemental_only=True
+        plan, route="industry", supplemental_only=True
     )
 
-    assert primary_first_wave_ids == mixed_case["expected_primary_first_wave"]
-    assert supplemental_first_wave_ids == mixed_case["expected_supplemental_first_wave"]
+    assert primary_first_wave_ids == [
+        "academic_asta_mcp",
+        "academic_semantic_scholar",
+        "academic_arxiv",
+    ]
+    assert supplemental_first_wave_ids == [
+        "industry_official_or_filings",
+        "industry_web_discovery",
+        "industry_news_rss",
+    ]
 
 
 def test_run_retrieval_first_wave_only_excludes_policy_official_web_allowlist_fallback() -> None:

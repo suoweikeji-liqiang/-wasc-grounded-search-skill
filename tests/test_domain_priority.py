@@ -18,10 +18,10 @@ def test_policy_route_keeps_fallback_outside_first_wave() -> None:
     assert "policy_official_web_allowlist_fallback" not in DOMAIN_FIRST_WAVE_SOURCES["policy"]
 
 
-def test_mixed_supplemental_route_uses_strongest_single_source() -> None:
+def test_mixed_supplemental_route_uses_industry_web_discovery_as_default_anchor() -> None:
     assert SUPPLEMENTAL_STRONGEST_SOURCE["policy"] == "policy_official_registry"
     assert SUPPLEMENTAL_STRONGEST_SOURCE["academic"] == "academic_semantic_scholar"
-    assert SUPPLEMENTAL_STRONGEST_SOURCE["industry"] == "industry_ddgs"
+    assert SUPPLEMENTAL_STRONGEST_SOURCE["industry"] == "industry_web_discovery"
 
 
 def test_academic_route_first_wave_prefers_asta_before_other_scholarly_sources() -> None:
@@ -35,6 +35,9 @@ def test_academic_route_first_wave_prefers_asta_before_other_scholarly_sources()
 def test_industry_source_has_credibility_tier_mapping() -> None:
     assert "industry_ddgs" in SOURCE_CREDIBILITY_TIERS
     assert SOURCE_CREDIBILITY_TIERS["industry_ddgs"] == "trusted_news"
+    assert SOURCE_CREDIBILITY_TIERS["industry_official_or_filings"] == "company_official"
+    assert SOURCE_CREDIBILITY_TIERS["industry_web_discovery"] == "trusted_news"
+    assert SOURCE_CREDIBILITY_TIERS["industry_news_rss"] == "trusted_news"
 
 
 def test_retrieval_hit_contract_has_credibility_tier_or_derivation() -> None:

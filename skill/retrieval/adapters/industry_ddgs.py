@@ -28,6 +28,9 @@ from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import score_query_alignment
 
 SOURCE_ID = "industry_ddgs"
+SOURCE_ID_WEB_DISCOVERY = "industry_web_discovery"
+SOURCE_ID_NEWS_RSS = "industry_news_rss"
+SOURCE_ID_OFFICIAL_OR_FILINGS = "industry_official_or_filings"
 _MIN_FIXTURE_SCORE = 8
 _TIER_ORDER: tuple[str, ...] = (
     "company_official",
@@ -416,6 +419,7 @@ async def _rank_payloads_to_hits(
     candidate_payloads: list[dict[str, str]],
     sec_records: list[dict[str, object]],
     config: LiveRetrievalConfig,
+    source_id: str = SOURCE_ID,
 ) -> list[RetrievalHit]:
     rank_tasks = [
         asyncio.create_task(
@@ -490,7 +494,7 @@ async def _rank_payloads_to_hits(
 
     return [
         RetrievalHit(
-            source_id=SOURCE_ID,
+            source_id=source_id,
             title=item["title"],
             url=item["url"],
             snippet=item["snippet"],
@@ -1005,6 +1009,8 @@ async def _rank_live_candidate(
             )
     except Exception:
         page_text = ""
+    if engine == "google_news_rss" and force_fetch and not page_text.strip():
+        return None
     page_focus_overlap = _focus_term_overlap_count(
         missing_focus_terms,
         text=page_text,
@@ -1054,6 +1060,245 @@ async def _rank_live_candidate(
         "_score": enriched_score,
         "_tier": tier,
     }
+
+
+def _non_rss_engines(config: LiveRetrievalConfig) -> tuple[str, ...]:
+    engines = tuple(
+        engine for engine in config.search_engines if engine != "google_news_rss"
+    )
+    return engines or ("duckduckgo", "bing", "google")
+
+
+def _remap_hits_source_id(
+    hits: list[RetrievalHit],
+    *,
+    source_id: str,
+) -> list[RetrievalHit]:
+    return [
+        RetrievalHit(
+            source_id=source_id,
+            title=hit.title,
+            url=hit.url,
+            snippet=hit.snippet,
+            credibility_tier=hit.credibility_tier,
+            authority=hit.authority,
+            jurisdiction=hit.jurisdiction,
+            publication_date=hit.publication_date,
+            effective_date=hit.effective_date,
+            version=hit.version,
+            doi=hit.doi,
+            arxiv_id=hit.arxiv_id,
+            first_author=hit.first_author,
+            year=hit.year,
+            evidence_level=hit.evidence_level,
+            target_route=hit.target_route,
+            variant_reason_codes=hit.variant_reason_codes,
+            variant_queries=hit.variant_queries,
+        )
+        for hit in hits
+    ]
+
+
+async def search_web_discovery_fixture(query: str) -> list[RetrievalHit]:
+    fixture_hits = await search_fixture(query)
+    filtered = [
+        hit
+        for hit in fixture_hits
+        if hit.credibility_tier in {"industry_association", "trusted_news", "general_web"}
+    ]
+    return _remap_hits_source_id(
+        filtered or fixture_hits,
+        source_id=SOURCE_ID_WEB_DISCOVERY,
+    )
+
+
+async def search_news_rss_fixture(query: str) -> list[RetrievalHit]:
+    fixture_hits = await search_fixture(query)
+    filtered = [
+        hit
+        for hit in fixture_hits
+        if hit.credibility_tier == "trusted_news"
+    ]
+    return _remap_hits_source_id(
+        filtered or fixture_hits[:1],
+        source_id=SOURCE_ID_NEWS_RSS,
+    )
+
+
+async def search_official_or_filings_fixture(query: str) -> list[RetrievalHit]:
+    fixture_hits = await search_fixture(query)
+    filtered = [
+        hit
+        for hit in fixture_hits
+        if hit.credibility_tier in {"company_official", "industry_association"}
+    ]
+    return _remap_hits_source_id(
+        filtered or fixture_hits[:1],
+        source_id=SOURCE_ID_OFFICIAL_OR_FILINGS,
+    )
+
+
+async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
+    config = LiveRetrievalConfig.from_env()
+    if config.fixture_shortcuts_enabled:
+        fixture_hits = [
+            hit
+            for hit in await search_web_discovery_fixture(query)
+            if _score(
+                query,
+                {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "snippet": hit.snippet,
+                },
+            )
+            >= _MIN_FIXTURE_SCORE
+        ]
+        if fixture_hits:
+            return fixture_hits[:3]
+
+    try:
+        web_candidates = await search_multi_engine(
+            query=query,
+            engines=_non_rss_engines(config),
+            max_results=8,
+        )
+    except Exception:
+        web_candidates = []
+
+    candidate_payloads = _dedupe_candidate_payloads(
+        _candidate_payloads_from_search_results(list(web_candidates))
+    )
+    return await _rank_payloads_to_hits(
+        query=query,
+        candidate_payloads=candidate_payloads,
+        sec_records=[],
+        config=config,
+        source_id=SOURCE_ID_WEB_DISCOVERY,
+    )
+
+
+async def search_news_rss_live(query: str) -> list[RetrievalHit]:
+    config = LiveRetrievalConfig.from_env()
+    if config.fixture_shortcuts_enabled:
+        fixture_hits = [
+            hit
+            for hit in await search_news_rss_fixture(query)
+            if _score(
+                query,
+                {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "snippet": hit.snippet,
+                },
+            )
+            >= _MIN_FIXTURE_SCORE
+        ]
+        if fixture_hits:
+            return fixture_hits[:3]
+
+    try:
+        news_candidates = await search_multi_engine(
+            query=query,
+            engines=("google_news_rss",),
+            max_results=5,
+        )
+    except Exception:
+        news_candidates = []
+
+    candidate_payloads = _candidate_payloads_from_search_results(list(news_candidates))
+    for payload in candidate_payloads:
+        payload["_force_fetch"] = "1"
+    candidate_payloads = _dedupe_candidate_payloads(candidate_payloads)
+    return await _rank_payloads_to_hits(
+        query=query,
+        candidate_payloads=candidate_payloads,
+        sec_records=[],
+        config=config,
+        source_id=SOURCE_ID_NEWS_RSS,
+    )
+
+
+async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
+    config = LiveRetrievalConfig.from_env()
+    if config.fixture_shortcuts_enabled:
+        fixture_hits = [
+            hit
+            for hit in await search_official_or_filings_fixture(query)
+            if _score(
+                query,
+                {
+                    "title": hit.title,
+                    "url": hit.url,
+                    "snippet": hit.snippet,
+                },
+            )
+            >= _MIN_FIXTURE_SCORE
+        ]
+        if fixture_hits:
+            return fixture_hits[:3]
+
+    candidate_payloads = _direct_official_candidates(query)
+    should_query_sec = _should_query_sec(query)
+    known_company_submission_target = (
+        should_query_sec and has_known_company_submission_target(query)
+    )
+    known_company_ir_target = (
+        should_query_sec
+        and _has_detailed_disclosure_intent(query)
+        and _detect_known_company_ir_target(query) is not None
+    )
+    if known_company_ir_target:
+        candidate_payloads.extend(
+            await _search_known_company_ir_page_candidates(query=query)
+        )
+
+    sec_records: list[dict[str, object]] = []
+    if should_query_sec:
+        if known_company_submission_target:
+            sec_records = await _search_prioritized_sec_records(
+                query=query,
+                max_results=3,
+            )
+        else:
+            sec_records = await _search_fastest_sec_records(
+                query=query,
+                max_results=3,
+            )
+
+    official_query_tasks = [
+        asyncio.create_task(
+            search_multi_engine(
+                query=official_query,
+                engines=_non_rss_engines(config),
+                max_results=5,
+            )
+        )
+        for official_query in _official_search_queries(query)
+    ]
+    try:
+        official_results = await asyncio.gather(
+            *official_query_tasks,
+            return_exceptions=True,
+        )
+    except asyncio.CancelledError:
+        await _cancel_search_tasks(official_query_tasks)
+        raise
+    for result in official_results:
+        if isinstance(result, Exception):
+            continue
+        candidate_payloads.extend(
+            _candidate_payloads_from_search_results(list(result))
+        )
+
+    candidate_payloads = _dedupe_candidate_payloads(candidate_payloads)
+    return await _rank_payloads_to_hits(
+        query=query,
+        candidate_payloads=candidate_payloads,
+        sec_records=sec_records,
+        config=config,
+        source_id=SOURCE_ID_OFFICIAL_OR_FILINGS,
+    )
 
 
 async def search_live(query: str) -> list[RetrievalHit]:

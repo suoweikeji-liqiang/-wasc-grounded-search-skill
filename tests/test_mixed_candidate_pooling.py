@@ -50,15 +50,25 @@ def test_run_retrieval_uses_mixed_discovery_budget_and_pooled_hook(monkeypatch) 
                     ),
                 ),
             ),
-            "industry_ddgs": SourceExecutionResult(
-                source_id="industry_ddgs",
+            "industry_official_or_filings": SourceExecutionResult(
+                source_id="industry_official_or_filings",
+                status="success",
+                hits=(),
+            ),
+            "industry_web_discovery": SourceExecutionResult(
+                source_id="industry_web_discovery",
                 status="success",
                 hits=(
                     _hit(
-                        source_id="industry_ddgs",
+                        source_id="industry_web_discovery",
                         title="industry-fragment",
                     ),
                 ),
+            ),
+            "industry_news_rss": SourceExecutionResult(
+                source_id="industry_news_rss",
+                status="success",
+                hits=(),
             ),
         }
 
@@ -99,7 +109,9 @@ def test_run_retrieval_uses_mixed_discovery_budget_and_pooled_hook(monkeypatch) 
     assert observed["pooled_called"] is True
     assert observed["pooled_first_wave_sources"] == (
         "policy_official_registry",
-        "industry_ddgs",
+        "industry_official_or_filings",
+        "industry_web_discovery",
+        "industry_news_rss",
     )
     assert outcome.status == "success"
     assert [item.title for item in outcome.results] == [
@@ -141,15 +153,25 @@ def test_run_retrieval_falls_back_to_standard_path_when_pooled_hook_returns_none
                     ),
                 ),
             ),
-            "industry_ddgs": SourceExecutionResult(
-                source_id="industry_ddgs",
+            "industry_official_or_filings": SourceExecutionResult(
+                source_id="industry_official_or_filings",
+                status="success",
+                hits=(),
+            ),
+            "industry_web_discovery": SourceExecutionResult(
+                source_id="industry_web_discovery",
                 status="success",
                 hits=(
                     _hit(
-                        source_id="industry_ddgs",
+                        source_id="industry_web_discovery",
                         title="industry-fragment",
                     ),
                 ),
+            ),
+            "industry_news_rss": SourceExecutionResult(
+                source_id="industry_news_rss",
+                status="success",
+                hits=(),
             ),
         }
 
@@ -201,15 +223,25 @@ def test_run_retrieval_enables_mixed_pooled_hook_by_default_for_dual_route_mixed
                     ),
                 ),
             ),
-            "industry_ddgs": SourceExecutionResult(
-                source_id="industry_ddgs",
+            "industry_official_or_filings": SourceExecutionResult(
+                source_id="industry_official_or_filings",
+                status="success",
+                hits=(),
+            ),
+            "industry_web_discovery": SourceExecutionResult(
+                source_id="industry_web_discovery",
                 status="success",
                 hits=(
                     _hit(
-                        source_id="industry_ddgs",
+                        source_id="industry_web_discovery",
                         title="industry-fragment",
                     ),
                 ),
+            ),
+            "industry_news_rss": SourceExecutionResult(
+                source_id="industry_news_rss",
+                status="success",
+                hits=(),
             ),
         }
 
@@ -280,12 +312,17 @@ def test_mixed_pooled_path_builds_dual_route_shortlist_from_first_wave_hits() ->
                 ),
             ),
         ),
-        "industry_ddgs": SourceExecutionResult(
-            source_id="industry_ddgs",
+        "industry_official_or_filings": SourceExecutionResult(
+            source_id="industry_official_or_filings",
+            status="success",
+            hits=(),
+        ),
+        "industry_web_discovery": SourceExecutionResult(
+            source_id="industry_web_discovery",
             status="success",
             hits=(
                 RetrievalHit(
-                    source_id="industry_ddgs",
+                    source_id="industry_web_discovery",
                     title="Cloud vendor security communications",
                     url="https://example.com/cloud-communications",
                     snippet="General guidance on cloud vendor security communications.",
@@ -294,7 +331,7 @@ def test_mixed_pooled_path_builds_dual_route_shortlist_from_first_wave_hits() ->
                     variant_queries=(query,),
                 ),
                 RetrievalHit(
-                    source_id="industry_ddgs",
+                    source_id="industry_web_discovery",
                     title="SaaS vendor incident update notice",
                     url="https://example.com/saas-incident-notice",
                     snippet="Vendor incident update notice and customer security release cadence.",
@@ -303,6 +340,11 @@ def test_mixed_pooled_path_builds_dual_route_shortlist_from_first_wave_hits() ->
                     variant_queries=("SaaS vendor incident update notice",),
                 ),
             ),
+        ),
+        "industry_news_rss": SourceExecutionResult(
+            source_id="industry_news_rss",
+            status="success",
+            hits=(),
         ),
     }
 
@@ -364,12 +406,17 @@ def test_mixed_pooled_path_returns_none_when_dual_route_hits_are_too_weak() -> N
                 ),
             ),
         ),
-        "industry_ddgs": SourceExecutionResult(
-            source_id="industry_ddgs",
+        "industry_official_or_filings": SourceExecutionResult(
+            source_id="industry_official_or_filings",
+            status="success",
+            hits=(),
+        ),
+        "industry_web_discovery": SourceExecutionResult(
+            source_id="industry_web_discovery",
             status="success",
             hits=(
                 RetrievalHit(
-                    source_id="industry_ddgs",
+                    source_id="industry_web_discovery",
                     title="Cloud vendor security communications",
                     url="https://example.com/cloud-communications",
                     snippet="General guidance on cloud vendor security communications.",
@@ -378,6 +425,11 @@ def test_mixed_pooled_path_returns_none_when_dual_route_hits_are_too_weak() -> N
                     variant_queries=(query,),
                 ),
             ),
+        ),
+        "industry_news_rss": SourceExecutionResult(
+            source_id="industry_news_rss",
+            status="success",
+            hits=(),
         ),
     }
 

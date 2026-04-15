@@ -77,6 +77,9 @@ def test_runtime_trace_and_answer_execution_result_publish_required_fields() -> 
         "token_budget_ok",
         "failure_reason",
         "budget_exhausted_phase",
+        "provider_prompt_tokens",
+        "provider_completion_tokens",
+        "provider_total_tokens",
         "retrieval_trace",
     }
     assert result_fields == {"response", "runtime_trace"}

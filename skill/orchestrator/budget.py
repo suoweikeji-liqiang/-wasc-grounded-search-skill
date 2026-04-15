@@ -81,6 +81,9 @@ class RuntimeTrace:
     token_budget_ok: bool
     failure_reason: str | None
     budget_exhausted_phase: str | None
+    provider_prompt_tokens: int | None = None
+    provider_completion_tokens: int | None = None
+    provider_total_tokens: int | None = None
     retrieval_trace: tuple[dict[str, object], ...] = ()
 
 

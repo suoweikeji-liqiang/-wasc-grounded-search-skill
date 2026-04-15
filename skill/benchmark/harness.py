@@ -51,6 +51,9 @@ def run_benchmark_suite(
                         latency_budget_ok=runtime_trace.latency_budget_ok,
                         token_budget_ok=runtime_trace.token_budget_ok,
                         failure_reason=runtime_trace.failure_reason,
+                        provider_prompt_tokens=runtime_trace.provider_prompt_tokens,
+                        provider_completion_tokens=runtime_trace.provider_completion_tokens,
+                        provider_total_tokens=runtime_trace.provider_total_tokens,
                         retrieval_trace=list(runtime_trace.retrieval_trace),
                     )
                 )

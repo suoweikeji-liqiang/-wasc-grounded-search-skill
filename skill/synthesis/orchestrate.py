@@ -786,6 +786,243 @@ def _dedupe_sources(
     return deduped
 
 
+def _truncate_words(text: str, *, max_words: int = 18) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text.strip()
+    return " ".join(words[:max_words]).strip().rstrip(",.;:") + "..."
+
+
+def _select_partial_evidence_matches(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+    limit: int = 2,
+) -> tuple[tuple[CanonicalEvidence, EvidenceSlice], ...]:
+    selected: list[tuple[CanonicalEvidence, EvidenceSlice]] = []
+    seen_evidence_ids: set[str] = set()
+
+    def _append_match(
+        record: CanonicalEvidence | None,
+        slice_: EvidenceSlice | None,
+    ) -> None:
+        if record is None or slice_ is None:
+            return
+        if record.evidence_id in seen_evidence_ids:
+            return
+        seen_evidence_ids.add(record.evidence_id)
+        selected.append((record, slice_))
+
+    if (
+        retrieval_response.route_label == "mixed"
+        and retrieval_response.supplemental_route is not None
+    ):
+        primary_matches = _top_route_matches(
+            query,
+            canonical_evidence,
+            domain=retrieval_response.primary_route,
+            route_role="primary",
+            limit=1,
+        )
+        supplemental_matches = _top_route_matches(
+            query,
+            canonical_evidence,
+            domain=retrieval_response.supplemental_route,
+            route_role="supplemental",
+            limit=1,
+        )
+        if primary_matches:
+            _append_match(primary_matches[0][0], primary_matches[0][1])
+        if supplemental_matches:
+            _append_match(supplemental_matches[0][0], supplemental_matches[0][1])
+
+    route_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain=retrieval_response.primary_route,
+        route_role="primary",
+        limit=limit,
+    )
+    for record, slice_, _ in route_matches:
+        if len(selected) >= limit:
+            break
+        _append_match(record, slice_)
+
+    if len(selected) < limit:
+        for record in canonical_evidence:
+            if not record.retained_slices or record.evidence_id in seen_evidence_ids:
+                continue
+            _append_match(record, record.retained_slices[0])
+            if len(selected) >= limit:
+                break
+
+    return tuple(selected[:limit])
+
+
+def _build_key_points_from_partial_matches(
+    matches: tuple[tuple[CanonicalEvidence, EvidenceSlice], ...],
+) -> list[dict[str, object]]:
+    key_points: list[dict[str, object]] = []
+    for index, (record, slice_) in enumerate(matches, start=1):
+        key_points.append(
+            {
+                "key_point_id": f"kp-{index}",
+                "statement": slice_.text,
+                "citations": [
+                    {
+                        "evidence_id": record.evidence_id,
+                        "source_record_id": slice_.source_record_id,
+                        "source_url": record.canonical_url,
+                        "quote_text": slice_.text,
+                    }
+                ],
+            }
+        )
+    return key_points
+
+
+def _partial_missing_summary(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    citation_issues: tuple[str, ...] = (),
+    reason: str | None = None,
+) -> str:
+    has_academic = any(record.domain == "academic" for record in canonical_evidence)
+    has_industry = any(record.domain == "industry" for record in canonical_evidence)
+
+    fragments: list[str] = []
+    if retrieval_response.route_label == "mixed":
+        fragments.append("cross-domain corroboration linking the retained evidence")
+    elif has_academic:
+        fragments.append("additional academic corroboration or benchmark detail")
+    elif has_industry:
+        fragments.append("additional industry corroboration or original-source detail")
+    else:
+        fragments.append("additional corroborating evidence")
+
+    if retrieval_response.gaps:
+        fragments.append(f"recovery for retrieval gaps ({'; '.join(retrieval_response.gaps)})")
+    if citation_issues:
+        fragments.append("citation support for some draft claims")
+    if reason:
+        fragments.append(reason)
+
+    deduped = list(dict.fromkeys(fragment.strip() for fragment in fragments if fragment.strip()))
+    if not deduped:
+        return "enough corroborating evidence to fully answer the query"
+    if len(deduped) == 1:
+        return deduped[0]
+    return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
+
+
+def _build_partial_conclusion(
+    *,
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    query: str,
+    key_points: list[dict[str, object]],
+    reason: str | None = None,
+    citation_issues: tuple[str, ...] = (),
+) -> str:
+    evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
+    confirmed_parts: list[str] = []
+    for key_point in key_points[:2]:
+        citations = key_point.get("citations", [])
+        if not isinstance(citations, list) or not citations:
+            continue
+        first_citation = citations[0]
+        if not isinstance(first_citation, dict):
+            continue
+        evidence_id = str(first_citation.get("evidence_id", ""))
+        record = evidence_by_id.get(evidence_id)
+        title = record.canonical_title if record is not None else "retained evidence"
+        statement = _truncate_words(str(key_point.get("statement", "")), max_words=22)
+        if statement:
+            confirmed_parts.append(f"{title}: {statement}")
+
+    if not confirmed_parts:
+        selected_matches = _select_partial_evidence_matches(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            limit=2,
+        )
+        confirmed_parts = [
+            f"{record.canonical_title}: {_truncate_words(slice_.text, max_words=22)}"
+            for record, slice_ in selected_matches
+        ]
+
+    confirmed_summary = (
+        "; ".join(confirmed_parts)
+        if confirmed_parts
+        else "retained evidence remains limited"
+    )
+    missing_summary = _partial_missing_summary(
+        retrieval_response,
+        canonical_evidence,
+        citation_issues=citation_issues,
+        reason=reason,
+    )
+    return (
+        f"Confirmed from retained evidence: {confirmed_summary}. "
+        f"Still missing {missing_summary}."
+    )
+
+
+def _build_partial_response_payload(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+    validated_key_points: list[dict[str, object]] | None = None,
+    draft_sources: list[object] | None = None,
+    citation_issues: tuple[str, ...] = (),
+    reason: str | None = None,
+) -> tuple[str, list[dict[str, object]], list[dict[str, str]]]:
+    key_points = list(validated_key_points or [])
+    if not key_points:
+        matches = _select_partial_evidence_matches(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            limit=2,
+        )
+        key_points = _build_key_points_from_partial_matches(matches)
+
+    evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
+    cited_evidence_ids = [
+        str(citation.get("evidence_id"))
+        for key_point in key_points
+        for citation in key_point.get("citations", [])
+        if isinstance(citation, dict) and citation.get("evidence_id")
+    ]
+    sources = _dedupe_sources(
+        cited_evidence_ids,
+        draft_sources or [],
+        evidence_by_id,
+    )
+    if not sources:
+        for record in canonical_evidence[:2]:
+            sources.append(
+                {
+                    "evidence_id": record.evidence_id,
+                    "title": record.canonical_title,
+                    "url": record.canonical_url,
+                }
+            )
+    conclusion = _build_partial_conclusion(
+        retrieval_response=retrieval_response,
+        canonical_evidence=canonical_evidence,
+        query=query,
+        key_points=key_points,
+        reason=reason,
+        citation_issues=citation_issues,
+    )
+    return conclusion, key_points[:2], sources[:2]
+
+
 def _build_retrieval_failure_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -818,6 +1055,7 @@ def _build_budget_enforced_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     reason: str,
 ) -> AnswerResponse:
     uncertainty_notes = build_uncertainty_notes(
@@ -828,6 +1066,16 @@ def _build_budget_enforced_response(
         canonical_evidence=canonical_evidence,
         citation_issues=(),
     )
+    conclusion = "Available runtime budget was insufficient to complete grounded synthesis."
+    key_points: list[dict[str, object]] = []
+    sources: list[dict[str, str]] = []
+    if canonical_evidence:
+        conclusion, key_points, sources = _build_partial_response_payload(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason="remaining grounded synthesis time within the request budget",
+        )
     return AnswerResponse(
         answer_status="insufficient_evidence",
         retrieval_status=retrieval_response.status,
@@ -836,9 +1084,9 @@ def _build_budget_enforced_response(
         primary_route=retrieval_response.primary_route,
         supplemental_route=retrieval_response.supplemental_route,
         browser_automation="disabled",
-        conclusion="Available runtime budget was insufficient to complete grounded synthesis.",
-        key_points=[],
-        sources=[],
+        conclusion=conclusion,
+        key_points=key_points,
+        sources=sources,
         uncertainty_notes=[f"Budget enforcement: {reason}", *uncertainty_notes],
         gaps=list(retrieval_response.gaps),
     )
@@ -847,6 +1095,8 @@ def _build_budget_enforced_response(
 def _build_relevance_gated_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
 ) -> AnswerResponse:
     uncertainty_notes = build_uncertainty_notes(
         retrieval_status=retrieval_response.status,
@@ -856,6 +1106,16 @@ def _build_relevance_gated_response(
         canonical_evidence=canonical_evidence,
         citation_issues=(),
     )
+    conclusion = "Available evidence was insufficient to fully support the requested answer."
+    key_points: list[dict[str, object]] = []
+    sources: list[dict[str, str]] = []
+    if canonical_evidence:
+        conclusion, key_points, sources = _build_partial_response_payload(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason="query-specific evidence alignment strong enough for a complete grounded answer",
+        )
     return AnswerResponse(
         answer_status="insufficient_evidence",
         retrieval_status=retrieval_response.status,
@@ -864,9 +1124,9 @@ def _build_relevance_gated_response(
         primary_route=retrieval_response.primary_route,
         supplemental_route=retrieval_response.supplemental_route,
         browser_automation="disabled",
-        conclusion="Available evidence was insufficient to fully support the requested answer.",
-        key_points=[],
-        sources=[],
+        conclusion=conclusion,
+        key_points=key_points,
+        sources=sources,
         uncertainty_notes=[
             "Relevance gate: retained evidence does not share enough query-specific terms for grounded synthesis.",
             *uncertainty_notes,
@@ -879,6 +1139,7 @@ def _build_generation_backend_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     reason: str,
 ) -> AnswerResponse:
     uncertainty_notes = build_uncertainty_notes(
@@ -889,6 +1150,16 @@ def _build_generation_backend_response(
         canonical_evidence=canonical_evidence,
         citation_issues=(),
     )
+    conclusion = "Available evidence was insufficient to fully support the requested answer."
+    key_points: list[dict[str, object]] = []
+    sources: list[dict[str, str]] = []
+    if canonical_evidence:
+        conclusion, key_points, sources = _build_partial_response_payload(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason="a completed grounded synthesis from the generation backend",
+        )
     return AnswerResponse(
         answer_status="insufficient_evidence",
         retrieval_status=retrieval_response.status,
@@ -897,9 +1168,9 @@ def _build_generation_backend_response(
         primary_route=retrieval_response.primary_route,
         supplemental_route=retrieval_response.supplemental_route,
         browser_automation="disabled",
-        conclusion="Available evidence was insufficient to fully support the requested answer.",
-        key_points=[],
-        sources=[],
+        conclusion=conclusion,
+        key_points=key_points,
+        sources=sources,
         uncertainty_notes=[
             f"Generation backend: {reason}",
             *uncertainty_notes,
@@ -1436,6 +1707,7 @@ def _build_answer_response(
     canonical_evidence: tuple[CanonicalEvidence, ...],
     draft,
     *,
+    query: str | None = None,
     local_fast_path: bool = False,
     uncertainty_focus_evidence_ids: tuple[str, ...] = (),
 ) -> AnswerResponse:
@@ -1499,7 +1771,20 @@ def _build_answer_response(
     )
 
     conclusion = draft.conclusion
-    if answer_status == "insufficient_evidence":
+    if (
+        answer_status == "insufficient_evidence"
+        and query is not None
+        and canonical_evidence
+    ):
+        conclusion, validated_key_points, sources = _build_partial_response_payload(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            validated_key_points=validated_key_points,
+            draft_sources=draft.sources,
+            citation_issues=citation_result.issues,
+        )
+    elif answer_status == "insufficient_evidence":
         conclusion = "Available evidence was insufficient to fully support the requested answer."
 
     return AnswerResponse(
@@ -1528,6 +1813,9 @@ def _build_runtime_trace(
     answer_token_estimate: int | None,
     runtime_budget: RuntimeBudget,
     budget_exhausted_phase: str | None,
+    provider_prompt_tokens: int | None = None,
+    provider_completion_tokens: int | None = None,
+    provider_total_tokens: int | None = None,
     retrieval_trace: tuple[dict[str, object], ...] = (),
 ) -> RuntimeTrace:
     elapsed_seconds = retrieval_elapsed_seconds + synthesis_elapsed_seconds
@@ -1557,7 +1845,28 @@ def _build_runtime_trace(
         token_budget_ok=token_budget_ok,
         failure_reason=response.failure_reason,
         budget_exhausted_phase=budget_exhausted_phase,
+        provider_prompt_tokens=provider_prompt_tokens,
+        provider_completion_tokens=provider_completion_tokens,
+        provider_total_tokens=provider_total_tokens,
         retrieval_trace=retrieval_trace,
+    )
+
+
+def _extract_provider_usage(
+    model_client: ModelClient,
+) -> tuple[int | None, int | None, int | None]:
+    raw_usage = getattr(model_client, "last_usage", None)
+    if not isinstance(raw_usage, Mapping):
+        return None, None, None
+
+    def _read_usage(field_name: str) -> int | None:
+        value = raw_usage.get(field_name)
+        return value if isinstance(value, int) and value >= 0 else None
+
+    return (
+        _read_usage("prompt_tokens"),
+        _read_usage("completion_tokens"),
+        _read_usage("total_tokens"),
     )
 
 
@@ -1668,6 +1977,9 @@ async def execute_answer_pipeline_with_trace(
     )
     evidence_token_estimate = _estimate_evidence_tokens(canonical_evidence)
     budget_exhausted_phase: str | None = None
+    provider_prompt_tokens: int | None = None
+    provider_completion_tokens: int | None = None
+    provider_total_tokens: int | None = None
 
     if retrieval_response.status == "failure_gaps" and not canonical_evidence:
         response = _build_retrieval_failure_response(
@@ -1786,6 +2098,7 @@ async def execute_answer_pipeline_with_trace(
         response = _build_relevance_gated_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return AnswerExecutionResult(
@@ -1810,6 +2123,7 @@ async def execute_answer_pipeline_with_trace(
         response = _build_budget_enforced_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             reason="no synthesis time remained within the request budget.",
         )
         answer_token_estimate = _estimate_response_tokens(response)
@@ -1842,11 +2156,22 @@ async def execute_answer_pipeline_with_trace(
             model_client=model_client,
             timeout_seconds=remaining_synthesis_seconds,
         )
+        (
+            provider_prompt_tokens,
+            provider_completion_tokens,
+            provider_total_tokens,
+        ) = _extract_provider_usage(model_client)
     except TimeoutError:
+        (
+            provider_prompt_tokens,
+            provider_completion_tokens,
+            provider_total_tokens,
+        ) = _extract_provider_usage(model_client)
         budget_exhausted_phase = "synthesis"
         response = _build_budget_enforced_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             reason="grounded synthesis exceeded the remaining request budget.",
         )
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
@@ -1862,13 +2187,22 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=budget_exhausted_phase,
+                provider_prompt_tokens=provider_prompt_tokens,
+                provider_completion_tokens=provider_completion_tokens,
+                provider_total_tokens=provider_total_tokens,
                 retrieval_trace=retrieval_trace,
             ),
         )
     except ModelBackendError as exc:
+        (
+            provider_prompt_tokens,
+            provider_completion_tokens,
+            provider_total_tokens,
+        ) = _extract_provider_usage(model_client)
         response = _build_generation_backend_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             reason=str(exc),
         )
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
@@ -1884,6 +2218,9 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                provider_prompt_tokens=provider_prompt_tokens,
+                provider_completion_tokens=provider_completion_tokens,
+                provider_total_tokens=provider_total_tokens,
                 retrieval_trace=retrieval_trace,
             ),
         )
@@ -1892,6 +2229,7 @@ async def execute_answer_pipeline_with_trace(
         retrieval_response,
         canonical_evidence,
         draft,
+        query=query,
     )
     if _local_candidate_should_override(
         query=query,
@@ -1907,6 +2245,7 @@ async def execute_answer_pipeline_with_trace(
         response = _build_budget_enforced_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             reason="grounded output would exceed the answer token budget.",
         )
     else:
@@ -1930,6 +2269,9 @@ async def execute_answer_pipeline_with_trace(
             answer_token_estimate=answer_token_estimate,
             runtime_budget=budget,
             budget_exhausted_phase=budget_exhausted_phase,
+            provider_prompt_tokens=provider_prompt_tokens,
+            provider_completion_tokens=provider_completion_tokens,
+            provider_total_tokens=provider_total_tokens,
             retrieval_trace=retrieval_trace,
         ),
     )

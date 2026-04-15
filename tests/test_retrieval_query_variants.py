@@ -215,7 +215,7 @@ def test_build_query_variants_adds_structural_document_focus_for_filing_queries(
 
 
 def test_run_retrieval_uses_query_variants_and_merges_hits() -> None:
-    plan = build_retrieval_plan(
+    base_plan = build_retrieval_plan(
         ClassificationResult(
             route_label="industry",
             primary_route="industry",
@@ -223,6 +223,17 @@ def test_run_retrieval_uses_query_variants_and_merges_hits() -> None:
             reason_code="industry_keywords",
             scores={"policy": 0, "academic": 0, "industry": 5},
         )
+    )
+    web_step = next(
+        step
+        for step in base_plan.first_wave_sources
+        if step.source.source_id == "industry_web_discovery"
+    )
+    plan = replace(
+        base_plan,
+        first_wave_sources=(web_step,),
+        fallback_sources=(),
+        global_concurrency_cap=1,
     )
     observed_queries: list[str] = []
 
@@ -244,7 +255,7 @@ def test_run_retrieval_uses_query_variants_and_merges_hits() -> None:
         run_retrieval(
             plan=plan,
             query="\u4e2d\u56fd\u667a\u80fd\u624b\u673a\u0032\u0030\u0032\u0036\u5e74\u51fa\u8d27\u91cf",
-            adapter_registry={"industry_ddgs": _industry_adapter},
+            adapter_registry={web_step.source.source_id: _industry_adapter},
         )
     )
 
@@ -255,7 +266,7 @@ def test_run_retrieval_uses_query_variants_and_merges_hits() -> None:
 
 
 def test_run_retrieval_merges_unique_hits_across_successful_variants() -> None:
-    plan = build_retrieval_plan(
+    base_plan = build_retrieval_plan(
         ClassificationResult(
             route_label="industry",
             primary_route="industry",
@@ -263,6 +274,17 @@ def test_run_retrieval_merges_unique_hits_across_successful_variants() -> None:
             reason_code="industry_keywords",
             scores={"policy": 0, "academic": 0, "industry": 5},
         )
+    )
+    web_step = next(
+        step
+        for step in base_plan.first_wave_sources
+        if step.source.source_id == "industry_web_discovery"
+    )
+    plan = replace(
+        base_plan,
+        first_wave_sources=(web_step,),
+        fallback_sources=(),
+        global_concurrency_cap=1,
     )
     observed_queries: list[str] = []
     original_query = "\u4e2d\u56fd\u667a\u80fd\u624b\u673a\u0032\u0030\u0032\u0036\u5e74\u51fa\u8d27\u91cf"
@@ -296,7 +318,7 @@ def test_run_retrieval_merges_unique_hits_across_successful_variants() -> None:
         run_retrieval(
             plan=plan,
             query=original_query,
-            adapter_registry={"industry_ddgs": _industry_adapter},
+            adapter_registry={web_step.source.source_id: _industry_adapter},
         )
     )
 

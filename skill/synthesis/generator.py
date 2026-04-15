@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from json import JSONDecodeError
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -80,6 +80,7 @@ class MiniMaxTextClient:
     model: str = "MiniMax-M2.7"
     base_url: str = "https://api.minimaxi.com/v1"
     timeout_seconds: float = 120.0
+    last_usage: dict[str, int] | None = field(default=None, init=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "api_key", _normalize_secret(self.api_key))
@@ -124,6 +125,20 @@ class MiniMaxTextClient:
             ) from exc
 
         choices = payload.get("choices")
+        usage_payload = payload.get("usage")
+        if isinstance(usage_payload, dict):
+            normalized_usage: dict[str, int] = {}
+            for field_name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                value = usage_payload.get(field_name)
+                if isinstance(value, int):
+                    normalized_usage[field_name] = value
+            object.__setattr__(
+                self,
+                "last_usage",
+                normalized_usage or None,
+            )
+        else:
+            object.__setattr__(self, "last_usage", None)
         if not isinstance(choices, list) or not choices:
             raise ValueError("MiniMax response missing choices")
         first_choice = choices[0]

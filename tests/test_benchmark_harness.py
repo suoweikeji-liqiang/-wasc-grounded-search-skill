@@ -163,6 +163,9 @@ def test_run_benchmark_suite_emits_10x5_records_with_required_runtime_fields(
         "latency_budget_ok",
         "token_budget_ok",
         "failure_reason",
+        "provider_prompt_tokens",
+        "provider_completion_tokens",
+        "provider_total_tokens",
         "retrieval_trace",
     }
     assert first_record["latency_budget_ok"] is True

@@ -19,7 +19,11 @@ DOMAIN_FIRST_WAVE_SOURCES: Final[Mapping[ConcreteRoute, tuple[str, ...]]] = Mapp
             "academic_semantic_scholar",
             "academic_arxiv",
         ),
-        "industry": ("industry_ddgs",),
+        "industry": (
+            "industry_official_or_filings",
+            "industry_web_discovery",
+            "industry_news_rss",
+        ),
     }
 )
 
@@ -27,7 +31,7 @@ SUPPLEMENTAL_STRONGEST_SOURCE: Final[Mapping[ConcreteRoute, str]] = MappingProxy
     {
         "policy": "policy_official_registry",
         "academic": "academic_semantic_scholar",
-        "industry": "industry_ddgs",
+        "industry": "industry_web_discovery",
     }
 )
 
@@ -70,9 +74,30 @@ SOURCE_BACKUP_CHAIN: Final[Mapping[str, Mapping[str, str | None]]] = MappingProx
         ),
         "industry_ddgs": MappingProxyType(
             {
-                "no_hits": None,
-                "timeout": None,
-                "rate_limited": None,
+                "no_hits": "industry_official_or_filings",
+                "timeout": "industry_news_rss",
+                "rate_limited": "industry_official_or_filings",
+            }
+        ),
+        "industry_official_or_filings": MappingProxyType(
+            {
+                "no_hits": "industry_web_discovery",
+                "timeout": "industry_web_discovery",
+                "rate_limited": "industry_news_rss",
+            }
+        ),
+        "industry_web_discovery": MappingProxyType(
+            {
+                "no_hits": "industry_news_rss",
+                "timeout": "industry_news_rss",
+                "rate_limited": "industry_official_or_filings",
+            }
+        ),
+        "industry_news_rss": MappingProxyType(
+            {
+                "no_hits": "industry_official_or_filings",
+                "timeout": "industry_official_or_filings",
+                "rate_limited": "industry_web_discovery",
             }
         ),
     }
@@ -86,5 +111,8 @@ SOURCE_CREDIBILITY_TIERS: Final[Mapping[str, str]] = MappingProxyType(
         "academic_semantic_scholar": "academic_metadata",
         "academic_arxiv": "paper_repository",
         "industry_ddgs": "trusted_news",
+        "industry_official_or_filings": "company_official",
+        "industry_web_discovery": "trusted_news",
+        "industry_news_rss": "trusted_news",
     }
 )
