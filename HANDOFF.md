@@ -2,6 +2,127 @@
 
 ## Update (2026-04-15)
 
+### Continuation (2026-04-15, retrieval trace observability)
+- Implemented benchmark-only per-source retrieval trace telemetry without changing the public `/answer` or `/retrieve` schema.
+  - `skill/retrieval/models.py`
+    - `SourceExecutionResult` now carries:
+      - `stage`
+      - `started_at_ms`
+      - `elapsed_ms`
+      - `error_class`
+      - `was_cancelled_by_deadline`
+  - `skill/retrieval/engine.py`
+    - source execution now records telemetry through the retrieval path
+  - `skill/retrieval/orchestrate.py`
+    - added internal `RetrievalPipelineExecution`
+    - added `execute_retrieval_pipeline_with_trace(...)`
+    - kept public `execute_retrieval_pipeline(...)` backward-compatible
+    - added coroutine-safe internal trace handoff so synthesis can still call the public retrieval wrapper and existing monkeypatch-based tests keep working
+  - `skill/synthesis/orchestrate.py`
+    - runtime trace now includes internal `retrieval_trace`
+    - cache entries preserve and replay `retrieval_trace`
+    - answer orchestration again calls public `execute_retrieval_pipeline(...)`, then consumes the internal trace buffer
+  - `skill/orchestrator/budget.py`
+    - `RuntimeTrace` now carries internal `retrieval_trace`
+  - `skill/benchmark/models.py`
+  - `skill/benchmark/harness.py`
+    - benchmark artifacts now serialize `retrieval_trace` into `benchmark-runs.jsonl` / CSV inputs
+  - `skill/synthesis/cache.py`
+    - cache persists `retrieval_trace` for benchmark/runtime reuse
+- Added / updated regression coverage:
+  - `tests/test_benchmark_harness.py`
+  - `tests/test_benchmark_reports.py`
+  - `tests/test_api_runtime_benchmark.py`
+  - `tests/test_runtime_budget.py`
+
+### Verification
+- targeted compatibility check:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_answer_runtime_budget.py -k "keeps_extended_retrieval_budget_for_primary_industry_lookup" --import-mode=importlib`
+  - `1 passed`
+- full answer-runtime budget regressions:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_answer_runtime_budget.py --import-mode=importlib`
+  - `27 passed`
+- focused retrieval / benchmark regressions:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_mixed_candidate_pooling.py tests/test_retrieval_query_variants.py tests/test_retrieval_fallback.py tests/test_retrieval_concurrency.py tests/test_answer_runtime_budget.py tests/test_benchmark_harness.py tests/test_benchmark_reports.py tests/test_api_runtime_benchmark.py --import-mode=importlib`
+  - `79 passed`
+- full suite:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests --import-mode=importlib`
+  - `358 passed`
+
+### Observability Benchmark
+- Plan target artifact:
+  - `benchmark-results/generated-hidden-like-r1-v46-generalization/`
+- A direct live benchmark run first failed because the default `MiniMaxTextClient` had no API key in the current environment.
+  - error:
+    - `ValueError: MiniMaxTextClient requires a non-empty api_key`
+- To still complete Step 1 observability, I ran a retrieval-observability pass with synthesis disabled:
+  - `WASC_SYNTHESIS_DEADLINE_SECONDS=0 python scripts/run_benchmark.py --cases tests/fixtures/benchmark_generated_hidden_like_cases_2026-04-15_generalization.json --runs 1 --output-dir benchmark-results/generated-hidden-like-r1-v46-generalization`
+- Resulting summary:
+  - `benchmark-results/generated-hidden-like-r1-v46-generalization/benchmark-summary.json`
+  - `success_rate = 0.50` (`25 / 50`)
+  - `latency_p50_ms = 6008`
+  - `latency_p95_ms = 9056`
+  - `latency_budget_pass_rate = 0.38`
+- Important note:
+  - because synthesis was forced off, this run is for retrieval observability and bottleneck attribution, not for apples-to-apples final competition scoring
+
+### What The Trace Showed
+- `benchmark-runs.jsonl` now includes per-run `retrieval_trace`, for example:
+  - `source_id`
+  - `stage`
+  - `started_at_ms`
+  - `elapsed_ms`
+  - `hit_count`
+  - `error_class`
+  - `was_cancelled_by_deadline`
+- Source timing / failure distribution from `v46-generalization`:
+  - `policy_official_registry`
+    - `count=25`
+    - `p50=3844ms`
+    - `p95=4453ms`
+    - `timeouts=12`
+  - `policy_official_web_allowlist_fallback`
+    - `count=13`
+    - `p50=2828ms`
+    - `p95=3016ms`
+    - `timeouts=11`
+  - `industry_ddgs`
+    - `count=14`
+    - `p50=8235ms`
+    - `p95=9484ms`
+    - `timeouts=3`
+    - `parse_empty=2`
+  - `academic_semantic_scholar`
+    - `count=12`
+    - `p50=3016ms`
+    - `p95=4125ms`
+    - `timeouts=6`
+  - `academic_arxiv`
+    - `count=8`
+    - `p50=2985ms`
+    - `p95=3016ms`
+    - `timeouts=1`
+- Timeout-heavy policy failures are now directly visible as:
+  - `policy_official_registry` first-wave timeout
+  - followed by `policy_official_web_allowlist_fallback` timeout in fallback
+  - instead of a prior black-box `failure_reason=timeout`
+- `industry_ddgs` is also clearly a tail-latency source now; several failures were hard deadline cancellations near `9s`
+- The `gen2` mixed set exposed a separate issue:
+  - `5 / 10` expected-`mixed` cases were actually classified as `policy`
+  - this is a routing/classification problem, not evidence-pack noise
+
+### Recommended Next Move
+1. Keep this observability instrumentation; it is cheap and now gives source-level attribution instead of blind timeout counts.
+2. Use the new trace before touching budgets:
+   - policy failures are dominated by `registry timeout -> fallback timeout`
+   - industry tail failures are dominated by `industry_ddgs`
+3. Next code step should be narrow and data-driven:
+   - policy lane:
+     - decide whether to parallelize or resequence `policy_official_registry` vs `policy_official_web_allowlist_fallback` based on live trace, not guesswork
+   - mixed lane:
+     - inspect why `gen2-mixed-*` is being classified as `policy` on half the set
+4. Do not treat this observability run as the new score baseline; re-run the same `v46` benchmark with a valid model API key when available.
+
 ### Continuation (2026-04-15, engine-only mixed pooled shortlist experiment)
 - Implemented and tested a minimal engine-level mixed pooled shortlist path in `skill/retrieval/engine.py`.
   - added route-aware mixed scoring over first-wave hits using:

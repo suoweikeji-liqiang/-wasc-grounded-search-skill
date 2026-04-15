@@ -144,12 +144,25 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
     assert "token_budget_ok" not in payload
     assert "evidence_token_estimate" not in payload
     assert "answer_token_estimate" not in payload
+    assert "retrieval_trace" not in payload
 
     first_record = records[0].model_dump()
     assert "latency_budget_ok" in first_record
     assert "token_budget_ok" in first_record
     assert "evidence_token_estimate" in first_record
     assert "answer_token_estimate" in first_record
+    assert "retrieval_trace" in first_record
+    assert isinstance(first_record["retrieval_trace"], list)
+    assert first_record["retrieval_trace"]
+    assert {
+        "source_id",
+        "stage",
+        "started_at_ms",
+        "elapsed_ms",
+        "hit_count",
+        "error_class",
+        "was_cancelled_by_deadline",
+    } <= set(first_record["retrieval_trace"][0])
 
     summary = summarize_benchmark_runs(records)
     assert summary.answer_status_breakdown
@@ -230,3 +243,4 @@ def test_answer_endpoint_reuses_cached_grounded_success_for_normalized_queries(
     assert "runtime_trace" not in second_payload
     assert "latency_budget_ok" not in second_payload
     assert "token_budget_ok" not in second_payload
+    assert "retrieval_trace" not in second_payload

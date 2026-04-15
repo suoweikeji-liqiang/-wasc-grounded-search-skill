@@ -15,6 +15,7 @@ from skill.api.schema import (
     RouteRequest,
     RouteResponse,
 )
+from skill.config.env import load_repo_dotenv
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.orchestrator.budget import AnswerExecutionResult, RuntimeBudget
 from skill.orchestrator.intent import classify_query
@@ -61,6 +62,7 @@ Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
 
 
 def _default_adapter_registry() -> Mapping[str, Adapter]:
+    load_repo_dotenv()
     config = LiveRetrievalConfig.from_env()
     if config.mode == "fixture":
         return {
@@ -82,6 +84,7 @@ def _default_adapter_registry() -> Mapping[str, Adapter]:
 
 
 def _default_model_client() -> MiniMaxTextClient:
+    load_repo_dotenv()
     api_key = os.getenv("MINIMAX_API_KEY", "") or os.getenv("MINIMAX_KEY", "")
     return MiniMaxTextClient(api_key=api_key)
 

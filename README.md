@@ -117,6 +117,9 @@ playwright install chromium
 
 The live `/answer` path reads either `MINIMAX_API_KEY` or `MINIMAX_KEY`.
 
+If a repo-root `.env` file exists, the default API entrypoint will load it automatically.
+Already-exported shell variables still take precedence.
+
 PowerShell:
 
 ```powershell

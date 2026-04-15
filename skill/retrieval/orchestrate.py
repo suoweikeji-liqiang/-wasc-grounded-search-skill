@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
+from dataclasses import dataclass
 
 from skill.evidence.models import CanonicalEvidence, EvidencePack
 from skill.evidence.dedupe import collapse_evidence_records
@@ -32,6 +34,26 @@ _INDUSTRY_CREDIBILITY_PRIORITY: dict[str | None, int] = {
     "general_web": 3,
     None: 4,
 }
+_LAST_RETRIEVAL_TRACE: ContextVar[tuple[dict[str, object], ...]] = ContextVar(
+    "last_retrieval_trace",
+    default=(),
+)
+
+
+@dataclass(frozen=True)
+class RetrievalPipelineExecution:
+    response: RetrieveResponse
+    retrieval_trace: tuple[dict[str, object], ...]
+
+
+def clear_last_retrieval_trace() -> None:
+    _LAST_RETRIEVAL_TRACE.set(())
+
+
+def consume_last_retrieval_trace() -> tuple[dict[str, object], ...]:
+    trace = _LAST_RETRIEVAL_TRACE.get()
+    _LAST_RETRIEVAL_TRACE.set(())
+    return trace
 
 
 def _best_snippet(record: CanonicalEvidence) -> str:
@@ -385,7 +407,27 @@ async def execute_retrieval_pipeline(
     query: str,
     adapter_registry: Mapping[str, Adapter],
 ) -> RetrieveResponse:
-    """Run retrieval, enforce domain-priority ordering, then shape API response."""
+    """Backward-compatible wrapper returning the public response only."""
+    clear_last_retrieval_trace()
+    try:
+        execution = await execute_retrieval_pipeline_with_trace(
+            plan=plan,
+            query=query,
+            adapter_registry=adapter_registry,
+        )
+    except BaseException:
+        clear_last_retrieval_trace()
+        raise
+    _LAST_RETRIEVAL_TRACE.set(execution.retrieval_trace)
+    return execution.response
+
+
+async def execute_retrieval_pipeline_with_trace(
+    plan: RetrievalPlan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+) -> RetrievalPipelineExecution:
+    """Run retrieval, enforce domain-priority ordering, and retain internal trace."""
     outcome = await run_retrieval(
         plan=plan,
         query=query,
@@ -424,9 +466,23 @@ async def execute_retrieval_pipeline(
         top_k=DEFAULT_EVIDENCE_TOP_K,
         supplemental_min_items=DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
     )
-    return _shape_response(
-        plan=plan,
-        query=query,
-        outcome=outcome,
-        evidence_pack=evidence_pack,
+    return RetrievalPipelineExecution(
+        response=_shape_response(
+            plan=plan,
+            query=query,
+            outcome=outcome,
+            evidence_pack=evidence_pack,
+        ),
+        retrieval_trace=tuple(
+            {
+                "source_id": source_result.source_id,
+                "stage": source_result.stage,
+                "started_at_ms": source_result.started_at_ms,
+                "elapsed_ms": source_result.elapsed_ms,
+                "hit_count": len(source_result.hits),
+                "error_class": source_result.error_class,
+                "was_cancelled_by_deadline": source_result.was_cancelled_by_deadline,
+            }
+            for source_result in outcome.source_results
+        ),
     )

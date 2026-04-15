@@ -81,6 +81,7 @@ class RuntimeTrace:
     token_budget_ok: bool
     failure_reason: str | None
     budget_exhausted_phase: str | None
+    retrieval_trace: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)

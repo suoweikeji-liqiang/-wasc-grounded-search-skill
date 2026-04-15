@@ -17,7 +17,11 @@ from skill.orchestrator.budget import (
 )
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.models import RetrievalHit
-from skill.retrieval.orchestrate import Adapter, execute_retrieval_pipeline
+from skill.retrieval.orchestrate import (
+    Adapter,
+    consume_last_retrieval_trace,
+    execute_retrieval_pipeline,
+)
 from skill.retrieval.priority import score_query_alignment
 from skill.orchestrator.query_traits import derive_query_traits
 from skill.synthesis.cache import ANSWER_CACHE, CachedAnswerEntry
@@ -1516,6 +1520,7 @@ def _build_runtime_trace(
     answer_token_estimate: int | None,
     runtime_budget: RuntimeBudget,
     budget_exhausted_phase: str | None,
+    retrieval_trace: tuple[dict[str, object], ...] = (),
 ) -> RuntimeTrace:
     elapsed_seconds = retrieval_elapsed_seconds + synthesis_elapsed_seconds
     latency_budget_ok = (
@@ -1544,6 +1549,7 @@ def _build_runtime_trace(
         token_budget_ok=token_budget_ok,
         failure_reason=response.failure_reason,
         budget_exhausted_phase=budget_exhausted_phase,
+        retrieval_trace=retrieval_trace,
     )
 
 
@@ -1579,6 +1585,7 @@ def _maybe_cache_response(
     response: AnswerResponse,
     evidence_token_estimate: int,
     answer_token_estimate: int | None,
+    retrieval_trace: tuple[dict[str, object], ...] = (),
 ) -> None:
     if not _should_cache_response(response):
         return
@@ -1588,6 +1595,7 @@ def _maybe_cache_response(
         response=response,
         evidence_token_estimate=evidence_token_estimate,
         answer_token_estimate=answer_token_estimate,
+        retrieval_trace=retrieval_trace,
     )
 
 
@@ -1636,6 +1644,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=cached_entry.answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                retrieval_trace=cached_entry.retrieval_trace,
             ),
         )
     retrieval_response = await execute_retrieval_pipeline(
@@ -1643,6 +1652,7 @@ async def execute_answer_pipeline_with_trace(
         query=query,
         adapter_registry=adapter_registry,
     )
+    retrieval_trace = consume_last_retrieval_trace()
     retrieval_elapsed_seconds = time.perf_counter() - started_at
     canonical_evidence = tuple(
         _rehydrate_canonical_evidence(item)
@@ -1668,6 +1678,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             ),
         )
 
@@ -1703,6 +1714,7 @@ async def execute_answer_pipeline_with_trace(
                 response=response,
                 evidence_token_estimate=evidence_token_estimate,
                 answer_token_estimate=answer_token_estimate,
+                retrieval_trace=retrieval_trace,
             )
             return AnswerExecutionResult(
                 response=response,
@@ -1715,6 +1727,7 @@ async def execute_answer_pipeline_with_trace(
                     answer_token_estimate=answer_token_estimate,
                     runtime_budget=budget,
                     budget_exhausted_phase=None,
+                    retrieval_trace=retrieval_trace,
                 ),
             )
 
@@ -1733,6 +1746,7 @@ async def execute_answer_pipeline_with_trace(
             response=response,
             evidence_token_estimate=evidence_token_estimate,
             answer_token_estimate=answer_token_estimate,
+            retrieval_trace=retrieval_trace,
         )
         return AnswerExecutionResult(
             response=response,
@@ -1745,6 +1759,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             ),
         )
 
@@ -1776,6 +1791,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             ),
         )
 
@@ -1800,6 +1816,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase="synthesis",
+                retrieval_trace=retrieval_trace,
             ),
         )
 
@@ -1837,6 +1854,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=budget_exhausted_phase,
+                retrieval_trace=retrieval_trace,
             ),
         )
     except ModelBackendError as exc:
@@ -1858,6 +1876,7 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 runtime_budget=budget,
                 budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             ),
         )
 
@@ -1889,6 +1908,7 @@ async def execute_answer_pipeline_with_trace(
             response=response,
             evidence_token_estimate=evidence_token_estimate,
             answer_token_estimate=answer_token_estimate,
+            retrieval_trace=retrieval_trace,
         )
 
     return AnswerExecutionResult(
@@ -1902,6 +1922,7 @@ async def execute_answer_pipeline_with_trace(
             answer_token_estimate=answer_token_estimate,
             runtime_budget=budget,
             budget_exhausted_phase=budget_exhausted_phase,
+            retrieval_trace=retrieval_trace,
         ),
     )
 

@@ -417,6 +417,69 @@ def _academic_success_requires_fallback(
     )
 
 
+def _stage_for_step(step: PlannedSourceStep) -> str:
+    return "fallback" if step.fallback_from_source_id is not None else "first_wave"
+
+
+def _elapsed_ms(started_at: float, finished_at: float) -> int:
+    return int(round(max(0.0, finished_at - started_at) * 1000))
+
+
+def _started_at_ms(retrieval_started_at: float, source_started_at: float) -> int:
+    return int(round(max(0.0, source_started_at - retrieval_started_at) * 1000))
+
+
+def _status_code_from_exception(exc: BaseException) -> int | None:
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+    return int(status_code) if isinstance(status_code, int) else None
+
+
+def _error_class_from_exception(exc: BaseException) -> str:
+    if isinstance(exc, asyncio.TimeoutError):
+        return "timeout"
+    status_code = _status_code_from_exception(exc)
+    if status_code == 429:
+        return "rate_limited"
+    if status_code is not None and 500 <= status_code < 600:
+        return "http_5xx"
+    return "adapter_error"
+
+
+def _default_error_class(result: SourceExecutionResult) -> str:
+    if result.status == "success":
+        return "ok"
+    if result.failure_reason == "timeout":
+        return "timeout"
+    if result.failure_reason == "rate_limited":
+        return "rate_limited"
+    if result.failure_reason == "no_hits":
+        return "parse_empty"
+    return "adapter_error"
+
+
+def _with_source_telemetry(
+    result: SourceExecutionResult,
+    *,
+    stage: str,
+    retrieval_started_at: float,
+    source_started_at: float,
+    source_finished_at: float,
+    error_class: str | None = None,
+    was_cancelled_by_deadline: bool = False,
+) -> SourceExecutionResult:
+    return replace(
+        result,
+        stage=stage,
+        started_at_ms=_started_at_ms(retrieval_started_at, source_started_at),
+        elapsed_ms=_elapsed_ms(source_started_at, source_finished_at),
+        error_class=error_class or _default_error_class(result),
+        was_cancelled_by_deadline=was_cancelled_by_deadline,
+    )
+
+
 async def _run_single_source(
     source_id: str,
     query: str,
@@ -430,6 +493,7 @@ async def _run_single_source(
             status="failure_gaps",
             failure_reason="adapter_error",
             gaps=(source_id,),
+            error_class="adapter_error",
         )
 
     if timeout_seconds <= 0:
@@ -438,6 +502,7 @@ async def _run_single_source(
             status="failure_gaps",
             failure_reason="timeout",
             gaps=(source_id,),
+            error_class="timeout",
         )
 
     async def _invoke_adapter() -> list[Any]:
@@ -456,6 +521,7 @@ async def _run_single_source(
             status="failure_gaps",
             failure_reason=map_exception_to_failure_reason(exc),
             gaps=(source_id,),
+            error_class=_error_class_from_exception(exc),
         )
 
     if not raw_hits:
@@ -464,6 +530,7 @@ async def _run_single_source(
             status="failure_gaps",
             failure_reason="no_hits",
             gaps=(source_id,),
+            error_class="parse_empty",
         )
 
     hits = _normalize_hits(raw_hits=raw_hits, source_id=source_id)
@@ -471,6 +538,7 @@ async def _run_single_source(
         source_id=source_id,
         status="success",
         hits=hits,
+        error_class="ok",
     )
 
 
@@ -481,8 +549,10 @@ async def _run_source_variants(
     query: str,
     adapter_registry: Mapping[str, Adapter],
     deadline_at: float,
+    retrieval_started_at: float,
 ) -> SourceExecutionResult:
     source_id = step.source.source_id
+    stage = _stage_for_step(step)
     variants = build_query_variants(
         query=query,
         route_label=plan.route_label,
@@ -495,8 +565,10 @@ async def _run_source_variants(
         variants = _prioritize_academic_variants(variants)
 
     loop = asyncio.get_running_loop()
+    source_started_at = loop.time()
     merged_hits: list[RetrievalHit] = []
     last_failure_reason: RetrievalFailureReason = "no_hits"
+    last_error_class = "parse_empty"
 
     for variant in variants:
         remaining = deadline_at - loop.time()
@@ -523,32 +595,63 @@ async def _run_source_variants(
         failure_reason = attempt.failure_reason or "adapter_error"
         if failure_reason == "no_hits":
             last_failure_reason = failure_reason
+            last_error_class = attempt.error_class
             continue
 
         if merged_hits:
-            return SourceExecutionResult(
+            return _with_source_telemetry(
+                SourceExecutionResult(
+                    source_id=source_id,
+                    status="success",
+                    hits=_dedupe_hits(merged_hits),
+                    error_class="ok",
+                ),
+                stage=stage,
+                retrieval_started_at=retrieval_started_at,
+                source_started_at=source_started_at,
+                source_finished_at=loop.time(),
+            )
+
+        return _with_source_telemetry(
+            attempt,
+            stage=stage,
+            retrieval_started_at=retrieval_started_at,
+            source_started_at=source_started_at,
+            source_finished_at=loop.time(),
+            error_class=attempt.error_class,
+        )
+
+    if merged_hits:
+        return _with_source_telemetry(
+            SourceExecutionResult(
                 source_id=source_id,
                 status="success",
                 hits=_dedupe_hits(merged_hits),
-            )
-
-        return attempt
-
-    if merged_hits:
-        return SourceExecutionResult(
-            source_id=source_id,
-            status="success",
-            hits=_dedupe_hits(merged_hits),
+                error_class="ok",
+            ),
+            stage=stage,
+            retrieval_started_at=retrieval_started_at,
+            source_started_at=source_started_at,
+            source_finished_at=loop.time(),
         )
 
     if loop.time() >= deadline_at:
         last_failure_reason = "timeout"
+        last_error_class = "timeout"
 
-    return SourceExecutionResult(
-        source_id=source_id,
-        status="failure_gaps",
-        failure_reason=last_failure_reason,
-        gaps=(source_id,),
+    return _with_source_telemetry(
+        SourceExecutionResult(
+            source_id=source_id,
+            status="failure_gaps",
+            failure_reason=last_failure_reason,
+            gaps=(source_id,),
+            error_class=last_error_class,
+        ),
+        stage=stage,
+        retrieval_started_at=retrieval_started_at,
+        source_started_at=source_started_at,
+        source_finished_at=loop.time(),
+        error_class=last_error_class,
     )
 
 
@@ -584,10 +687,13 @@ async def _run_source_step(
     query: str,
     adapter_registry: Mapping[str, Adapter],
     timeout_seconds: float,
+    retrieval_started_at: float,
     semaphore: asyncio.Semaphore | None = None,
 ) -> SourceExecutionResult:
     loop = asyncio.get_running_loop()
     deadline_at = loop.time() + max(0.0, timeout_seconds)
+    source_started_at = loop.time()
+    stage = _stage_for_step(step)
     if semaphore is None:
         return await _run_source_variants(
             step=step,
@@ -595,24 +701,41 @@ async def _run_source_step(
             query=query,
             adapter_registry=adapter_registry,
             deadline_at=deadline_at,
+            retrieval_started_at=retrieval_started_at,
         )
 
     remaining = deadline_at - loop.time()
     if remaining <= 0:
-        return SourceExecutionResult(
-            source_id=step.source.source_id,
-            status="failure_gaps",
-            failure_reason="timeout",
-            gaps=(step.source.source_id,),
+        return _with_source_telemetry(
+            SourceExecutionResult(
+                source_id=step.source.source_id,
+                status="failure_gaps",
+                failure_reason="timeout",
+                gaps=(step.source.source_id,),
+                error_class="timeout",
+            ),
+            stage=stage,
+            retrieval_started_at=retrieval_started_at,
+            source_started_at=source_started_at,
+            source_finished_at=loop.time(),
+            error_class="timeout",
         )
     try:
         await asyncio.wait_for(semaphore.acquire(), timeout=remaining)
     except asyncio.TimeoutError:
-        return SourceExecutionResult(
-            source_id=step.source.source_id,
-            status="failure_gaps",
-            failure_reason="timeout",
-            gaps=(step.source.source_id,),
+        return _with_source_telemetry(
+            SourceExecutionResult(
+                source_id=step.source.source_id,
+                status="failure_gaps",
+                failure_reason="timeout",
+                gaps=(step.source.source_id,),
+                error_class="timeout",
+            ),
+            stage=stage,
+            retrieval_started_at=retrieval_started_at,
+            source_started_at=source_started_at,
+            source_finished_at=loop.time(),
+            error_class="timeout",
         )
     try:
         return await _run_source_variants(
@@ -621,6 +744,7 @@ async def _run_source_step(
             query=query,
             adapter_registry=adapter_registry,
             deadline_at=deadline_at,
+            retrieval_started_at=retrieval_started_at,
         )
     finally:
         semaphore.release()
@@ -634,12 +758,14 @@ async def _run_first_wave(
     per_source_timeout_seconds: float,
     overall_timeout_seconds: float,
     concurrency_cap: int,
+    retrieval_started_at: float,
 ) -> dict[str, SourceExecutionResult]:
     semaphore = asyncio.Semaphore(max(1, concurrency_cap))
-    tasks: dict[asyncio.Task[SourceExecutionResult], str] = {}
+    tasks: dict[asyncio.Task[SourceExecutionResult], tuple[str, float]] = {}
 
     for step in first_wave_steps:
         source_id = step.source.source_id
+        task_started_at = asyncio.get_running_loop().time()
         task = asyncio.create_task(
             _run_source_step(
                 step=step,
@@ -647,10 +773,11 @@ async def _run_first_wave(
                 query=query,
                 adapter_registry=adapter_registry,
                 timeout_seconds=per_source_timeout_seconds,
+                retrieval_started_at=retrieval_started_at,
                 semaphore=semaphore,
             )
         )
-        tasks[task] = source_id
+        tasks[task] = (source_id, task_started_at)
 
     done, pending = await asyncio.wait(
         tuple(tasks.keys()),
@@ -664,26 +791,43 @@ async def _run_first_wave(
 
     by_source: dict[str, SourceExecutionResult] = {}
     for done_task in done:
-        source_id = tasks[done_task]
+        source_id, task_started_at = tasks[done_task]
         try:
             by_source[source_id] = done_task.result()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            by_source[source_id] = SourceExecutionResult(
-                source_id=source_id,
-                status="failure_gaps",
-                failure_reason=map_exception_to_failure_reason(exc),
-                gaps=(source_id,),
+            by_source[source_id] = _with_source_telemetry(
+                SourceExecutionResult(
+                    source_id=source_id,
+                    status="failure_gaps",
+                    failure_reason=map_exception_to_failure_reason(exc),
+                    gaps=(source_id,),
+                    error_class=_error_class_from_exception(exc),
+                ),
+                stage="first_wave",
+                retrieval_started_at=retrieval_started_at,
+                source_started_at=task_started_at,
+                source_finished_at=asyncio.get_running_loop().time(),
+                error_class=_error_class_from_exception(exc),
             )
 
     for pending_task in pending:
-        source_id = tasks[pending_task]
-        by_source[source_id] = SourceExecutionResult(
-            source_id=source_id,
-            status="failure_gaps",
-            failure_reason="timeout",
-            gaps=(source_id,),
+        source_id, task_started_at = tasks[pending_task]
+        by_source[source_id] = _with_source_telemetry(
+            SourceExecutionResult(
+                source_id=source_id,
+                status="failure_gaps",
+                failure_reason="timeout",
+                gaps=(source_id,),
+                error_class="timeout",
+            ),
+            stage="first_wave",
+            retrieval_started_at=retrieval_started_at,
+            source_started_at=task_started_at,
+            source_finished_at=asyncio.get_running_loop().time(),
+            error_class="timeout",
+            was_cancelled_by_deadline=True,
         )
 
     return by_source
@@ -778,6 +922,7 @@ async def _run_standard_retrieval_path(
     first_wave_results: Mapping[str, SourceExecutionResult],
     adapter_registry: Mapping[str, Adapter],
     deadline_at: float,
+    retrieval_started_at: float,
 ) -> RetrievalExecutionOutcome:
     loop = asyncio.get_running_loop()
     allowed_fallback_transitions: dict[tuple[str, RetrievalFailureReason], PlannedSourceStep] = {}
@@ -850,6 +995,7 @@ async def _run_standard_retrieval_path(
                 query=query,
                 adapter_registry=adapter_registry,
                 timeout_seconds=min(plan.per_source_timeout_seconds, remaining),
+                retrieval_started_at=retrieval_started_at,
             )
             all_attempt_results.append(fallback_result)
 
@@ -906,7 +1052,8 @@ async def run_retrieval(
         )
 
     loop = asyncio.get_running_loop()
-    deadline_at = loop.time() + max(0.0, plan.overall_deadline_seconds)
+    retrieval_started_at = loop.time()
+    deadline_at = retrieval_started_at + max(0.0, plan.overall_deadline_seconds)
     first_wave_timeout_seconds = max(0.0, deadline_at - loop.time())
     if plan.route_label == "mixed" and plan.mixed_discovery_deadline_seconds is not None:
         first_wave_timeout_seconds = min(
@@ -921,6 +1068,7 @@ async def run_retrieval(
         per_source_timeout_seconds=max(0.0, plan.per_source_timeout_seconds),
         overall_timeout_seconds=first_wave_timeout_seconds,
         concurrency_cap=plan.global_concurrency_cap,
+        retrieval_started_at=retrieval_started_at,
     )
     if (
         plan.route_label == "mixed"
@@ -944,4 +1092,5 @@ async def run_retrieval(
         first_wave_results=first_wave_results,
         adapter_registry=adapter_registry,
         deadline_at=deadline_at,
+        retrieval_started_at=retrieval_started_at,
     )

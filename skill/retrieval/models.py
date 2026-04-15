@@ -57,3 +57,8 @@ class SourceExecutionResult:
     hits: tuple[RetrievalHit, ...] = ()
     failure_reason: RetrievalFailureReason | None = None
     gaps: tuple[str, ...] = ()
+    stage: str = "first_wave"
+    started_at_ms: int = 0
+    elapsed_ms: int = 0
+    error_class: str = "ok"
+    was_cancelled_by_deadline: bool = False

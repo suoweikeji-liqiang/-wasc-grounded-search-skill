@@ -33,6 +33,17 @@ def _build_fake_benchmark_app() -> FastAPI:
             token_budget_ok=True,
             failure_reason=None,
             budget_exhausted_phase=None,
+            retrieval_trace=(
+                {
+                    "source_id": "policy_official_registry",
+                    "stage": "first_wave",
+                    "started_at_ms": 0,
+                    "elapsed_ms": 40,
+                    "hit_count": 1,
+                    "error_class": "ok",
+                    "was_cancelled_by_deadline": False,
+                },
+            ),
         )
         return AnswerResponse(
             answer_status="grounded_success",
@@ -152,7 +163,19 @@ def test_run_benchmark_suite_emits_10x5_records_with_required_runtime_fields(
         "latency_budget_ok",
         "token_budget_ok",
         "failure_reason",
+        "retrieval_trace",
     }
     assert first_record["latency_budget_ok"] is True
     assert first_record["token_budget_ok"] is True
     assert first_record["answer_token_estimate"] == 18
+    assert first_record["retrieval_trace"] == [
+        {
+            "source_id": "policy_official_registry",
+            "stage": "first_wave",
+            "started_at_ms": 0,
+            "elapsed_ms": 40,
+            "hit_count": 1,
+            "error_class": "ok",
+            "was_cancelled_by_deadline": False,
+        }
+    ]

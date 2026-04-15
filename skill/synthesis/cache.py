@@ -16,6 +16,7 @@ class CachedAnswerEntry:
     response: AnswerResponse
     evidence_token_estimate: int
     answer_token_estimate: int | None
+    retrieval_trace: tuple[dict[str, object], ...] = ()
 
 
 class GroundedAnswerCache:
@@ -39,6 +40,7 @@ class GroundedAnswerCache:
             response=entry.response.model_copy(deep=True),
             evidence_token_estimate=entry.evidence_token_estimate,
             answer_token_estimate=entry.answer_token_estimate,
+            retrieval_trace=tuple(dict(item) for item in entry.retrieval_trace),
         )
 
     def put(
@@ -49,11 +51,13 @@ class GroundedAnswerCache:
         response: AnswerResponse,
         evidence_token_estimate: int,
         answer_token_estimate: int | None,
+        retrieval_trace: tuple[dict[str, object], ...] = (),
     ) -> None:
         self._entries[self.build_key(query=query, plan=plan)] = CachedAnswerEntry(
             response=response.model_copy(deep=True),
             evidence_token_estimate=evidence_token_estimate,
             answer_token_estimate=answer_token_estimate,
+            retrieval_trace=tuple(dict(item) for item in retrieval_trace),
         )
 
     def clear(self) -> None:

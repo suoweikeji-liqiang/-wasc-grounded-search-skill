@@ -27,6 +27,17 @@ def _sample_records() -> list[BenchmarkRunRecord]:
             latency_budget_ok=True,
             token_budget_ok=True,
             failure_reason=None,
+            retrieval_trace=[
+                {
+                    "source_id": "policy_official_registry",
+                    "stage": "first_wave",
+                    "started_at_ms": 0,
+                    "elapsed_ms": 100,
+                    "hit_count": 1,
+                    "error_class": "ok",
+                    "was_cancelled_by_deadline": False,
+                }
+            ],
         ),
         BenchmarkRunRecord(
             case_id="policy-01",
@@ -42,6 +53,7 @@ def _sample_records() -> list[BenchmarkRunRecord]:
             latency_budget_ok=True,
             token_budget_ok=False,
             failure_reason=None,
+            retrieval_trace=[],
         ),
         BenchmarkRunRecord(
             case_id="academic-01",
@@ -57,6 +69,17 @@ def _sample_records() -> list[BenchmarkRunRecord]:
             latency_budget_ok=False,
             token_budget_ok=True,
             failure_reason="timeout",
+            retrieval_trace=[
+                {
+                    "source_id": "academic_semantic_scholar",
+                    "stage": "first_wave",
+                    "started_at_ms": 0,
+                    "elapsed_ms": 210,
+                    "hit_count": 0,
+                    "error_class": "timeout",
+                    "was_cancelled_by_deadline": True,
+                }
+            ],
         ),
         BenchmarkRunRecord(
             case_id="mixed-01",
@@ -72,6 +95,7 @@ def _sample_records() -> list[BenchmarkRunRecord]:
             latency_budget_ok=False,
             token_budget_ok=False,
             failure_reason="adapter_error",
+            retrieval_trace=[],
         ),
     ]
 
@@ -130,6 +154,17 @@ def test_write_benchmark_reports_writes_expected_files_and_preserves_run_order(
     ]
     assert [(row["case_id"], row["run_index"]) for row in jsonl_rows] == [
         (record.case_id, record.run_index) for record in records
+    ]
+    assert jsonl_rows[0]["retrieval_trace"] == [
+        {
+            "source_id": "policy_official_registry",
+            "stage": "first_wave",
+            "started_at_ms": 0,
+            "elapsed_ms": 100,
+            "hit_count": 1,
+            "error_class": "ok",
+            "was_cancelled_by_deadline": False,
+        }
     ]
 
     with csv_path.open(encoding="utf-8", newline="") as handle:

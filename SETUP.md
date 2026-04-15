@@ -202,15 +202,23 @@ Fix:
 $env:MINIMAX_KEY="your-minimax-key"
 ```
 
+Or put the key in the repo-root `.env` file:
+
+```dotenv
+MINIMAX_KEY="your-minimax-key"
+```
+
 ### `.env` exists but `/answer` still cannot see the key
 
 Cause:
 
-- the app does not load `.env` automatically
+- `.env` is not in the repo root
+- or the shell already exported an empty / wrong value that takes precedence
 
 Fix:
 
-- export the variable in the shell before starting `uvicorn`
+- keep `.env` at the repository root
+- or export the correct value explicitly before starting `uvicorn`
 
 ### I only want offline verification
 

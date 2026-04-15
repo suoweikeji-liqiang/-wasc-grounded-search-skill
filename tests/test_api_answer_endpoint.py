@@ -124,6 +124,29 @@ def test_default_model_client_accepts_legacy_minimax_key_name(monkeypatch) -> No
     assert client.api_key == "legacy-key"
 
 
+def test_default_model_client_loads_repo_dotenv_when_process_env_is_empty(monkeypatch) -> None:
+    import os
+
+    import skill.api.entry as api_entry
+
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_KEY", raising=False)
+
+    observed: dict[str, int] = {"calls": 0}
+
+    def _fake_load_repo_dotenv() -> dict[str, str]:
+        observed["calls"] += 1
+        os.environ["MINIMAX_KEY"] = "dotenv-key"
+        return {"MINIMAX_KEY": "dotenv-key"}
+
+    monkeypatch.setattr(api_entry, "load_repo_dotenv", _fake_load_repo_dotenv)
+
+    client = api_entry._default_model_client()
+
+    assert observed["calls"] == 1
+    assert client.api_key == "dotenv-key"
+
+
 def test_default_adapter_registry_uses_live_adapter_functions_by_default(monkeypatch) -> None:
     import skill.api.entry as api_entry
 
