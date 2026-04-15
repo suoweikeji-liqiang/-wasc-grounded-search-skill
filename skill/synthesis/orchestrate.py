@@ -484,9 +484,9 @@ def _academic_fast_path_runtime_ok(retrieval_response: RetrieveResponse) -> bool
         return True
     if retrieval_response.status != "partial":
         return False
-    return bool(retrieval_response.gaps) and all(
-        gap.startswith("academic_") for gap in retrieval_response.gaps
-    )
+    if not retrieval_response.gaps:
+        return bool(retrieval_response.canonical_evidence)
+    return all(gap.startswith("academic_") for gap in retrieval_response.gaps)
 
 
 def _contains_marker(
@@ -1473,7 +1473,15 @@ def _build_answer_response(
     strong_local_grounding = (
         local_fast_path
         and answer_status == "grounded_success"
-        and retrieval_response.status == "success"
+        and (
+            retrieval_response.status == "success"
+            or (
+                retrieval_response.primary_route == "academic"
+                and retrieval_response.status == "partial"
+                and retrieval_response.failure_reason == "no_hits"
+                and not retrieval_response.gaps
+            )
+        )
         and not retrieval_response.gaps
         and not citation_result.issues
         and len(sources) >= 2

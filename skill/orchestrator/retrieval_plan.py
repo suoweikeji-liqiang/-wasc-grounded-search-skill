@@ -44,11 +44,6 @@ _MIXED_DISCOVERY_DEADLINE_SECONDS = 2.5
 _MIXED_DEEP_DEADLINE_SECONDS = 5.0
 _MIXED_SHORTLIST_TOP_K = 4
 _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET = 5
-_PRIMARY_ACADEMIC_FALLBACK_FAILURES: tuple[RetrievalFailureReason, ...] = (
-    "no_hits",
-    "timeout",
-    "rate_limited",
-)
 _ACADEMIC_ARXIV_HINTS: tuple[str, ...] = ("europe pmc",)
 
 
@@ -122,46 +117,31 @@ def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[Pl
     ]
 
 
-def _build_primary_academic_staged_plan(
+def _build_primary_academic_parallel_plan(
     *,
     query: str | None,
-) -> tuple[
-    tuple[PlannedSourceStep, ...],
-    tuple[PlannedSourceStep, ...],
-]:
-    first_source_id = "academic_semantic_scholar"
-    second_source_id = "academic_arxiv"
+) -> tuple[PlannedSourceStep, ...]:
+    ordered_source_ids = [
+        "academic_semantic_scholar",
+        "academic_arxiv",
+        "academic_asta_mcp",
+    ]
     if query is not None and _prefer_arxiv_first_for_academic_query(query):
-        first_source_id = "academic_arxiv"
-        second_source_id = "academic_semantic_scholar"
+        ordered_source_ids = [
+            "academic_arxiv",
+            "academic_semantic_scholar",
+            "academic_asta_mcp",
+        ]
 
-    first_wave = (
+    return tuple(
         PlannedSourceStep(
             source=RetrievalSource(
-                source_id=first_source_id,
+                source_id=source_id,
                 route="academic",
             )
-        ),
+        )
+        for source_id in ordered_source_ids
     )
-    fallback = (
-        PlannedSourceStep(
-            source=RetrievalSource(
-                source_id=second_source_id,
-                route="academic",
-            ),
-            fallback_from_source_id=first_source_id,
-            trigger_on_failures=_PRIMARY_ACADEMIC_FALLBACK_FAILURES,
-        ),
-        PlannedSourceStep(
-            source=RetrievalSource(
-                source_id="academic_asta_mcp",
-                route="academic",
-            ),
-            fallback_from_source_id=second_source_id,
-            trigger_on_failures=_PRIMARY_ACADEMIC_FALLBACK_FAILURES,
-        ),
-    )
-    return first_wave, fallback
 
 
 def _prefer_arxiv_first_for_academic_query(query: str) -> bool:
@@ -214,8 +194,7 @@ def build_retrieval_plan(
     fallback: tuple[PlannedSourceStep, ...] | None = None
 
     if classification.route_label == "academic" and classification.primary_route == "academic":
-        first_wave, fallback = _build_primary_academic_staged_plan(query=query)
-        first_wave_steps = list(first_wave)
+        first_wave_steps = list(_build_primary_academic_parallel_plan(query=query))
     else:
         first_wave_steps = _build_primary_first_wave(classification.primary_route)
 
