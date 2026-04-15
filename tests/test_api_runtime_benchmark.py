@@ -153,7 +153,7 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
 
     summary = summarize_benchmark_runs(records)
     assert summary.answer_status_breakdown
-    assert summary.failure_reason_breakdown
+    assert isinstance(summary.failure_reason_breakdown, dict)
 
     repeatability = evaluate_repeatability(records)
     assert repeatability["all_repeatable"] is True

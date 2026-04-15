@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
-from skill.retrieval.adapters.academic_live_common import rank_live_academic_records
+from skill.orchestrator.normalize import normalize_query_text
+from skill.retrieval.adapters.academic_live_common import (
+    academic_fixture_shortcut_allowed,
+    rank_live_academic_records,
+)
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.retrieval.live.clients import academic_api
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
@@ -14,6 +19,7 @@ from skill.retrieval.priority import score_query_alignment
 
 _SOURCE_ID = "academic_arxiv"
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?", re.IGNORECASE)
+_HINTED_EUROPE_PMC_TIMEOUT_SECONDS = 0.75
 _MIN_FIXTURE_SCORE = 6
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
@@ -73,6 +79,26 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
 )
 
 
+def _prefers_europe_pmc(query: str) -> bool:
+    return "europe pmc" in normalize_query_text(query)
+
+
+def _should_probe_europe_pmc(
+    *,
+    prefer_europe_pmc: bool,
+    ranked_records: list[dict[str, Any]],
+) -> bool:
+    if not prefer_europe_pmc:
+        return False
+    if not ranked_records:
+        return False
+    top_record = ranked_records[0]
+    return (
+        top_record.get("doi") is None
+        and top_record.get("evidence_level") != "peer_reviewed"
+    )
+
+
 def _score(query: str, fixture: dict[str, Any]) -> int:
     return score_query_alignment(
         query,
@@ -109,23 +135,18 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live scholarly results from arXiv."""
     config = LiveRetrievalConfig.from_env()
+    prefer_europe_pmc = _prefers_europe_pmc(query)
     if config.fixture_shortcuts_enabled:
         fixture_hits = [
             hit
             for hit in await search_fixture(query)
-            if _score(
-                query,
-                {
-                    "title": hit.title,
-                    "url": hit.url,
-                    "snippet": hit.snippet,
-                    "arxiv_id": hit.arxiv_id,
-                    "first_author": hit.first_author,
-                    "year": hit.year,
-                    "evidence_level": hit.evidence_level,
-                },
+            if academic_fixture_shortcut_allowed(
+                query=query,
+                title=hit.title,
+                snippet=hit.snippet,
+                url=hit.url,
+                year=hit.year,
             )
-            >= _MIN_FIXTURE_SCORE
         ]
         if fixture_hits:
             return fixture_hits[:3]
@@ -139,12 +160,31 @@ async def search_live(query: str) -> list[RetrievalHit]:
         records=records,
         max_results=5,
     )
+    europe_pmc_records: list[dict[str, object]] = []
+    if _should_probe_europe_pmc(
+        prefer_europe_pmc=prefer_europe_pmc,
+        ranked_records=ranked_records,
+    ):
+        try:
+            europe_pmc_records = await asyncio.wait_for(
+                academic_api.search_europe_pmc(query=query, max_results=5),
+                timeout=_HINTED_EUROPE_PMC_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            europe_pmc_records = []
+        if europe_pmc_records:
+            ranked_records = rank_live_academic_records(
+                query=query,
+                records=[*records, *europe_pmc_records],
+                max_results=5,
+            )
     hits = [
         RetrievalHit(
             source_id=_SOURCE_ID,
             title=str(item["title"]),
             url=str(item["url"]),
             snippet=str(item["snippet"]),
+            doi=str(item["doi"]) if item.get("doi") is not None else None,
             arxiv_id=str(item["arxiv_id"]) if item.get("arxiv_id") is not None else None,
             first_author=str(item["first_author"]) if item.get("first_author") is not None else None,
             year=int(item["year"]) if item.get("year") is not None else None,
@@ -155,10 +195,11 @@ async def search_live(query: str) -> list[RetrievalHit]:
     if hits:
         return hits
 
-    try:
-        europe_pmc_records = await academic_api.search_europe_pmc(query=query, max_results=5)
-    except Exception:
-        europe_pmc_records = []
+    if not europe_pmc_records:
+        try:
+            europe_pmc_records = await academic_api.search_europe_pmc(query=query, max_results=5)
+        except Exception:
+            europe_pmc_records = []
     ranked_europe_pmc_records = rank_live_academic_records(
         query=query,
         records=europe_pmc_records,

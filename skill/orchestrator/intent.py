@@ -43,14 +43,21 @@ _MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyType(
 _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyType(
     {
         "policy": (
+            "fda",
+            "fcc",
+            "etsi",
+            "cyber trust mark",
             "policy",
             "regulation",
+            "reglement",
             "directive",
             "directives",
             "rule",
             "rules",
             "registry",
             "guidance",
+            "guide",
+            "guia",
             "deadline",
             "deadlines",
             "compliance",
@@ -68,8 +75,16 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
             "exemption",
             "revision",
             "amendment",
+            "cgmp",
+            "inspection classification",
+            "oai",
+            "vai",
+            "nai",
+            "pccp",
+            "predetermined change control plan",
+            "officiel",
+            "oficial",
             "export controls",
-            "controls",
             "climate",
             "methane",
             "emissions",
@@ -88,8 +103,15 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
             "distillation",
             "pretraining",
             "pre-training",
+            "post-training",
+            "post training",
             "finetuning",
             "fine-tuning",
+            "rlhf",
+            "dpo",
+            "ipo",
+            "kto",
+            "preference optimization",
             "watermarking",
             "transformer",
             "diffusion",
@@ -136,6 +158,8 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
             "6k",
             "guidance",
             "capex",
+            "supply chain",
+            "risk factors",
             "revenue",
             "segment",
             "backlog",
@@ -209,7 +233,7 @@ def _rank_routes(scores: Mapping[str, int]) -> tuple[ConcreteRoute, ...]:
 
 def _is_explicit_cross_domain(normalized_query: str, scores: Mapping[str, int]) -> bool:
     has_cross_domain_phrase = any(
-        marker in normalized_query
+        _marker_in_query(normalized_query, marker)
         for marker in (
             *EXPLICIT_CROSS_DOMAIN_MARKERS,
             *_ENGLISH_EXPLICIT_CROSS_DOMAIN_MARKERS,

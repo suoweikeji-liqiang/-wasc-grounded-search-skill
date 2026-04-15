@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from skill.retrieval.models import RetrievalHit
@@ -52,12 +52,21 @@ class RawEvidenceRecord:
     arxiv_id: str | None = None
     first_author: str | None = None
     year: int | None = None
+    target_route: str | None = None
+    variant_reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    variant_queries: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if self.route_role not in _ROUTE_ROLES:
             raise ValueError("route_role must be primary or supplemental")
         if self.token_estimate < 0:
             raise ValueError("token_estimate must be non-negative")
+        object.__setattr__(self, "variant_reason_codes", tuple(self.variant_reason_codes))
+        object.__setattr__(self, "variant_queries", tuple(self.variant_queries))
+        if len(self.variant_reason_codes) != len(self.variant_queries):
+            raise ValueError(
+                "variant_reason_codes and variant_queries must have the same length"
+            )
 
 
 @dataclass(frozen=True)

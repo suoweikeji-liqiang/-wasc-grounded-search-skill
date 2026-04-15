@@ -129,6 +129,158 @@ def _policy_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _policy_ai_act_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-ai-act-1",
+                "domain": "policy",
+                "canonical_title": "Regulation (EU) 2024/1689 (AI Act / Reglement UE 2024 1689)",
+                "canonical_url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng",
+                "route_role": "primary",
+                "authority": "European Union",
+                "jurisdiction": "EU",
+                "jurisdiction_status": "observed",
+                "publication_date": "2024-07-12",
+                "effective_date": "2024-08-01",
+                "version": "Official Journal text",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official AI Act / Reglement UE 2024 1689 text in the "
+                            "Official Journal, including the definition of an AI "
+                            "system (systeme d ia) and phased obligation timelines."
+                        ),
+                        "source_record_id": "policy-ai-act-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _policy_ofcom_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-ofcom-1",
+                "domain": "policy",
+                "canonical_title": "Statement: Protecting people from illegal harms online",
+                "canonical_url": "https://www.ofcom.org.uk/online-safety/illegal-and-harmful-content/statement-protecting-people-from-illegal-harms-online",
+                "route_role": "primary",
+                "authority": "Ofcom",
+                "jurisdiction": "UK",
+                "jurisdiction_status": "observed",
+                "publication_date": "2024-12-16",
+                "effective_date": "2025-03-17",
+                "version": "Policy statement",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official Ofcom policy statement with guidance, Codes of "
+                            "Practice, and implementation materials for illegal harms "
+                            "duties under the Online Safety Act."
+                        ),
+                        "source_record_id": "policy-ofcom-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "policy-ofcom-2",
+                "domain": "policy",
+                "canonical_title": "Online Safety Act 2023",
+                "canonical_url": "https://www.legislation.gov.uk/ukpga/2023/50/contents",
+                "route_role": "primary",
+                "authority": "UK legislation",
+                "jurisdiction": "UK",
+                "jurisdiction_status": "observed",
+                "publication_date": "2023-10-26",
+                "effective_date": None,
+                "version": "As enacted",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "Official UK legislation text for the Online Safety Act 2023.",
+                        "source_record_id": "policy-ofcom-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _policy_fcc_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-fcc-1",
+                "domain": "policy",
+                "canonical_title": "U.S. Cyber Trust Mark",
+                "canonical_url": "https://www.fcc.gov/CyberTrustMark",
+                "route_role": "primary",
+                "authority": "Federal Communications Commission",
+                "jurisdiction": "US",
+                "jurisdiction_status": "observed",
+                "publication_date": "2024-03-14",
+                "effective_date": None,
+                "version": "Program page",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official FCC landing page for the U.S. Cyber Trust Mark "
+                            "labeling program, including eligibility scope and "
+                            "baseline cybersecurity requirements for wireless "
+                            "consumer IoT products."
+                        ),
+                        "source_record_id": "policy-fcc-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _academic_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="academic",
@@ -250,6 +402,70 @@ def _industry_fast_path_retrieve_response() -> RetrieveResponse:
                 ],
                 "linked_variants": [],
             },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _industry_filing_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-filing-1",
+                "domain": "industry",
+                "canonical_title": "NVIDIA Corporation Form 10-K filing",
+                "canonical_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000010/nvda-20260131x10k.htm",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Official SEC filing discussing supply chain and export control risk factors.",
+                        "source_record_id": "industry-filing-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _industry_standard_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-standard-1",
+                "domain": "industry",
+                "canonical_title": "RFC 9700",
+                "canonical_url": "https://www.rfc-editor.org/rfc/rfc9700.html",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "RFC 9700 removes the implicit grant and resource owner password credentials grant from OAuth 2.1.",
+                        "source_record_id": "industry-standard-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
         ],
         evidence_clipped=False,
         evidence_pruned=False,
@@ -527,7 +743,7 @@ def test_execute_answer_pipeline_with_trace_forwards_remaining_synthesis_timeout
 
     assert model_client.call_count == 1
     assert model_client.timeouts[0] is not None
-    assert 1.5 <= model_client.timeouts[0] <= 2.0
+    assert 2.5 <= model_client.timeouts[0] <= 3.0
     assert result.response.answer_status == "grounded_success"
     assert result.runtime_trace.latency_budget_ok is True
     assert result.runtime_trace.token_budget_ok is True
@@ -840,6 +1056,120 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_dea
     assert result.runtime_trace.latency_budget_ok is True
 
 
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_french_ai_act_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_ai_act_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("French AI Act lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="FR reglement UE 2024 1689 definition systeme d IA article officiel",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Reglement UE 2024 1689" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_ofcom_codes_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_ofcom_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("Ofcom codes lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=(
+                "UK Online Safety Act Ofcom 2025 2026 compliance milestones "
+                "illegal harms codes and platform policy changes tied to Ofcom codes"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Ofcom" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_fcc_cyber_trust_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_fcc_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("FCC policy lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=(
+                "FCC Cyber Trust Mark minimum security requirements eligibility "
+                "scope and ETSI EN 303 645 mapping with vendor readiness page"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "U.S. Cyber Trust Mark" in result.response.conclusion
+
+
 def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
     monkeypatch,
 ) -> None:
@@ -897,6 +1227,99 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
         "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
     }
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_filing_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_filing_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry filing lookup should use local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "NVIDIA Corporation Form 10-K filing" in result.response.conclusion
+    assert result.response.sources[0].model_dump() == {
+        "evidence_id": "industry-filing-1",
+        "title": "NVIDIA Corporation Form 10-K filing",
+        "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000010/nvda-20260131x10k.htm",
+    }
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_standard_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_standard_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry standards lookup should use local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="RFC 9700 OAuth 2.1 legacy authorization flows grant types removed discouraged sections",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert 'Closest retained industry match: "RFC 9700"' in result.response.conclusion
+    assert result.response.key_points[0].model_dump() == {
+        "key_point_id": "kp-1",
+        "statement": "RFC 9700 removes the implicit grant and resource owner password credentials grant from OAuth 2.1.",
+        "citations": [
+            {
+                "evidence_id": "industry-standard-1",
+                "source_record_id": "industry-standard-1-slice-1",
+                "source_url": "https://www.rfc-editor.org/rfc/rfc9700.html",
+                "quote_text": "RFC 9700 removes the implicit grant and resource owner password credentials grant from OAuth 2.1.",
+            }
+        ],
+    }
 
 
 def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
@@ -1219,6 +1642,327 @@ def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_g
     assert result.runtime_trace.latency_budget_ok is True
 
 
+def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_when_title_alignment_is_strong_but_slice_is_generic(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-clip-1",
+                    "domain": "academic",
+                    "canonical_title": (
+                        "Retrieval-augmented generation citation grounding "
+                        "evaluation dataset"
+                    ),
+                    "canonical_url": "https://doi.org/10.5555/rag-citations.2026.10",
+                    "route_role": "primary",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.5555/rag-citations.2026.10",
+                    "first_author": "Garcia",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Peer-reviewed benchmark paper with empirical results.",
+                            "source_record_id": "paper-clip-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=True,
+            evidence_pruned=True,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "strong title-aligned academic evidence should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "2025 retrieval-augmented generation citation grounding "
+                "evaluation dataset factuality attribution"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "citation grounding evaluation dataset" in result.response.conclusion.lower()
+    assert result.response.sources[0].evidence_id == "paper-clip-1"
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_allows_strong_academic_fast_path_even_with_partial_retrieval(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="partial",
+            failure_reason="timeout",
+            gaps=["academic_semantic_scholar"],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-partial-1",
+                    "domain": "academic",
+                    "canonical_title": "Generation-Time vs. Post-hoc Citation: A Holistic Evaluation of LLM Attribution",
+                    "canonical_url": "https://arxiv.org/abs/2509.21557",
+                    "route_role": "primary",
+                    "evidence_level": "preprint",
+                    "canonical_match_confidence": "strong_id",
+                    "arxiv_id": "2509.21557",
+                    "first_author": "Lee",
+                    "year": 2025,
+                    "retained_slices": [
+                        {
+                            "text": (
+                                "The paper compares generation-time citation with "
+                                "post-hoc citation and evaluates attribution quality."
+                            ),
+                            "source_record_id": "paper-partial-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=True,
+            evidence_pruned=True,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "strong academic evidence should bypass synthesis even if other academic sources timed out"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "2025 retrieval-augmented generation citation grounding "
+                "evaluation dataset factuality attribution"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "partial"
+    assert result.response.failure_reason == "timeout"
+    assert result.response.sources[0].evidence_id == "paper-partial-1"
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_explicit_repository_hint(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="partial",
+            failure_reason="timeout",
+            gaps=["academic_asta_mcp"],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-repo-1",
+                    "domain": "academic",
+                    "canonical_title": "Best-of-N Reranking for Test-Time Scaling in Large Language Models",
+                    "canonical_url": "https://arxiv.org/abs/2501.12345",
+                    "route_role": "primary",
+                    "evidence_level": "preprint",
+                    "canonical_match_confidence": "strong_id",
+                    "arxiv_id": "2501.12345",
+                    "first_author": "Wang",
+                    "year": 2025,
+                    "retained_slices": [
+                        {
+                            "text": (
+                                "The paper studies compute-optimal inference with "
+                                "best-of-n reranking for test-time scaling."
+                            ),
+                            "source_record_id": "paper-repo-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=True,
+            evidence_pruned=True,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "explicit academic repository hints should use the local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "2025 2026 arXiv test-time scaling large language models "
+                "compute-optimal inference best-of-n reranking"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "partial"
+    assert result.response.sources[0].evidence_id == "paper-repo-1"
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_uses_academic_lookup_fast_path_for_dense_technical_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="partial",
+            failure_reason="timeout",
+            gaps=["academic_semantic_scholar"],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-dense-1",
+                    "domain": "academic",
+                    "canonical_title": (
+                        "Personalized Federated Fine-Tuning of Foundation Models "
+                        "with LoRA under Privacy Constraints"
+                    ),
+                    "canonical_url": "https://arxiv.org/abs/2505.54321",
+                    "route_role": "primary",
+                    "evidence_level": "preprint",
+                    "canonical_match_confidence": "strong_id",
+                    "arxiv_id": "2505.54321",
+                    "first_author": "Zhang",
+                    "year": 2025,
+                    "retained_slices": [
+                        {
+                            "text": (
+                                "The paper studies federated personalization of "
+                                "foundation models using parameter-efficient LoRA "
+                                "fine-tuning with privacy constraints."
+                            ),
+                            "source_record_id": "paper-dense-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=True,
+            evidence_pruned=True,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "dense academic technical queries should use the local fast path when evidence is strong"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "2025 federated learning foundation models personalization "
+                "parameter-efficient finetuning LoRA privacy"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "partial"
+    assert result.response.sources[0].evidence_id == "paper-dense-1"
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
 def test_run_retrieval_propagates_cancelled_error() -> None:
     classification = ClassificationResult(
         route_label="policy",
@@ -1249,6 +1993,46 @@ def test_run_retrieval_propagates_cancelled_error() -> None:
                 adapter_registry={first_step.source.source_id: _cancelled},
             )
         )
+
+
+def test_execute_answer_pipeline_with_trace_keeps_extended_retrieval_budget_for_primary_industry_lookup(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    observed: dict[str, float] = {}
+
+    async def _fake_execute_retrieval_pipeline(**kwargs: object) -> RetrieveResponse:
+        plan = kwargs["plan"]
+        observed["overall_deadline_seconds"] = float(plan.overall_deadline_seconds)
+        return _industry_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("primary industry lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share 2025",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert observed["overall_deadline_seconds"] == 9.0
+    assert result.response.answer_status == "grounded_success"
 
 
 def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(

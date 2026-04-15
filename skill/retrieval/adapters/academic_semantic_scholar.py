@@ -6,7 +6,10 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 
-from skill.retrieval.adapters.academic_live_common import rank_live_academic_records
+from skill.retrieval.adapters.academic_live_common import (
+    academic_fixture_shortcut_allowed,
+    rank_live_academic_records,
+)
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.retrieval.live.clients import academic_api
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
@@ -116,19 +119,13 @@ async def search_live(query: str) -> list[RetrievalHit]:
         fixture_hits = [
             hit
             for hit in await search_fixture(query)
-            if _score(
-                query,
-                {
-                    "title": hit.title,
-                    "url": hit.url,
-                    "snippet": hit.snippet,
-                    "year": hit.year,
-                    "doi": hit.doi,
-                    "first_author": hit.first_author,
-                    "evidence_level": hit.evidence_level,
-                },
+            if academic_fixture_shortcut_allowed(
+                query=query,
+                title=hit.title,
+                snippet=hit.snippet,
+                url=hit.url,
+                year=hit.year,
             )
-            >= _MIN_FIXTURE_SCORE
         ]
         if fixture_hits:
             return fixture_hits[:3]

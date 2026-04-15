@@ -404,6 +404,90 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_m
     assert hits[0].year == 2026
 
 
+def test_semantic_scholar_live_adapter_rejects_generic_fixture_shortcuts_when_live_match_is_more_specific(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "1")
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution"
+        assert max_results == 5
+        return []
+
+    async def _fake_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution"
+        assert max_results == 5
+        return [
+            {
+                "title": "Citation grounding evaluation datasets for retrieval-augmented generation",
+                "url": "https://doi.org/10.5555/rag-citations.2026.10",
+                "snippet": (
+                    "Peer-reviewed dataset paper on factuality attribution and "
+                    "citation grounding evaluation for retrieval-augmented generation."
+                ),
+                "doi": "10.5555/rag-citations.2026.10",
+                "first_author": "Garcia",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _empty_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _fake_openalex)
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "2025 retrieval-augmented generation citation grounding evaluation dataset factuality attribution"
+        )
+    )
+
+    assert len(hits) == 1
+    assert (
+        hits[0].title
+        == "Citation grounding evaluation datasets for retrieval-augmented generation"
+    )
+    assert hits[0].doi == "10.5555/rag-citations.2026.10"
+
+
+def test_semantic_scholar_live_adapter_keeps_strong_fixture_shortcuts_for_known_topic_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "1")
+
+    async def _should_not_run(*, query: str, max_results: int = 5) -> list[dict[str, object]]:
+        raise AssertionError(f"shortcut should handle query: {query} ({max_results})")
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _should_not_run,
+    )
+
+    hits = asyncio.run(adapter.search_live("grounded search evidence packing"))
+
+    assert hits
+    assert hits[0].title == "Grounded search evidence packing"
+    assert hits[0].doi == "10.1000/grounded-search.2026.001"
+
+
 def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_misses(
     monkeypatch,
 ) -> None:
@@ -449,3 +533,114 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_misses(
     assert hits[0].first_author == "Wise"
     assert hits[0].year == 2026
     assert hits[0].evidence_level == "peer_reviewed"
+
+
+def test_arxiv_live_adapter_prefers_europe_pmc_for_explicit_repository_hint_when_match_is_stronger(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    query = (
+        "2025 2026 Europe PMC single-cell foundation model transcriptomics "
+        "transformer pretraining cell type annotation"
+    )
+
+    async def _fake_search_arxiv(*, query: str, max_results: int = 5) -> list[dict[str, object]]:
+        assert max_results == 5
+        return [
+            {
+                "title": "Deep Learning in Single-Cell Analysis",
+                "url": "https://arxiv.org/abs/2210.12385",
+                "snippet": (
+                    "Survey of single-cell analysis tasks including multimodal "
+                    "integration and cell type annotation."
+                ),
+                "arxiv_id": "2210.12385",
+                "first_author": "Yuan",
+                "year": 2022,
+                "evidence_level": "preprint",
+            }
+        ]
+
+    async def _fake_search_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert max_results == 5
+        return [
+            {
+                "title": (
+                    "Single-cell foundation model pretraining for transcriptomics "
+                    "cell type annotation"
+                ),
+                "url": "https://europepmc.org/article/MED/42000001",
+                "snippet": (
+                    "Peer-reviewed study on transformer pretraining for transcriptomics "
+                    "and cell type annotation in single-cell foundation models."
+                ),
+                "doi": "10.1038/s41592-026-00001-0",
+                "first_author": "Li",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _fake_search_arxiv)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _fake_search_europe_pmc)
+
+    hits = asyncio.run(adapter.search_live(query))
+
+    assert hits
+    assert hits[0].title == (
+        "Single-cell foundation model pretraining for transcriptomics "
+        "cell type annotation"
+    )
+    assert hits[0].doi == "10.1038/s41592-026-00001-0"
+    assert hits[0].evidence_level == "peer_reviewed"
+
+
+def test_arxiv_live_adapter_trims_long_query_aligned_snippets_to_fit_evidence_budget(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    long_snippet = (
+        "Sparse mixture-of-experts transformers depend on stable routing behavior under heavy load. "
+        "Prior work often relies on auxiliary loss objectives that improve token balancing but can "
+        "still leave collapse modes when experts receive skewed assignments during large-scale "
+        "training. This paper studies auxiliary-loss-free load balancing strategy design for "
+        "mixture-of-experts models, analyzes routing stability, and measures collapse mitigation "
+        "under realistic throughput and optimization settings with extensive ablations across "
+        "capacity factors, routing temperatures, and expert specialization drift."
+    )
+
+    async def _fake_search_arxiv(*, query: str, max_results: int = 5) -> list[dict[str, object]]:
+        assert query == "mixture-of-experts routing stability load balancing auxiliary loss collapse mitigation"
+        assert max_results == 5
+        return [
+            {
+                "title": "Auxiliary-Loss-Free Load Balancing Strategy for Mixture-of-Experts",
+                "url": "https://arxiv.org/abs/2501.01234",
+                "snippet": long_snippet,
+                "arxiv_id": "2501.01234",
+                "first_author": "Chen",
+                "year": 2025,
+                "evidence_level": "preprint",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _fake_search_arxiv)
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "mixture-of-experts routing stability load balancing auxiliary loss collapse mitigation"
+        )
+    )
+
+    assert len(hits) == 1
+    assert "mixture-of-experts" in hits[0].snippet.lower()
+    assert "load balancing" in hits[0].snippet.lower()
+    assert len(hits[0].snippet.split()) <= 40

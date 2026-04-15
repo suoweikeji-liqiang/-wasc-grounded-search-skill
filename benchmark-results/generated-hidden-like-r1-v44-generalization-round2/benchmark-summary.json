@@ -1,0 +1,18 @@
+{
+  "total_runs": 50,
+  "successful_runs": 26,
+  "success_rate": 0.52,
+  "latency_p50_ms": 6004,
+  "latency_p95_ms": 9011,
+  "latency_budget_pass_rate": 0.46,
+  "token_budget_pass_rate": 1.0,
+  "answer_status_breakdown": {
+    "retrieval_failure": 19,
+    "grounded_success": 26,
+    "insufficient_evidence": 5
+  },
+  "failure_reason_breakdown": {
+    "timeout": 17,
+    "no_hits": 2
+  }
+}

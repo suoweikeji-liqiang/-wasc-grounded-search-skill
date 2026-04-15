@@ -8,6 +8,7 @@ from skill.retrieval.live.cache import TTLCache
 _CACHE: TTLCache[list[dict[str, object]]] = TTLCache(max_entries=64)
 _US_POLICY_MARKERS: tuple[str, ...] = (
     "fda",
+    "fcc",
     "epa",
     "ftc",
     "cisa",
@@ -16,8 +17,30 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "pfas",
     "noncompete",
     "laboratory developed tests",
+    "cyber trust mark",
 )
 _CATALOG: tuple[dict[str, object], ...] = (
+    {
+        "title": "U.S. Cyber Trust Mark",
+        "url": "https://www.fcc.gov/CyberTrustMark",
+        "snippet": (
+            "Official FCC landing page for the U.S. Cyber Trust Mark labeling "
+            "program, including eligibility scope and baseline cybersecurity "
+            "requirements for wireless consumer IoT products."
+        ),
+        "authority": "Federal Communications Commission",
+        "jurisdiction": "US",
+        "publication_date": "2024-03-14",
+        "effective_date": None,
+        "version": "Program page",
+        "markers": (
+            "fcc",
+            "cyber trust mark",
+            "eligibility",
+            "wireless consumer iot",
+            "minimum security requirements",
+        ),
+    },
     {
         "title": "Medical Devices; Laboratory Developed Tests (LDTs)",
         "url": "https://www.federalregister.gov/documents/2024/05/06/2024-09737/medical-devices-laboratory-developed-tests",
@@ -30,7 +53,7 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "publication_date": "2024-05-06",
         "effective_date": "2024-07-05",
         "version": "Final rule",
-        "markers": ("fda", "laboratory developed tests", "ldt", "mdr correction removal reporting"),
+        "markers": ("laboratory developed tests", "ldt", "mdr correction removal reporting"),
     },
     {
         "title": "Predetermined Change Control Plan (PCCP) for AI-Enabled Device Software Functions",
@@ -44,7 +67,21 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "publication_date": "2024-12-04",
         "effective_date": None,
         "version": "Guidance",
-        "markers": ("pccp", "predetermined change control plan", "fda guidance"),
+        "markers": ("pccp", "predetermined change control plan"),
+    },
+    {
+        "title": "Compliance Program Guidance Manual 7382.845 - Inspections of Licensed Biological Therapeutic Drug Products",
+        "url": "https://www.fda.gov/media/71878/download",
+        "snippet": (
+            "Official FDA inspection classifications reference defining NAI, "
+            "VAI, and OAI outcomes for CGMP inspections."
+        ),
+        "authority": "U.S. Food and Drug Administration",
+        "jurisdiction": "US",
+        "publication_date": "2022-10-01",
+        "effective_date": None,
+        "version": "Compliance Program Guidance Manual",
+        "markers": ("cgmp", "inspection classification", "oai", "vai", "nai"),
     },
     {
         "title": "National Primary Drinking Water Regulation for PFAS",
@@ -96,9 +133,7 @@ def _record_score(query: str, record: dict[str, object]) -> int:
     normalized = query.lower()
     markers = tuple(str(item).lower() for item in record.get("markers", ()))
     marker_hits = sum(1 for marker in markers if marker and marker in normalized)
-    if marker_hits > 0:
-        return marker_hits
-    return 1 if any(marker in normalized for marker in _US_POLICY_MARKERS) else 0
+    return marker_hits
 
 
 def _materialize(record: dict[str, object]) -> dict[str, object]:

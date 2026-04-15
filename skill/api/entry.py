@@ -95,7 +95,7 @@ def route_query(payload: RouteRequest) -> RouteResponse:
 @app.post("/retrieve", response_model=RetrieveResponse)
 async def retrieve_query(payload: RetrieveRequest) -> RetrieveResponse:
     classification = classify_query(payload.query)
-    retrieval_plan = build_retrieval_plan(classification)
+    retrieval_plan = build_retrieval_plan(classification, query=payload.query)
     return await execute_retrieval_pipeline(
         plan=retrieval_plan,
         query=payload.query,
@@ -106,7 +106,7 @@ async def retrieve_query(payload: RetrieveRequest) -> RetrieveResponse:
 @app.post("/answer", response_model=AnswerResponse)
 async def answer_query(payload: AnswerRequest) -> AnswerResponse:
     classification = classify_query(payload.query)
-    retrieval_plan = build_retrieval_plan(classification)
+    retrieval_plan = build_retrieval_plan(classification, query=payload.query)
     adapter_registry = getattr(app.state, "adapter_registry", None) or _default_adapter_registry()
     model_client = getattr(app.state, "model_client", None) or _default_model_client()
     result = await execute_answer_pipeline(

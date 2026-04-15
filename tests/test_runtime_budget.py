@@ -17,9 +17,9 @@ def test_runtime_budget_defaults_match_phase_5_contract(monkeypatch) -> None:
 
     budget = RuntimeBudget.from_env()
 
-    assert budget.request_deadline_seconds == 8.0
+    assert budget.request_deadline_seconds == 10.0
     assert budget.retrieval_deadline_seconds == OVERALL_RETRIEVAL_DEADLINE_SECONDS
-    assert budget.synthesis_deadline_seconds == 2.0
+    assert budget.synthesis_deadline_seconds == 3.0
     assert budget.evidence_token_budget == DEFAULT_EVIDENCE_TOKEN_BUDGET
     assert budget.answer_token_budget == 1200
 

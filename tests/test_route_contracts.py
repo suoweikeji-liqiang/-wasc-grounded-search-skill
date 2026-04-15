@@ -122,6 +122,54 @@ ENGLISH_BENCHMARK_ROUTE_CASES = (
         "primary_route": "industry",
         "supplemental_route": None,
     },
+    {
+        "query": "2025 2026 post-training RLHF alternatives DPO IPO KTO preference optimization comparison papers",
+        "route_label": "academic",
+        "primary_route": "academic",
+        "supplemental_route": None,
+    },
+    {
+        "query": "NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "FR reglement UE 2024 1689 definition systeme d IA article officiel",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "FCC Cyber Trust Mark minimum security requirements eligibility scope and ETSI EN 303 645 mapping with vendor readiness page",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "SEC cybersecurity disclosure rules Form 8-K Item 1.05 timing annual disclosure expectations and company 10-K 8-K language updates",
+        "route_label": "industry",
+        "primary_route": "industry",
+        "supplemental_route": None,
+    },
+    {
+        "query": "EU AI Act GPAI transparency documentation obligations official text and Commission guidance cross-check with industry model card AI Act readiness",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "EU Battery Regulation 2023 1542 carbon footprint declaration battery passport due diligence deadlines and battery pass pilot manufacturer announcement",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
+    {
+        "query": "EU Data Act application date connected products data holder obligations vendor API contract update and academic legal commentary trade-secret safeguards",
+        "route_label": "policy",
+        "primary_route": "policy",
+        "supplemental_route": None,
+    },
 )
 
 COMPETITION_STYLE_ROUTE_CASES = (

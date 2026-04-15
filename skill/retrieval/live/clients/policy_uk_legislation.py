@@ -12,8 +12,32 @@ _UK_MARKERS: tuple[str, ...] = (
     "legislation.gov.uk",
     "online safety act",
     "ofcom",
+    "illegal harms",
+    "codes of practice",
+    "illegal content duties",
 )
 _CATALOG: tuple[dict[str, object], ...] = (
+    {
+        "title": "Statement: Protecting people from illegal harms online",
+        "url": "https://www.ofcom.org.uk/online-safety/illegal-and-harmful-content/statement-protecting-people-from-illegal-harms-online",
+        "snippet": (
+            "Official Ofcom policy statement with guidance, Codes of Practice, "
+            "and implementation materials for illegal harms duties under the "
+            "Online Safety Act."
+        ),
+        "authority": "Ofcom",
+        "jurisdiction": "UK",
+        "publication_date": "2024-12-16",
+        "effective_date": "2025-03-17",
+        "version": "Policy statement",
+        "markers": (
+            "ofcom",
+            "illegal harms",
+            "codes of practice",
+            "illegal content duties",
+            "compliance milestones",
+        ),
+    },
     {
         "title": "Online Safety Act 2023",
         "url": "https://www.legislation.gov.uk/ukpga/2023/50/contents",
@@ -47,11 +71,7 @@ def _record_score(query: str, record: dict[str, object]) -> int:
     normalized = query.lower()
     markers = tuple(str(item).lower() for item in record.get("markers", ()))
     marker_hits = sum(1 for marker in markers if marker and marker in normalized)
-    if marker_hits > 0:
-        return marker_hits
-    if any(marker in normalized for marker in _UK_MARKERS):
-        return 1
-    return 0
+    return marker_hits
 
 
 def _materialize(record: dict[str, object]) -> dict[str, object]:
@@ -62,7 +82,9 @@ def _materialize(record: dict[str, object]) -> dict[str, object]:
         "authority": str(record["authority"]),
         "jurisdiction": str(record["jurisdiction"]),
         "publication_date": str(record["publication_date"]),
-        "effective_date": None,
+        "effective_date": (
+            str(record["effective_date"]) if record.get("effective_date") is not None else None
+        ),
         "version": str(record["version"]),
     }
 

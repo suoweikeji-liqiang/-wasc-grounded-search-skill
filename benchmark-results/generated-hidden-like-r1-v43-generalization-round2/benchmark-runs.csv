@@ -1,0 +1,51 @@
+case_id,run_index,query,route_label,answer_status,retrieval_status,success,elapsed_ms,evidence_token_estimate,answer_token_estimate,latency_budget_ok,token_budget_ok,failure_reason
+gen3-policy-01,1,EU DORA major ICT incident initial notification deadline official text,policy,retrieval_failure,failure_gaps,False,5999,0,13,True,True,timeout
+gen3-policy-02,1,FTC click-to-cancel negative option rule annual reminder requirement official text,policy,grounded_success,success,True,4399,10,35,True,True,
+gen3-policy-03,1,FDA section 524B cybersecurity device refusal to accept SBOM requirement official guidance,policy,retrieval_failure,failure_gaps,False,6020,0,13,False,True,timeout
+gen3-policy-04,1,EU AI Act deepfake disclosure obligation official text,policy,grounded_success,success,True,3077,27,76,True,True,
+gen3-policy-05,1,DOJ data security program prohibited transactions bulk sensitive personal data official rule,policy,retrieval_failure,failure_gaps,False,5999,0,13,True,True,timeout
+gen3-policy-06,1,FCC Cyber Trust Mark lab accreditation recognition requirements official,policy,grounded_success,success,True,3776,24,64,True,True,
+gen3-policy-07,1,NIS2 essential entity significant incident early warning deadline official text,policy,grounded_success,success,True,2985,10,37,True,True,
+gen3-policy-08,1,EU Cyber Resilience Act vulnerability exploitation reporting obligation official text,policy,retrieval_failure,failure_gaps,False,6007,0,13,False,True,timeout
+gen3-policy-09,1,CBAM default values use conditions embedded emissions official text,policy,retrieval_failure,failure_gaps,False,6009,0,13,False,True,timeout
+gen3-policy-10,1,EPA PFAS CERCLA hazardous substance reportable quantity official,mixed,insufficient_evidence,success,False,6305,10,18,True,True,
+gen3-academic-01,1,2025 process reward model verifier benchmark papers,academic,insufficient_evidence,success,False,3055,40,33,True,True,
+gen3-academic-02,1,2025 graph RAG benchmark papers,academic,grounded_success,success,True,3009,40,102,True,True,
+gen3-academic-03,1,2025 speech language model instruction following benchmark paper,academic,grounded_success,success,True,6001,40,113,False,True,
+gen3-academic-04,1,2025 SWE-bench code repair agent benchmark paper,academic,grounded_success,success,True,3140,40,104,True,True,
+gen3-academic-05,1,2025 multimodal computer use agent benchmark paper,academic,insufficient_evidence,success,False,6010,40,33,False,True,
+gen3-academic-06,1,2025 multilingual reasoning low-resource benchmark papers,academic,grounded_success,success,True,6006,40,116,False,True,
+gen3-academic-07,1,2025 long-context retrieval collapse benchmark paper,academic,grounded_success,success,True,6018,40,108,False,True,
+gen3-academic-08,1,2025 diffusion language model discrete diffusion benchmark papers,academic,grounded_success,success,True,3223,40,100,True,True,
+gen3-academic-09,1,2025 LLM watermark removal robustness paper,academic,grounded_success,success,True,6028,40,107,False,True,
+gen3-academic-10,1,2025 robotics vision-language action model benchmark paper,academic,grounded_success,success,True,6021,40,106,False,True,
+gen3-industry-01,1,Alphabet 2025 Form 10-K TAC definition official filing,industry,grounded_success,success,True,8411,9,27,False,True,
+gen3-industry-02,1,Amazon 2025 Form 10-K AWS segment operating income definition official filing,industry,grounded_success,success,True,8022,9,27,False,True,
+gen3-industry-03,1,Netflix 2025 annual report paid memberships definition official,industry,grounded_success,success,True,8014,9,27,False,True,
+gen3-industry-04,1,Salesforce FY2026 Form 10-K current remaining performance obligation definition,industry,grounded_success,success,True,8841,40,89,False,True,
+gen3-industry-05,1,Qualcomm 2025 annual report QCT QTL revenue definitions official,industry,grounded_success,success,True,8021,9,27,False,True,
+gen3-industry-06,1,Mastercard 2025 Form 10-K gross dollar volume switched transactions definitions,industry,grounded_success,success,True,8891,40,89,False,True,
+gen3-industry-07,1,Delta Air Lines 2025 annual report TRASM definition official,industry,grounded_success,success,True,8016,9,29,False,True,
+gen3-industry-08,1,Chevron 2025 annual report proved reserves price assumptions definition official,industry,grounded_success,success,True,8110,9,27,False,True,
+gen3-industry-09,1,SAP 2025 annual report current cloud backlog definition official,industry,grounded_success,success,True,8875,9,27,False,True,
+gen3-industry-10,1,Adobe FY2025 annual report remaining performance obligations definition official,mixed,retrieval_failure,failure_gaps,False,6013,0,13,False,True,timeout
+gen3-mixed-01,1,EU DORA ICT incident reporting timeline and SaaS vendor incident update notice,mixed,retrieval_failure,failure_gaps,False,6020,0,13,False,True,timeout
+gen3-mixed-02,1,FTC click-to-cancel rule and streaming platform subscription flow redesign update,policy,grounded_success,success,True,4320,10,35,True,True,
+gen3-mixed-03,1,FDA section 524B cybersecurity SBOM requirement and medical device vendor secure update commitment,policy,retrieval_failure,failure_gaps,False,6011,0,13,False,True,timeout
+gen3-mixed-04,1,EU AI Act deepfake disclosure obligations and video platform creator policy update,policy,grounded_success,success,True,3024,27,76,True,True,
+gen3-mixed-05,1,DOJ data security program prohibited data broker transfers and broker privacy policy changes,policy,retrieval_failure,failure_gaps,False,4808,0,13,True,True,timeout
+gen3-mixed-06,1,CBAM embedded emissions reporting and aluminum producer decarbonization capex announcement,mixed,retrieval_failure,failure_gaps,False,6004,0,13,False,True,timeout
+gen3-mixed-07,1,SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update,industry,grounded_success,success,True,7,6,21,True,True,
+gen3-mixed-08,1,NIS2 early warning deadline and telecom operator incident workflow update,policy,grounded_success,success,True,2979,10,37,True,True,
+gen3-mixed-09,1,FCC Cyber Trust Mark scope and router vendor certification roadmap update,policy,grounded_success,success,True,3768,24,64,True,True,
+gen3-mixed-10,1,EU Cyber Resilience Act secure-by-default obligations and IoT camera maker release cadence update,policy,retrieval_failure,failure_gaps,False,6013,0,13,False,True,timeout
+gen3-hard-01,1,RFC 9421 Signature-Input created parameter exact token official,industry,grounded_success,success,True,5025,27,60,True,True,
+gen3-hard-02,1,W3C FedCM well-known file path exact string official,industry,retrieval_failure,failure_gaps,False,6014,0,12,False,True,timeout
+gen3-hard-03,1,WebAuthn Level 3 prf extension identifier exact token official,industry,grounded_success,success,True,830,6,19,True,True,
+gen3-hard-04,1,DE AI Act Deepfake Kennzeichnungspflicht offizieller Text,policy,insufficient_evidence,success,False,7279,27,18,False,True,
+gen3-hard-05,1,FR declarant CBAM autorise definition texte officiel,policy,retrieval_failure,failure_gaps,False,6013,0,13,False,True,timeout
+gen3-hard-06,1,ETSI EN 303 645 software update requirement official provision,policy,retrieval_failure,failure_gaps,False,6022,0,13,False,True,timeout
+gen3-hard-07,1,2025 arXiv graph RAG benchmark papers,academic,grounded_success,success,True,6174,40,108,False,True,
+gen3-hard-08,1,2025 2026 arXiv process reward model verifier benchmark papers,academic,grounded_success,success,True,3006,40,108,True,True,
+gen3-hard-09,1,SEC Form 10-K principal versus agent revenue disclosure company filing language,industry,retrieval_failure,failure_gaps,False,9601,0,12,False,True,timeout
+gen3-hard-10,1,中文 RFC 6265bis Partitioned 属性 精确 token 官方,industry,retrieval_failure,failure_gaps,False,4798,0,12,True,True,no_hits

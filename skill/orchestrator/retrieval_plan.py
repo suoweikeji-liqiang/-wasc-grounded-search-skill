@@ -15,6 +15,7 @@ from skill.config.retrieval import (
     SUPPLEMENTAL_STRONGEST_SOURCE,
 )
 from skill.orchestrator.intent import ClassificationResult
+from skill.orchestrator.normalize import normalize_query_text
 from skill.retrieval.models import RetrievalFailureReason
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
@@ -36,6 +37,19 @@ _ALLOWED_SOURCE_IDS: frozenset[str] = frozenset(
         if target is not None
     }
 )
+_PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS = 8.0
+_PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS = 9.0
+_MIXED_OVERALL_DEADLINE_SECONDS = 8.0
+_MIXED_DISCOVERY_DEADLINE_SECONDS = 2.5
+_MIXED_DEEP_DEADLINE_SECONDS = 5.0
+_MIXED_SHORTLIST_TOP_K = 4
+_GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET = 5
+_PRIMARY_ACADEMIC_FALLBACK_FAILURES: tuple[RetrievalFailureReason, ...] = (
+    "no_hits",
+    "timeout",
+    "rate_limited",
+)
+_ACADEMIC_ARXIV_HINTS: tuple[str, ...] = ("europe pmc",)
 
 
 @dataclass(frozen=True)
@@ -72,6 +86,10 @@ class RetrievalPlan:
     per_source_timeout_seconds: float = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds: float = OVERALL_RETRIEVAL_DEADLINE_SECONDS
     global_concurrency_cap: int = GLOBAL_CONCURRENCY_CAP
+    mixed_discovery_deadline_seconds: float | None = None
+    mixed_deep_deadline_seconds: float | None = None
+    mixed_shortlist_top_k: int = 0
+    mixed_pooled_enabled: bool = False
 
 
 def _build_primary_first_wave(primary_route: ConcreteRoute) -> list[PlannedSourceStep]:
@@ -102,6 +120,53 @@ def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[Pl
             ),
         )
     ]
+
+
+def _build_primary_academic_staged_plan(
+    *,
+    query: str | None,
+) -> tuple[
+    tuple[PlannedSourceStep, ...],
+    tuple[PlannedSourceStep, ...],
+]:
+    first_source_id = "academic_semantic_scholar"
+    second_source_id = "academic_arxiv"
+    if query is not None and _prefer_arxiv_first_for_academic_query(query):
+        first_source_id = "academic_arxiv"
+        second_source_id = "academic_semantic_scholar"
+
+    first_wave = (
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id=first_source_id,
+                route="academic",
+            )
+        ),
+    )
+    fallback = (
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id=second_source_id,
+                route="academic",
+            ),
+            fallback_from_source_id=first_source_id,
+            trigger_on_failures=_PRIMARY_ACADEMIC_FALLBACK_FAILURES,
+        ),
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="academic_asta_mcp",
+                route="academic",
+            ),
+            fallback_from_source_id=second_source_id,
+            trigger_on_failures=_PRIMARY_ACADEMIC_FALLBACK_FAILURES,
+        ),
+    )
+    return first_wave, fallback
+
+
+def _prefer_arxiv_first_for_academic_query(query: str) -> bool:
+    normalized_query = normalize_query_text(query)
+    return any(hint in normalized_query for hint in _ACADEMIC_ARXIV_HINTS)
 
 
 def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tuple[PlannedSourceStep, ...]:
@@ -140,11 +205,19 @@ def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tu
     return tuple(fallback_steps_by_key.values())
 
 
-def build_retrieval_plan(classification: ClassificationResult) -> RetrievalPlan:
-    first_wave_steps: list[PlannedSourceStep] = _build_primary_first_wave(
-        classification.primary_route
-    )
+def build_retrieval_plan(
+    classification: ClassificationResult,
+    *,
+    query: str | None = None,
+) -> RetrievalPlan:
     supplemental_route: ConcreteRoute | None = None
+    fallback: tuple[PlannedSourceStep, ...] | None = None
+
+    if classification.route_label == "academic" and classification.primary_route == "academic":
+        first_wave, fallback = _build_primary_academic_staged_plan(query=query)
+        first_wave_steps = list(first_wave)
+    else:
+        first_wave_steps = _build_primary_first_wave(classification.primary_route)
 
     if (
         classification.route_label == "mixed"
@@ -154,11 +227,38 @@ def build_retrieval_plan(classification: ClassificationResult) -> RetrievalPlan:
         first_wave_steps.extend(_build_supplemental_first_wave(supplemental_route))
 
     first_wave = tuple(first_wave_steps)
-    fallback = _build_fallback_steps(first_wave)
+    if fallback is None:
+        fallback = _build_fallback_steps(first_wave)
+    per_source_timeout_seconds = PER_SOURCE_TIMEOUT_SECONDS
+    overall_deadline_seconds = OVERALL_RETRIEVAL_DEADLINE_SECONDS
+    query_variant_budget = 3
+    if classification.route_label == "industry" and classification.primary_route == "industry":
+        per_source_timeout_seconds = _PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS
+        overall_deadline_seconds = _PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS
+        query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
+    elif classification.route_label == "mixed":
+        overall_deadline_seconds = _MIXED_OVERALL_DEADLINE_SECONDS
+        query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
     return RetrievalPlan(
         route_label=classification.route_label,
         primary_route=classification.primary_route,
         supplemental_route=supplemental_route,
         first_wave_sources=first_wave,
         fallback_sources=fallback,
+        query_variant_budget=query_variant_budget,
+        per_source_timeout_seconds=per_source_timeout_seconds,
+        overall_deadline_seconds=overall_deadline_seconds,
+        mixed_discovery_deadline_seconds=(
+            _MIXED_DISCOVERY_DEADLINE_SECONDS
+            if classification.route_label == "mixed"
+            else None
+        ),
+        mixed_deep_deadline_seconds=(
+            _MIXED_DEEP_DEADLINE_SECONDS
+            if classification.route_label == "mixed"
+            else None
+        ),
+        mixed_shortlist_top_k=(
+            _MIXED_SHORTLIST_TOP_K if classification.route_label == "mixed" else 0
+        ),
     )

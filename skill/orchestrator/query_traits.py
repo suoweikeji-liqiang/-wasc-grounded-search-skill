@@ -76,14 +76,21 @@ _CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
 )
 _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
     "policy": (
+        "fda",
+        "fcc",
+        "etsi",
+        "cyber trust mark",
         "policy",
         "regulation",
+        "reglement",
         "directive",
         "directives",
         "rule",
         "rules",
         "registry",
         "guidance",
+        "guide",
+        "guia",
         "deadline",
         "deadlines",
         "compliance",
@@ -101,8 +108,16 @@ _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
         "exemption",
         "revision",
         "amendment",
+        "cgmp",
+        "inspection classification",
+        "oai",
+        "vai",
+        "nai",
+        "pccp",
+        "predetermined change control plan",
+        "officiel",
+        "oficial",
         "export controls",
-        "controls",
         "climate",
         "methane",
         "emissions",
@@ -121,8 +136,15 @@ _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
         "distillation",
         "pretraining",
         "pre-training",
+        "post-training",
+        "post training",
         "finetuning",
         "fine-tuning",
+        "rlhf",
+        "dpo",
+        "ipo",
+        "kto",
+        "preference optimization",
         "watermarking",
         "transformer",
         "diffusion",
@@ -169,6 +191,8 @@ _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
         "6k",
         "guidance",
         "capex",
+        "supply chain",
+        "risk factors",
         "revenue",
         "segment",
         "backlog",
@@ -232,8 +256,9 @@ def _route_signal_count(text: str) -> int:
 
 def derive_query_traits(query: str) -> QueryTraits:
     normalized = normalize_query_text(query)
+    route_signal_count = _route_signal_count(normalized)
     is_cross_domain_impact = _contains_any(normalized, _CROSS_DOMAIN_MARKERS) or (
-        "\u4e0e" in normalized and _route_signal_count(normalized) >= 2
+        "\u4e0e" in normalized and route_signal_count >= 2
     )
     return QueryTraits(
         has_year=bool(_YEAR_RE.search(normalized)),

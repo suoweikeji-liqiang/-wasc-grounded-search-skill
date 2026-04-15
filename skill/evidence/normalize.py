@@ -50,15 +50,21 @@ def build_raw_record(hit: RetrievalHit, route_role: str) -> RawEvidenceRecord:
         arxiv_id=hit.arxiv_id,
         first_author=hit.first_author,
         year=hit.year,
+        target_route=hit.target_route,
+        variant_reason_codes=hit.variant_reason_codes,
+        variant_queries=hit.variant_queries,
     )
 
 
 def normalize_hit_candidates(
     hits: list[RetrievalHit],
     route_role_by_source: Mapping[str, str],
+    route_role_by_target_route: Mapping[str, str] | None = None,
 ) -> list[RawEvidenceRecord]:
     records: list[RawEvidenceRecord] = []
     for hit in hits:
         route_role = route_role_by_source.get(hit.source_id, "primary")
+        if route_role_by_target_route is not None and hit.target_route is not None:
+            route_role = route_role_by_target_route.get(hit.target_route, route_role)
         records.append(build_raw_record(hit=hit, route_role=route_role))
     return records

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -177,6 +178,28 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
     },
 )
 
+_CJK_QUERY_RE = re.compile(r"[\u4e00-\u9fff]")
+_CN_POLICY_DOMAINS: frozenset[str] = frozenset(
+    {
+        "gov.cn",
+        "www.gov.cn",
+        "flk.npc.gov.cn",
+        "wb.flk.npc.gov.cn",
+        "npc.gov.cn",
+        "www.npc.gov.cn",
+        "cac.gov.cn",
+        "www.cac.gov.cn",
+        "mee.gov.cn",
+        "www.mee.gov.cn",
+        "mofcom.gov.cn",
+        "www.mofcom.gov.cn",
+        "miit.gov.cn",
+        "www.miit.gov.cn",
+        "samr.gov.cn",
+        "www.samr.gov.cn",
+    }
+)
+
 
 def _score(query: str, fixture: dict[str, Any]) -> int:
     return score_query_alignment(
@@ -260,6 +283,7 @@ def _is_us_policy_query(query: str) -> bool:
     markers = (
         "federal register",
         "federal",
+        "fcc",
         "epa",
         "fda",
         "ftc",
@@ -269,6 +293,7 @@ def _is_us_policy_query(query: str) -> bool:
         "boi",
         "cisa",
         "circia",
+        "cyber trust mark",
         "pfas",
         "noncompete",
         "nist",
@@ -290,15 +315,34 @@ def _prefer_direct_policy_sources(query: str) -> bool:
         "eur-lex",
         "ai act",
         "nis2",
+        "data act",
+        "dma",
+        "digital markets act",
+        "fcc",
+        "cyber trust mark",
+        "etsi",
+        "en 303 645",
+        "reglement ue",
+        "2024 1689",
+        "systeme d ia",
+        "article officiel",
         "fips",
         "nist",
         "pccp",
+        "cgmp",
+        "inspection classification",
+        "oai",
+        "vai",
+        "nai",
         "beneficial ownership",
         "corporate transparency act",
         "boi",
         "online safety act",
         "legislation.gov.uk",
         "ofcom",
+        "illegal harms",
+        "codes of practice",
+        "illegal content duties",
     )
     return any(marker in normalized for marker in markers)
 
@@ -550,12 +594,19 @@ def _rank_fixture_records(
     return ranked[:5]
 
 
+def _should_use_fixture_shortcut(query: str) -> bool:
+    if _CJK_QUERY_RE.search(query):
+        return True
+    preferred_domains = preferred_policy_domains(query, fallback=False)
+    return bool(preferred_domains) and preferred_domains[0] in _CN_POLICY_DOMAINS
+
+
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live official-policy hits discovered on official domains."""
     config = LiveRetrievalConfig.from_env()
     ranked_fixture_records = (
         []
-        if _is_us_policy_query(query)
+        if _is_us_policy_query(query) or not _should_use_fixture_shortcut(query)
         else _rank_fixture_records(
             query=query,
             min_score=_MIN_FIXTURE_SCORE,

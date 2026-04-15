@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from skill.orchestrator.retrieval_plan import PlannedSourceStep, RetrievalPlan
+from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.fallback_fsm import (
     map_exception_to_failure_reason,
 )
@@ -17,9 +18,57 @@ from skill.retrieval.models import (
     RetrievalStatus,
     SourceExecutionResult,
 )
-from skill.retrieval.query_variants import build_query_variants
+from skill.retrieval.priority import score_query_alignment
+from skill.retrieval.query_variants import QueryVariant, build_query_variants
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
+_ACADEMIC_VARIANT_PRIORITY: dict[str, int] = {
+    "academic_source_hint": 0,
+    "academic_topic_focus": 1,
+    "academic_phrase_locked": 2,
+    "original": 3,
+    "academic_evidence_type_focus": 4,
+    "academic_lookup": 5,
+    "academic_benchmark": 6,
+    "academic_focus": 7,
+}
+_ACADEMIC_QUALITY_GATE_SOURCE_ID = "academic_semantic_scholar"
+_ACADEMIC_MIN_STRONG_TITLE_FOCUS_OVERLAP = 2
+_ACADEMIC_MIN_STRONG_ALIGNMENT_SCORE = 12
+_ACADEMIC_FOCUS_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "academic",
+        "arxiv",
+        "benchmark",
+        "benchmarks",
+        "europe",
+        "model",
+        "models",
+        "openalex",
+        "paper",
+        "papers",
+        "pmc",
+        "recent",
+        "research",
+        "review",
+        "scholar",
+        "semantic",
+        "studies",
+        "study",
+        "survey",
+    }
+)
+_MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
+    "cross_domain_fragment_focus": 6,
+    "document_focus": 4,
+    "document_concept_focus": 4,
+    "core_focus": 3,
+    "academic_phrase_locked": 3,
+    "academic_topic_focus": 3,
+    "academic_evidence_type_focus": 2,
+    "academic_source_hint": 1,
+    "original": 0,
+}
 
 
 def _optional_str_field(hit: Mapping[str, Any], field_name: str) -> str | None:
@@ -78,19 +127,294 @@ def _normalize_hits(raw_hits: list[Any], source_id: str) -> tuple[RetrievalHit, 
 
 
 def _dedupe_hits(hits: list[RetrievalHit]) -> tuple[RetrievalHit, ...]:
-    deduped: list[RetrievalHit] = []
-    seen: set[tuple[str, str, str]] = set()
+    deduped_by_key: dict[tuple[str, str, str], RetrievalHit] = {}
     for hit in hits:
-        key = (
-            hit.source_id,
-            hit.url.strip().lower(),
-            hit.title.strip().lower(),
-        )
-        if key in seen:
+        key = _retrieval_hit_key(hit)
+        existing = deduped_by_key.get(key)
+        if existing is None:
+            deduped_by_key[key] = hit
             continue
-        deduped.append(hit)
+        deduped_by_key[key] = _merge_hit_provenance(existing, hit)
+    return tuple(deduped_by_key.values())
+
+
+def _retrieval_hit_key(hit: RetrievalHit) -> tuple[str, str, str]:
+    return (
+        hit.source_id,
+        hit.url.strip().lower(),
+        hit.title.strip().lower(),
+    )
+
+
+def _merge_variant_pairs(
+    *,
+    existing_reasons: tuple[str, ...],
+    existing_queries: tuple[str, ...],
+    new_reasons: tuple[str, ...],
+    new_queries: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    merged_pairs: list[tuple[str, str]] = []
+    for reason_code, variant_query in zip(existing_reasons, existing_queries, strict=False):
+        pair = (reason_code, variant_query)
+        if pair not in merged_pairs:
+            merged_pairs.append(pair)
+    for reason_code, variant_query in zip(new_reasons, new_queries, strict=False):
+        pair = (reason_code, variant_query)
+        if pair not in merged_pairs:
+            merged_pairs.append(pair)
+    return (
+        tuple(pair[0] for pair in merged_pairs),
+        tuple(pair[1] for pair in merged_pairs),
+    )
+
+
+def _merge_hit_provenance(existing: RetrievalHit, candidate: RetrievalHit) -> RetrievalHit:
+    merged_reason_codes, merged_queries = _merge_variant_pairs(
+        existing_reasons=existing.variant_reason_codes,
+        existing_queries=existing.variant_queries,
+        new_reasons=candidate.variant_reason_codes,
+        new_queries=candidate.variant_queries,
+    )
+    return replace(
+        existing,
+        target_route=existing.target_route or candidate.target_route,
+        variant_reason_codes=merged_reason_codes,
+        variant_queries=merged_queries,
+    )
+
+
+def _annotate_hit_provenance(
+    hit: RetrievalHit,
+    *,
+    target_route: str,
+    variant: QueryVariant,
+) -> RetrievalHit:
+    merged_reason_codes, merged_queries = _merge_variant_pairs(
+        existing_reasons=hit.variant_reason_codes,
+        existing_queries=hit.variant_queries,
+        new_reasons=(variant.reason_code,),
+        new_queries=(variant.query,),
+    )
+    return replace(
+        hit,
+        target_route=target_route,
+        variant_reason_codes=merged_reason_codes,
+        variant_queries=merged_queries,
+    )
+
+
+def _mixed_variant_pairs(query: str, hit: RetrievalHit) -> tuple[tuple[str, str], ...]:
+    pairs = tuple(
+        (reason_code, variant_query)
+        for reason_code, variant_query in zip(
+            hit.variant_reason_codes,
+            hit.variant_queries,
+            strict=False,
+        )
+        if variant_query
+    )
+    if pairs:
+        return pairs
+    return (("original", query),)
+
+
+def _mixed_hit_score(
+    *,
+    query: str,
+    route: str,
+    hit: RetrievalHit,
+) -> tuple[int, int, int]:
+    best_score = (-1, -1, -1)
+    for reason_code, variant_query in _mixed_variant_pairs(query, hit):
+        alignment = score_query_alignment(
+            variant_query,
+            route=route,  # type: ignore[arg-type]
+            title=hit.title,
+            snippet=hit.snippet,
+            url=hit.url,
+            authority=hit.authority,
+            publication_date=hit.publication_date,
+            effective_date=hit.effective_date,
+            version=hit.version,
+            year=hit.year,
+        )
+        structural_bonus = _MIXED_STRUCTURAL_REASON_BONUS.get(
+            reason_code,
+            1 if reason_code != "original" else 0,
+        )
+        candidate_score = (
+            alignment + structural_bonus,
+            1 if reason_code != "original" else 0,
+            alignment,
+        )
+        if candidate_score > best_score:
+            best_score = candidate_score
+    return best_score
+
+
+def _rank_mixed_hits_for_route(
+    *,
+    query: str,
+    route: str,
+    hits: list[RetrievalHit],
+) -> list[tuple[tuple[int, int, int], RetrievalHit]]:
+    deduped_hits = list(_dedupe_hits(hits))
+    scored_hits = [
+        (
+            _mixed_hit_score(
+                query=query,
+                route=route,
+                hit=hit,
+            ),
+            index,
+            hit,
+        )
+        for index, hit in enumerate(deduped_hits)
+    ]
+    scored_hits.sort(
+        key=lambda item: (
+            -item[0][0],
+            -item[0][1],
+            -item[0][2],
+            -len(item[2].title),
+            -len(item[2].snippet),
+            item[1],
+        )
+    )
+    return [(score, hit) for score, _, hit in scored_hits]
+
+
+def _shortlist_mixed_hits(
+    *,
+    query: str,
+    primary_route: str,
+    supplemental_route: str,
+    primary_hits: list[RetrievalHit],
+    supplemental_hits: list[RetrievalHit],
+    top_k: int,
+) -> tuple[RetrievalHit, ...]:
+    ranked_primary = _rank_mixed_hits_for_route(
+        query=query,
+        route=primary_route,
+        hits=primary_hits,
+    )
+    ranked_supplemental = _rank_mixed_hits_for_route(
+        query=query,
+        route=supplemental_route,
+        hits=supplemental_hits,
+    )
+    if not ranked_primary or not ranked_supplemental:
+        return ()
+
+    effective_top_k = max(2, top_k)
+    shortlist: list[RetrievalHit] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append_hit(hit: RetrievalHit) -> None:
+        key = _retrieval_hit_key(hit)
+        if key in seen:
+            return
         seen.add(key)
-    return tuple(deduped)
+        shortlist.append(hit)
+
+    _append_hit(ranked_primary[0][1])
+    _append_hit(ranked_supplemental[0][1])
+
+    remaining = ranked_primary[1:] + ranked_supplemental[1:]
+    remaining.sort(
+        key=lambda item: (
+            -item[0][0],
+            -item[0][1],
+            -item[0][2],
+            -len(item[1].title),
+            -len(item[1].snippet),
+        )
+    )
+    for _, hit in remaining:
+        if len(shortlist) >= effective_top_k:
+            break
+        _append_hit(hit)
+
+    return tuple(shortlist[:effective_top_k])
+
+
+def _mixed_top_hit_is_viable(score: tuple[int, int, int]) -> bool:
+    total_score, focused_match, alignment = score
+    return focused_match > 0 or alignment >= 6 or total_score >= 8
+
+
+def _academic_focus_terms(text: str) -> set[str]:
+    normalized = normalize_query_text(text)
+    return {
+        token
+        for token in query_tokens(normalized)
+        if (
+            not token.isdigit()
+            and (
+                (token.isascii() and len(token) >= 8 and token not in _ACADEMIC_FOCUS_STOPWORDS)
+                or (not token.isascii())
+            )
+        )
+    }
+
+
+def _academic_hit_is_strong_for_query(
+    *,
+    query: str,
+    focus_terms: set[str],
+    hit: RetrievalHit,
+) -> bool:
+    title_overlap = len(focus_terms & _academic_focus_terms(hit.title))
+    if title_overlap >= _ACADEMIC_MIN_STRONG_TITLE_FOCUS_OVERLAP:
+        return True
+
+    if title_overlap == 0:
+        return False
+
+    alignment = score_query_alignment(
+        query,
+        route="academic",
+        title=hit.title,
+        snippet=hit.snippet,
+        url=hit.url,
+        authority=hit.authority,
+        publication_date=hit.publication_date,
+        effective_date=hit.effective_date,
+        version=hit.version,
+        year=hit.year,
+    )
+    return (
+        alignment >= _ACADEMIC_MIN_STRONG_ALIGNMENT_SCORE
+        and hit.evidence_level != "metadata_only"
+    )
+
+
+def _academic_success_requires_fallback(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+    result: SourceExecutionResult,
+) -> bool:
+    if result.status != "success" or not result.hits:
+        return False
+    if plan.route_label != "academic" or plan.primary_route != "academic":
+        return False
+    if step.source.source_id != _ACADEMIC_QUALITY_GATE_SOURCE_ID:
+        return False
+
+    focus_terms = _academic_focus_terms(query)
+    if len(focus_terms) < _ACADEMIC_MIN_STRONG_TITLE_FOCUS_OVERLAP:
+        return False
+
+    return not any(
+        _academic_hit_is_strong_for_query(
+            query=query,
+            focus_terms=focus_terms,
+            hit=hit,
+        )
+        for hit in result.hits
+    )
 
 
 async def _run_single_source(
@@ -167,6 +491,8 @@ async def _run_source_variants(
         target_route=step.source.route,
         variant_limit=plan.query_variant_budget,
     )
+    if step.source.route == "academic":
+        variants = _prioritize_academic_variants(variants)
 
     loop = asyncio.get_running_loop()
     merged_hits: list[RetrievalHit] = []
@@ -184,7 +510,14 @@ async def _run_source_variants(
             timeout_seconds=remaining,
         )
         if attempt.status == "success":
-            merged_hits.extend(attempt.hits)
+            merged_hits.extend(
+                _annotate_hit_provenance(
+                    hit,
+                    target_route=step.source.route,
+                    variant=variant,
+                )
+                for hit in attempt.hits
+            )
             continue
 
         failure_reason = attempt.failure_reason or "adapter_error"
@@ -217,6 +550,32 @@ async def _run_source_variants(
         failure_reason=last_failure_reason,
         gaps=(source_id,),
     )
+
+
+def _prioritize_academic_variants(
+    variants: tuple[QueryVariant, ...],
+) -> tuple[QueryVariant, ...]:
+    if len(variants) <= 1:
+        return variants
+    if not any(
+        variant.reason_code
+        in {
+            "academic_source_hint",
+            "academic_phrase_locked",
+            "academic_evidence_type_focus",
+            "academic_topic_focus",
+        }
+        for variant in variants
+    ):
+        return variants
+    indexed_variants = list(enumerate(variants))
+    indexed_variants.sort(
+        key=lambda pair: (
+            _ACADEMIC_VARIANT_PRIORITY.get(pair[1].reason_code, 99),
+            pair[0],
+        )
+    )
+    return tuple(variant for _, variant in indexed_variants)
 
 
 async def _run_source_step(
@@ -330,33 +689,97 @@ async def _run_first_wave(
     return by_source
 
 
-async def run_retrieval(
+async def _run_mixed_pooled_path(
+    *,
     plan: RetrievalPlan,
     query: str,
+    first_wave_steps: tuple[PlannedSourceStep, ...],
+    first_wave_results: Mapping[str, SourceExecutionResult],
     adapter_registry: Mapping[str, Adapter],
-) -> RetrievalExecutionOutcome:
-    """Run first-wave retrieval with hard per-source and overall budgets."""
-    first_wave_steps = plan.first_wave_sources
-    if not first_wave_steps:
-        return RetrievalExecutionOutcome(
+    deadline_at: float,
+) -> RetrievalExecutionOutcome | None:
+    del adapter_registry, deadline_at
+    supplemental_route = plan.supplemental_route
+    if supplemental_route is None or plan.mixed_shortlist_top_k <= 0:
+        return None
+
+    ordered_source_results: list[SourceExecutionResult] = []
+    primary_hits: list[RetrievalHit] = []
+    supplemental_hits: list[RetrievalHit] = []
+    unresolved_reasons: list[RetrievalFailureReason] = []
+    unresolved_gaps: list[str] = []
+
+    for step in first_wave_steps:
+        source_id = step.source.source_id
+        result = first_wave_results.get(source_id) or SourceExecutionResult(
+            source_id=source_id,
             status="failure_gaps",
             failure_reason="adapter_error",
-            gaps=("first_wave_sources_missing",),
-            results=(),
-            source_results=(),
+            gaps=(source_id,),
         )
+        ordered_source_results.append(result)
 
-    loop = asyncio.get_running_loop()
-    deadline_at = loop.time() + max(0.0, plan.overall_deadline_seconds)
-    first_wave_results = await _run_first_wave(
-        plan=plan,
-        first_wave_steps=first_wave_steps,
+        if result.status == "success":
+            if step.source.route == plan.primary_route and not step.source.is_supplemental:
+                primary_hits.extend(result.hits)
+            elif step.source.route == supplemental_route:
+                supplemental_hits.extend(result.hits)
+            continue
+
+        unresolved_reasons.append(result.failure_reason or "adapter_error")
+        unresolved_gaps.extend(result.gaps)
+
+    ranked_primary = _rank_mixed_hits_for_route(
         query=query,
-        adapter_registry=adapter_registry,
-        per_source_timeout_seconds=max(0.0, plan.per_source_timeout_seconds),
-        overall_timeout_seconds=max(0.0, deadline_at - loop.time()),
-        concurrency_cap=plan.global_concurrency_cap,
+        route=plan.primary_route,
+        hits=primary_hits,
     )
+    ranked_supplemental = _rank_mixed_hits_for_route(
+        query=query,
+        route=supplemental_route,
+        hits=supplemental_hits,
+    )
+    if not ranked_primary or not ranked_supplemental:
+        return None
+    if not (
+        _mixed_top_hit_is_viable(ranked_primary[0][0])
+        and _mixed_top_hit_is_viable(ranked_supplemental[0][0])
+    ):
+        return None
+
+    shortlist = _shortlist_mixed_hits(
+        query=query,
+        primary_route=plan.primary_route,
+        supplemental_route=supplemental_route,
+        primary_hits=primary_hits,
+        supplemental_hits=supplemental_hits,
+        top_k=plan.mixed_shortlist_top_k,
+    )
+    if not shortlist:
+        return None
+
+    deduped_gaps = tuple(dict.fromkeys(unresolved_gaps))
+    status: RetrievalStatus = "success" if not unresolved_reasons else "partial"
+    failure_reason = None if not unresolved_reasons else unresolved_reasons[0]
+    return RetrievalExecutionOutcome(
+        status=status,
+        failure_reason=failure_reason,
+        gaps=deduped_gaps,
+        results=shortlist,
+        source_results=tuple(ordered_source_results),
+    )
+
+
+async def _run_standard_retrieval_path(
+    *,
+    plan: RetrievalPlan,
+    query: str,
+    first_wave_steps: tuple[PlannedSourceStep, ...],
+    first_wave_results: Mapping[str, SourceExecutionResult],
+    adapter_registry: Mapping[str, Adapter],
+    deadline_at: float,
+) -> RetrievalExecutionOutcome:
+    loop = asyncio.get_running_loop()
     allowed_fallback_transitions: dict[tuple[str, RetrievalFailureReason], PlannedSourceStep] = {}
     for fallback_step in plan.fallback_sources:
         fallback_from_source_id = fallback_step.fallback_from_source_id
@@ -384,12 +807,22 @@ async def run_retrieval(
         )
         all_attempt_results.append(primary_result)
 
+        provisional_hits: list[RetrievalHit] = []
         if primary_result.status == "success":
-            final_hits.extend(primary_result.hits)
-            continue
-
-        chain_gaps: list[str] = list(primary_result.gaps)
-        failure_reason = primary_result.failure_reason or "adapter_error"
+            if not _academic_success_requires_fallback(
+                step=step,
+                plan=plan,
+                query=query,
+                result=primary_result,
+            ):
+                final_hits.extend(primary_result.hits)
+                continue
+            provisional_hits.extend(primary_result.hits)
+            chain_gaps: list[str] = []
+            failure_reason: RetrievalFailureReason = "no_hits"
+        else:
+            chain_gaps = list(primary_result.gaps)
+            failure_reason = primary_result.failure_reason or "adapter_error"
         current_source = source_id
         visited_sources: set[str] = {source_id}
         recovered = False
@@ -421,6 +854,7 @@ async def run_retrieval(
             all_attempt_results.append(fallback_result)
 
             if fallback_result.status == "success":
+                final_hits.extend(provisional_hits)
                 final_hits.extend(fallback_result.hits)
                 recovered = True
                 break
@@ -430,6 +864,7 @@ async def run_retrieval(
             current_source = fallback_source_id
 
         if not recovered:
+            final_hits.extend(provisional_hits)
             unresolved_reasons.append(failure_reason)
             unresolved_gaps.extend(chain_gaps)
 
@@ -451,4 +886,62 @@ async def run_retrieval(
         gaps=deduped_gaps,
         results=tuple(final_hits),
         source_results=tuple(all_attempt_results),
+    )
+
+
+async def run_retrieval(
+    plan: RetrievalPlan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+) -> RetrievalExecutionOutcome:
+    """Run first-wave retrieval with hard per-source and overall budgets."""
+    first_wave_steps = plan.first_wave_sources
+    if not first_wave_steps:
+        return RetrievalExecutionOutcome(
+            status="failure_gaps",
+            failure_reason="adapter_error",
+            gaps=("first_wave_sources_missing",),
+            results=(),
+            source_results=(),
+        )
+
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + max(0.0, plan.overall_deadline_seconds)
+    first_wave_timeout_seconds = max(0.0, deadline_at - loop.time())
+    if plan.route_label == "mixed" and plan.mixed_discovery_deadline_seconds is not None:
+        first_wave_timeout_seconds = min(
+            first_wave_timeout_seconds,
+            max(0.0, plan.mixed_discovery_deadline_seconds),
+        )
+    first_wave_results = await _run_first_wave(
+        plan=plan,
+        first_wave_steps=first_wave_steps,
+        query=query,
+        adapter_registry=adapter_registry,
+        per_source_timeout_seconds=max(0.0, plan.per_source_timeout_seconds),
+        overall_timeout_seconds=first_wave_timeout_seconds,
+        concurrency_cap=plan.global_concurrency_cap,
+    )
+    if (
+        plan.route_label == "mixed"
+        and plan.supplemental_route is not None
+        and plan.mixed_pooled_enabled
+    ):
+        pooled_outcome = await _run_mixed_pooled_path(
+            plan=plan,
+            query=query,
+            first_wave_steps=first_wave_steps,
+            first_wave_results=first_wave_results,
+            adapter_registry=adapter_registry,
+            deadline_at=deadline_at,
+        )
+        if pooled_outcome is not None:
+            return pooled_outcome
+    return await _run_standard_retrieval_path(
+        plan=plan,
+        query=query,
+        first_wave_steps=first_wave_steps,
+        first_wave_results=first_wave_results,
+        adapter_registry=adapter_registry,
+        deadline_at=deadline_at,
     )

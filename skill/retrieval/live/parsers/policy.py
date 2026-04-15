@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
+from skill.orchestrator.normalize import normalize_query_text
+
 
 OFFICIAL_POLICY_ALLOWLIST: frozenset[str] = frozenset(
     {
@@ -32,6 +34,9 @@ OFFICIAL_POLICY_ALLOWLIST: frozenset[str] = frozenset(
         "www.nist.gov",
         "fda.gov",
         "www.fda.gov",
+        "fcc.gov",
+        "www.fcc.gov",
+        "docs.fcc.gov",
         "ftc.gov",
         "www.ftc.gov",
         "cisa.gov",
@@ -44,6 +49,8 @@ OFFICIAL_POLICY_ALLOWLIST: frozenset[str] = frozenset(
         "www.legislation.gov.uk",
         "ofcom.org.uk",
         "www.ofcom.org.uk",
+        "etsi.org",
+        "www.etsi.org",
         "sec.gov",
         "www.sec.gov",
         "eur-lex.europa.eu",
@@ -78,6 +85,9 @@ _DOMAIN_METADATA: dict[str, tuple[str, str]] = {
     "www.nist.gov": ("National Institute of Standards and Technology", "US"),
     "fda.gov": ("U.S. Food and Drug Administration", "US"),
     "www.fda.gov": ("U.S. Food and Drug Administration", "US"),
+    "fcc.gov": ("Federal Communications Commission", "US"),
+    "www.fcc.gov": ("Federal Communications Commission", "US"),
+    "docs.fcc.gov": ("Federal Communications Commission", "US"),
     "ftc.gov": ("Federal Trade Commission", "US"),
     "www.ftc.gov": ("Federal Trade Commission", "US"),
     "cisa.gov": ("Cybersecurity and Infrastructure Security Agency", "US"),
@@ -90,6 +100,8 @@ _DOMAIN_METADATA: dict[str, tuple[str, str]] = {
     "www.legislation.gov.uk": ("UK legislation", "UK"),
     "ofcom.org.uk": ("Ofcom", "UK"),
     "www.ofcom.org.uk": ("Ofcom", "UK"),
+    "etsi.org": ("European Telecommunications Standards Institute", "EU"),
+    "www.etsi.org": ("European Telecommunications Standards Institute", "EU"),
     "sec.gov": ("U.S. Securities and Exchange Commission", "US"),
     "www.sec.gov": ("U.S. Securities and Exchange Commission", "US"),
     "eur-lex.europa.eu": ("European Union", "EU"),
@@ -236,62 +248,72 @@ def parse_gov_policy_search_response(payload: object) -> list[dict[str, object]]
 
 
 def preferred_policy_domains(query: str, *, fallback: bool) -> tuple[str, ...]:
-    normalized = query.lower()
-    if (
-        "ai act" in normalized
+    normalized = normalize_query_text(query)
+
+    def _has(*phrases: str) -> bool:
+        return any(
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(normalize_query_text(phrase))}(?![a-z0-9])",
+                normalized,
+            )
+            for phrase in phrases
+        )
+
+    if _has("fcc", "cyber trust mark"):
+        primary = ("fcc.gov", "www.fcc.gov", "docs.fcc.gov", "etsi.org", "www.etsi.org")
+    elif _has("etsi", "en 303 645"):
+        primary = ("etsi.org", "www.etsi.org", "fcc.gov", "www.fcc.gov", "docs.fcc.gov")
+    elif (
+        _has(
+            "ai act",
+            "directive",
+            "nis2",
+            "dsa",
+            "dma",
+            "data act",
+            "battery regulation",
+            "cbam",
+            "reglement ue",
+            "2024 1689",
+            "2024/1689",
+            "systeme d ia",
+            "article officiel",
+        )
         or "eu " in normalized
         or "eu-" in normalized
-        or "directive" in normalized
-        or "nis2" in normalized
-        or "dsa" in normalized
-        or "dma" in normalized
-        or "data act" in normalized
-        or "battery regulation" in normalized
-        or "cbam" in normalized
     ):
         primary = ("eur-lex.europa.eu", "taxation-customs.ec.europa.eu")
     elif (
-        "uk " in normalized
-        or "united kingdom" in normalized
-        or "ofcom" in normalized
-        or "online safety act" in normalized
+        _has("ofcom", "illegal harms", "codes of practice", "illegal content duties")
+    ):
+        primary = ("ofcom.org.uk", "legislation.gov.uk")
+    elif (
+        _has("uk", "united kingdom", "online safety act")
     ):
         primary = ("legislation.gov.uk", "ofcom.org.uk")
-    elif "fda" in normalized or "laboratory developed tests" in normalized or "pccp" in normalized:
+    elif _has("fda", "laboratory developed tests", "pccp"):
         primary = ("fda.gov", "federalregister.gov")
-    elif "ftc" in normalized or "noncompete" in normalized:
+    elif _has("ftc", "noncompete"):
         primary = ("ftc.gov", "federalregister.gov")
     elif (
-        "fincen" in normalized
-        or "beneficial ownership" in normalized
-        or "corporate transparency act" in normalized
-        or "boi" in normalized
+        _has("fincen", "beneficial ownership", "corporate transparency act", "boi")
     ):
         primary = ("fincen.gov", "federalregister.gov")
-    elif "cisa" in normalized or "circia" in normalized or "ransom" in normalized:
+    elif _has("cisa", "circia", "ransom"):
         primary = ("cisa.gov", "govinfo.gov")
     elif (
-        "epa" in normalized
-        or "pfas" in normalized
-        or "drinking water" in normalized
-        or "methane rule" in normalized
+        _has("epa", "pfas", "drinking water", "methane rule")
     ):
         primary = ("epa.gov", "federalregister.gov")
-    elif "nist" in normalized or "fips" in normalized:
+    elif _has("nist", "fips"):
         primary = ("nist.gov", "govinfo.gov")
-    elif "sec" in normalized or "item 1.05" in normalized or "cybersecurity disclosure" in normalized:
+    elif _has("sec", "item 1.05", "cybersecurity disclosure"):
         primary = ("sec.gov", "federalregister.gov")
     elif (
-        "federal register" in normalized
-        or "federal" in normalized
-        or "u.s." in normalized
-        or "us " in normalized
-        or "epa" in normalized
-        or "methane rule" in normalized
-        or "cfr" in normalized
+        _has("federal register", "federal", "u.s.", "us", "epa", "methane rule", "cfr")
     ):
         primary = ("federalregister.gov", "govinfo.gov")
-    elif "export control" in normalized or "bis" in normalized:
+    elif _has("export control", "bis"):
         primary = ("bis.gov", "federalregister.gov")
     elif "公司法" in query or "法律" in query or "条例" in query or "司法解释" in query:
         primary = ("flk.npc.gov.cn", "gov.cn")

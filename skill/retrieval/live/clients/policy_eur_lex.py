@@ -15,18 +15,29 @@ _EU_MARKERS: tuple[str, ...] = (
 )
 _CATALOG: tuple[dict[str, object], ...] = (
     {
-        "title": "Regulation (EU) 2024/1689 (AI Act)",
+        "title": "Regulation (EU) 2024/1689 (AI Act / Reglement UE 2024 1689)",
         "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng",
         "snippet": (
-            "Official AI Act text published in the Official Journal with phased "
-            "obligation timelines."
+            "Official AI Act / Reglement UE 2024 1689 text in the Official "
+            "Journal, including the definition of an AI system (systeme d ia) "
+            "and phased obligation timelines."
         ),
         "authority": "European Union",
         "jurisdiction": "EU",
         "publication_date": "2024-07-12",
         "effective_date": "2024-08-01",
         "version": "Official Journal text",
-        "markers": ("ai act", "2024/1689", "general purpose ai", "gpa i", "foundation model"),
+        "markers": (
+            "ai act",
+            "2024/1689",
+            "2024 1689",
+            "reglement ue",
+            "systeme d ia",
+            "article officiel",
+            "general purpose ai",
+            "gpa i",
+            "foundation model",
+        ),
     },
     {
         "title": "Directive (EU) 2022/2555 (NIS2 Directive)",
@@ -56,13 +67,45 @@ _CATALOG: tuple[dict[str, object], ...] = (
     {
         "title": "Regulation (EU) 2022/1925 (Digital Markets Act)",
         "url": "https://eur-lex.europa.eu/eli/reg/2022/1925/oj/eng",
-        "snippet": "Official Digital Markets Act text for gatekeeper obligations.",
+        "snippet": (
+            "Official Digital Markets Act text for designated gatekeepers, core "
+            "platform services, and messaging interoperability obligations."
+        ),
         "authority": "European Union",
         "jurisdiction": "EU",
         "publication_date": "2022-10-12",
         "effective_date": "2022-11-01",
         "version": "Official Journal text",
-        "markers": ("dma", "digital markets act", "2022/1925", "gatekeeper"),
+        "markers": (
+            "dma",
+            "digital markets act",
+            "2022/1925",
+            "gatekeeper",
+            "designated gatekeepers",
+            "core platform services",
+            "messaging interoperability",
+        ),
+    },
+    {
+        "title": "Regulation (EU) 2023/2854 (Data Act)",
+        "url": "https://eur-lex.europa.eu/eli/reg/2023/2854/oj/eng",
+        "snippet": (
+            "Official Data Act text covering connected products, data holder "
+            "obligations, trade-secret safeguards, and application timing."
+        ),
+        "authority": "European Union",
+        "jurisdiction": "EU",
+        "publication_date": "2023-12-22",
+        "effective_date": "2025-09-12",
+        "version": "Official Journal text",
+        "markers": (
+            "data act",
+            "2023/2854",
+            "connected products",
+            "data holder obligations",
+            "trade-secret safeguards",
+            "application date",
+        ),
     },
 )
 

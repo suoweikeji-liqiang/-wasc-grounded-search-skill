@@ -143,3 +143,49 @@ def test_classify_query_hidden_like_english_single_domain_queries_stay_concrete(
     assert standards.route_label == "industry"
     assert standards.primary_route == "industry"
     assert standards.supplemental_route is None
+
+
+def test_classify_query_hidden_like_low_signal_and_cross_domain_failures_route_concretely() -> None:
+    academic_alignment = classify_query(
+        "2025 2026 post-training RLHF alternatives DPO IPO KTO preference optimization comparison papers"
+    )
+    assert academic_alignment.route_label == "academic"
+    assert academic_alignment.primary_route == "academic"
+    assert academic_alignment.supplemental_route is None
+
+    filing_risk = classify_query(
+        "NVIDIA fiscal 2026 Form 10-K risk factors supply chain export controls"
+    )
+    assert filing_risk.route_label == "industry"
+    assert filing_risk.primary_route == "industry"
+    assert filing_risk.supplemental_route is None
+
+    multilingual_policy = classify_query(
+        "FR reglement UE 2024 1689 definition systeme d IA article officiel"
+    )
+    assert multilingual_policy.route_label == "policy"
+    assert multilingual_policy.primary_route == "policy"
+    assert multilingual_policy.supplemental_route is None
+
+
+def test_classify_query_keeps_strong_policy_queries_concrete_despite_trailing_cross_checks() -> None:
+    ai_act = classify_query(
+        "EU AI Act GPAI transparency documentation obligations official text and Commission guidance cross-check with industry model card AI Act readiness"
+    )
+    assert ai_act.route_label == "policy"
+    assert ai_act.primary_route == "policy"
+    assert ai_act.supplemental_route is None
+
+    battery = classify_query(
+        "EU Battery Regulation 2023 1542 carbon footprint declaration battery passport due diligence deadlines and battery pass pilot manufacturer announcement"
+    )
+    assert battery.route_label == "policy"
+    assert battery.primary_route == "policy"
+    assert battery.supplemental_route is None
+
+    data_act = classify_query(
+        "EU Data Act application date connected products data holder obligations vendor API contract update and academic legal commentary trade-secret safeguards"
+    )
+    assert data_act.route_label == "policy"
+    assert data_act.primary_route == "policy"
+    assert data_act.supplemental_route is None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
@@ -22,6 +23,106 @@ def test_build_query_variants_caps_policy_expansion_and_dedupes() -> None:
     assert variants[0].reason_code == "original"
     assert len({item.query for item in variants}) == len(variants)
     assert any("\u53d8\u5316" in item.query or "\u4fee\u8ba2" in item.query for item in variants)
+
+
+def test_build_query_variants_condenses_long_academic_queries() -> None:
+    query = (
+        "2025 paper mixture-of-experts routing stability load balancing "
+        "auxiliary loss collapse mitigation"
+    )
+
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+    )
+
+    assert variants[0].reason_code == "original"
+    assert any(
+        item.reason_code == "academic_topic_focus"
+        and "2025" not in item.query
+        and "paper" not in item.query.lower()
+        and "mixture-of-experts" in item.query
+        and "load balancing" in item.query
+        for item in variants
+    )
+    assert len(variants) <= 3
+
+
+def test_build_query_variants_adds_condensed_repository_hints_for_academic_queries() -> None:
+    query = (
+        "2025 2026 Europe PMC single-cell foundation model transcriptomics "
+        "transformer pretraining cell type annotation"
+    )
+
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+    )
+
+    assert any(
+        item.reason_code == "academic_source_hint"
+        and "europe pmc" in item.query.lower()
+        and "2025" not in item.query
+        and "single-cell" in item.query
+        and "cell type annotation" in item.query
+        for item in variants
+    )
+
+
+def test_build_query_variants_adds_phrase_locked_academic_variant_for_strong_technical_phrases() -> None:
+    query = (
+        "2025 2026 arXiv test-time scaling large language models "
+        "compute-optimal inference best-of-n reranking"
+    )
+
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "academic_phrase_locked"
+        and '"' in item.query
+        and "test-time scaling" in item.query
+        and "best-of-n reranking" in item.query
+        and "2025" not in item.query
+        for item in variants
+    )
+
+
+def test_build_query_variants_adds_evidence_type_focus_for_academic_queries() -> None:
+    query = (
+        "2025 retrieval-augmented generation citation grounding "
+        "evaluation dataset factuality attribution"
+    )
+
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "academic_evidence_type_focus"
+        and "2025" not in item.query
+        and "dataset" in item.query
+        and "evaluation" in item.query
+        and "citation" in item.query
+        for item in variants
+    )
 
 
 def test_build_query_variants_builds_route_specific_mixed_variants() -> None:
@@ -46,6 +147,70 @@ def test_build_query_variants_builds_route_specific_mixed_variants() -> None:
     assert any(
         "\u4ea7\u4e1a" in item.query or "\u5e02\u573a" in item.query or "\u9884\u6d4b" in item.query
         for item in industry_variants
+    )
+
+
+def test_build_query_variants_adds_structural_cross_domain_fragments_for_mixed_queries() -> None:
+    query = "EU DORA ICT incident reporting timeline and SaaS vendor incident update notice"
+
+    policy_variants = build_query_variants(
+        query=query,
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        target_route="policy",
+        variant_limit=5,
+    )
+    industry_variants = build_query_variants(
+        query=query,
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        target_route="industry",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "cross_domain_fragment_focus"
+        and "dora" in item.query.lower()
+        and "saas vendor" not in item.query.lower()
+        for item in policy_variants
+    )
+    assert any(
+        item.reason_code == "cross_domain_fragment_focus"
+        and "saas vendor" in item.query.lower()
+        and "dora" not in item.query.lower()
+        for item in industry_variants
+    )
+
+
+def test_build_query_variants_adds_structural_document_focus_for_filing_queries() -> None:
+    query = "Visa 2025 Form 10-K payments volume processed transactions definitions"
+
+    variants = build_query_variants(
+        query=query,
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "document_focus"
+        and "visa" in item.query.lower()
+        and "form 10-k" in item.query.lower()
+        and "payments volume" in item.query.lower()
+        and "processed transactions" in item.query.lower()
+        for item in variants
+    )
+    assert any(
+        item.reason_code == "document_concept_focus"
+        and "visa" in item.query.lower()
+        and "payments volume" in item.query.lower()
+        and "processed transactions" in item.query.lower()
+        and "definition" not in item.query.lower()
+        for item in variants
     )
 
 
@@ -139,3 +304,289 @@ def test_run_retrieval_merges_unique_hits_across_successful_variants() -> None:
     assert len(observed_queries) >= 2
     assert len(outcome.results) == 2
     assert {item.title for item in outcome.results} == {"original-hit", "variant-hit"}
+
+
+def test_run_retrieval_merges_variant_provenance_for_duplicate_hits() -> None:
+    query = "Visa 2025 Form 10-K payments volume processed transactions definitions"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        query_variant_budget=5,
+        global_concurrency_cap=1,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+    document_focus_query = next(
+        item.query for item in variants if item.reason_code == "document_focus"
+    )
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query not in {query, document_focus_query}:
+            return []
+        return [
+            RetrievalHit(
+                source_id=first_step.source.source_id,
+                title="visa-form-10k-definitions",
+                url="https://example.com/visa-form-10k-definitions",
+                snippet=(
+                    "Visa Form 10-K defines payments volume and processed transactions."
+                ),
+                credibility_tier="company_official",
+            )
+        ]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert outcome.status == "success"
+    assert observed_queries[:2] == [query, document_focus_query]
+    assert len(outcome.results) == 1
+    assert outcome.results[0].target_route == "industry"
+    assert set(outcome.results[0].variant_reason_codes) == {
+        "original",
+        "document_focus",
+    }
+    assert set(outcome.results[0].variant_queries) == {
+        query,
+        document_focus_query,
+    }
+
+
+def test_run_retrieval_prioritizes_condensed_academic_variants_when_timeout_limited() -> None:
+    query = (
+        "2025 paper mixture-of-experts routing stability load balancing "
+        "auxiliary loss collapse mitigation"
+    )
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            reason_code="academic_keywords",
+            scores={"policy": 0, "academic": 5, "industry": 0},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.12,
+        overall_deadline_seconds=0.3,
+        global_concurrency_cap=1,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+    )
+    topic_focus_query = next(
+        item.query for item in variants if item.reason_code == "academic_topic_focus"
+    )
+    observed_queries: list[str] = []
+
+    async def _academic_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == topic_focus_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="moe-load-balancing",
+                    url="https://example.com/moe-load-balancing",
+                    snippet="Mixture-of-experts routing stability and load balancing paper.",
+                )
+            ]
+
+        await asyncio.sleep(0.25)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _academic_adapter},
+        )
+    )
+
+    assert observed_queries[0] == topic_focus_query
+    assert outcome.status == "success"
+    assert len(outcome.results) == 1
+    assert outcome.results[0].title == "moe-load-balancing"
+
+
+def test_run_retrieval_prioritizes_source_and_phrase_locked_academic_variants_before_original() -> None:
+    query = (
+        "2025 2026 arXiv test-time scaling large language models "
+        "compute-optimal inference best-of-n reranking"
+    )
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            reason_code="academic_keywords",
+            scores={"policy": 0, "academic": 5, "industry": 0},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.16,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=1,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=4,
+    )
+    source_hint_query = next(
+        (item.query for item in variants if item.reason_code == "academic_source_hint"),
+        None,
+    )
+    phrase_locked_query = next(
+        (item.query for item in variants if item.reason_code == "academic_phrase_locked"),
+        None,
+    )
+
+    assert source_hint_query is not None
+    assert phrase_locked_query is not None
+
+    observed_queries: list[str] = []
+
+    async def _academic_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == phrase_locked_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="test-time-scaling-reranking",
+                    url="https://example.com/test-time-scaling-reranking",
+                    snippet="Test-time scaling and best-of-n reranking paper.",
+                )
+            ]
+
+        await asyncio.sleep(0.08)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _academic_adapter},
+        )
+    )
+
+    assert observed_queries[:2] == [source_hint_query, phrase_locked_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "test-time-scaling-reranking"
+
+
+def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    mixed_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+
+    assert plan.per_source_timeout_seconds == 8.0
+    assert plan.overall_deadline_seconds == 9.0
+    assert mixed_plan.per_source_timeout_seconds == 3.0
+    assert mixed_plan.overall_deadline_seconds == 8.0
+
+
+def test_build_retrieval_plan_widens_variant_budget_for_generalization_sensitive_routes() -> None:
+    policy_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="policy",
+            primary_route="policy",
+            supplemental_route=None,
+            reason_code="policy_keywords",
+            scores={"policy": 5, "academic": 0, "industry": 0},
+        )
+    )
+    industry_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    mixed_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+
+    assert policy_plan.query_variant_budget == 3
+    assert industry_plan.query_variant_budget == 5
+    assert mixed_plan.query_variant_budget == 5
+
+
+def test_build_retrieval_plan_partitions_mixed_budget_for_discovery_and_deep_fetch() -> None:
+    mixed_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+
+    assert mixed_plan.overall_deadline_seconds == 8.0
+    assert mixed_plan.mixed_discovery_deadline_seconds == 2.5
+    assert mixed_plan.mixed_deep_deadline_seconds == 5.0
+    assert mixed_plan.mixed_shortlist_top_k == 4

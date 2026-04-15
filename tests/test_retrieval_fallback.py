@@ -299,6 +299,164 @@ def test_run_retrieval_response_shaped_429_triggers_fallback_execution() -> None
     )
 
 
+def test_run_retrieval_primary_academic_stages_arxiv_after_semantic_scholar_failure() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.05,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+    semantic_scholar_finished = asyncio.Event()
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:no_hits")
+        semantic_scholar_finished.set()
+        return []
+
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append(
+            "arxiv:start:after_semantic_scholar"
+            if semantic_scholar_finished.is_set()
+            else "arxiv:start:premature"
+        )
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:success")
+        return [_mk_hit("academic_arxiv")]
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:unexpected")
+        return [_mk_hit("academic_asta_mcp")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="single-cell foundation model transcriptomics",
+            adapter_registry={
+                "academic_semantic_scholar": _semantic_scholar,
+                "academic_arxiv": _arxiv,
+                "academic_asta_mcp": _asta,
+            },
+        )
+    )
+
+    assert events == [
+        "semantic_scholar:start",
+        "semantic_scholar:end:no_hits",
+        "arxiv:start:after_semantic_scholar",
+        "arxiv:end:success",
+    ]
+    assert outcome.status == "success"
+    assert outcome.failure_reason is None
+    assert any(hit.source_id == "academic_arxiv" for hit in outcome.results)
+
+
+def test_run_retrieval_primary_academic_weak_semantic_scholar_success_still_runs_fallback() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.05,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=3,
+    )
+    query = (
+        "2025 2026 Europe PMC single-cell foundation model transcriptomics "
+        "transformer pretraining cell type annotation"
+    )
+    events: list[str] = []
+    semantic_scholar_finished = asyncio.Event()
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:weak_success")
+        semantic_scholar_finished.set()
+        return [
+            RetrievalHit(
+                source_id="academic_semantic_scholar",
+                title="Deep Learning in Single-Cell Analysis",
+                url="https://example.com/weak-semantic-scholar",
+                snippet=(
+                    "Survey of single-cell analysis tasks including multimodal integration "
+                    "and cell type annotation."
+                ),
+                year=2022,
+                evidence_level="preprint",
+            )
+        ]
+
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append(
+            "arxiv:start:after_semantic_scholar"
+            if semantic_scholar_finished.is_set()
+            else "arxiv:start:premature"
+        )
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:success")
+        return [
+            RetrievalHit(
+                source_id="academic_arxiv",
+                title=(
+                    "Single-cell foundation model pretraining for transcriptomics "
+                    "cell type annotation"
+                ),
+                url="https://example.com/strong-arxiv",
+                snippet=(
+                    "Transformer pretraining for transcriptomics and cell type "
+                    "annotation in single-cell foundation models."
+                ),
+                year=2026,
+                evidence_level="peer_reviewed",
+            )
+        ]
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:unexpected")
+        return [_mk_hit("academic_asta_mcp")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={
+                "academic_semantic_scholar": _semantic_scholar,
+                "academic_arxiv": _arxiv,
+                "academic_asta_mcp": _asta,
+            },
+        )
+    )
+
+    assert events == [
+        "semantic_scholar:start",
+        "semantic_scholar:end:weak_success",
+        "arxiv:start:after_semantic_scholar",
+        "arxiv:end:success",
+    ]
+    assert outcome.status == "success"
+    assert outcome.failure_reason is None
+    assert [hit.source_id for hit in outcome.results] == [
+        "academic_semantic_scholar",
+        "academic_arxiv",
+    ]
+
+
 def test_run_retrieval_empty_fallback_sources_skips_fallback_execution() -> None:
     classification = ClassificationResult(
         route_label="policy",

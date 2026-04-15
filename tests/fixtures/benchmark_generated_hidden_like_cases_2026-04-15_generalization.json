@@ -1,0 +1,252 @@
+[
+  {
+    "case_id": "gen2-policy-01",
+    "query": "EU Cyber Resilience Act application date default vulnerability handling obligations official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-02",
+    "query": "UK PSTI Act no default passwords compliance date official guidance",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-03",
+    "query": "FinCEN BOI large operating company exemption definition official guidance",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-04",
+    "query": "FDA PCCP final guidance required documentation description of modifications official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-05",
+    "query": "BIS advanced computing rule performance density notification requirement official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-06",
+    "query": "EPA methane fee waste emissions charge reporting year official guidance",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-07",
+    "query": "FTC impersonation rule business-to-business scope civil penalties official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-08",
+    "query": "NIST FIPS 205 final publication date official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-09",
+    "query": "EU CBAM definitive regime start date authorized declarant obligations official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-policy-10",
+    "query": "Ofcom illegal content risk assessment guidance deadline official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-academic-01",
+    "query": "2025 2026 ORPO SimPO preference optimization comparison papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-02",
+    "query": "2025 speculative decoding draft model verification-free decoding paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-03",
+    "query": "2025 multimodal factuality chart grounding benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-04",
+    "query": "2025 long-video VLM temporal reasoning benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-05",
+    "query": "2025 retrieval token pruning ColBERT late interaction efficiency paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-06",
+    "query": "2025 code generation agent benchmark repository issue resolution paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-07",
+    "query": "2025 reasoning faithfulness chain-of-thought distillation benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-08",
+    "query": "2025 biomedical VLM chest X-ray report hallucination mitigation evaluation papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-09",
+    "query": "2025 single-cell multimodal foundation model atlas pretraining paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-academic-10",
+    "query": "2025 2026 LLM judge bias calibration benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-industry-01",
+    "query": "Apple 2025 Form 10-K services net sales definition official filing",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-02",
+    "query": "ASML 2025 annual report backlog definition system sales service sales",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-03",
+    "query": "Visa 2025 Form 10-K payments volume processed transactions definitions",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-04",
+    "query": "United Airlines 2025 annual report CASM-ex fuel definition",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-05",
+    "query": "Tesla 2025 Form 10-K energy generation and storage revenue recognition",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-06",
+    "query": "AMD 2025 Form 10-K inventory valuation foundry supply risk factors",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-07",
+    "query": "Airbus 2025 annual report order backlog cancellation rights",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-08",
+    "query": "Microsoft FY2026 Form 10-K remaining performance obligations definition",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-09",
+    "query": "ExxonMobil 2025 annual report proved reserves price assumptions definition",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-industry-10",
+    "query": "IATA 2025 cargo demand forecast CTK growth official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-mixed-01",
+    "query": "EU Cyber Resilience Act vulnerability handling obligations and impact on router vendor PSIRT update cadence",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-02",
+    "query": "UK PSTI default password ban and smart camera manufacturer security update commitment",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-03",
+    "query": "EPA methane fee reporting timeline and oil producer capex response presentation",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-04",
+    "query": "FTC junk fees disclosure rule and impact on ticketing platform checkout flow update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-05",
+    "query": "EU Data Act cloud switching obligations and impact on SaaS vendor contract update notice",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-06",
+    "query": "SEC Item 1.05 cyber incident timing rule and company 8-K disclosure playbook update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-07",
+    "query": "EU CBAM emissions reporting deadlines and effect on steelmaker decarbonization project announcement",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-08",
+    "query": "Battery Regulation recycled content declaration deadlines and impact on EV maker battery passport rollout",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-09",
+    "query": "CIRCIA ransomware payment reporting hours and SOC platform incident workflow update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-mixed-10",
+    "query": "DMA messaging interoperability obligations and impact on gatekeeper product roadmap update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen2-hard-01",
+    "query": "NIST FIPS 205 SLH-DSA-192s signature size bytes table",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-hard-02",
+    "query": "NIST FIPS 203 ML-KEM-512 encapsulation key size bytes table",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-hard-03",
+    "query": "W3C FedCM permissions policy token exact name browser spec",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-hard-04",
+    "query": "RFC 6265bis Partitioned Set-Cookie attribute token exact string official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-hard-05",
+    "query": "ES guia FDA PCCP IA dispositivo medico documentacion requerida oficial",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-hard-06",
+    "query": "FR reglement UE 2023 2854 Data Act date d'application article officiel",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-hard-07",
+    "query": "ETSI EN 303 645 no universal default passwords provision official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen2-hard-08",
+    "query": "2025 arXiv speculative decoding acceptance rate benchmark draft model experiments",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen2-hard-09",
+    "query": "SEC Form 8-K Item 1.05 four business days exact timing company filing language",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen2-hard-10",
+    "query": "2025 2026 arXiv multimodal chart reasoning hallucination benchmark papers",
+    "expected_route": "academic"
+  }
+]

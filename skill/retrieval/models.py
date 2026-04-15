@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from skill.config.retrieval import SOURCE_CREDIBILITY_TIERS
@@ -33,12 +33,21 @@ class RetrievalHit:
     first_author: str | None = None
     year: int | None = None
     evidence_level: str | None = None
+    target_route: str | None = None
+    variant_reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    variant_queries: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if self.credibility_tier is None:
             derived = derive_credibility_tier(self.source_id)
             if derived is not None:
                 object.__setattr__(self, "credibility_tier", derived)
+        object.__setattr__(self, "variant_reason_codes", tuple(self.variant_reason_codes))
+        object.__setattr__(self, "variant_queries", tuple(self.variant_queries))
+        if len(self.variant_reason_codes) != len(self.variant_queries):
+            raise ValueError(
+                "variant_reason_codes and variant_queries must have the same length"
+            )
 
 
 @dataclass(frozen=True)

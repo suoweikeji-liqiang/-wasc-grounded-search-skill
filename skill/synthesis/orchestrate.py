@@ -66,6 +66,15 @@ _SHORT_CONTENT_TOKENS = frozenset({"rag", "llm", "gpu", "ai", "xr"})
 
 _ACADEMIC_LOOKUP_MARKERS = frozenset(
     {
+        "arxiv",
+        "attribution",
+        "citation",
+        "dataset",
+        "datasets",
+        "evaluation",
+        "factuality",
+        "grounding",
+        "hallucination",
         "paper",
         "papers",
         "study",
@@ -77,6 +86,12 @@ _ACADEMIC_LOOKUP_MARKERS = frozenset(
         "\u8bba\u6587",
         "\u7814\u7a76",
         "\u7efc\u8ff0",
+    }
+)
+_ACADEMIC_LOOKUP_PHRASES = frozenset(
+    {
+        "europe pmc",
+        "semantic scholar",
     }
 )
 _ACADEMIC_EXPLANATORY_MARKERS = frozenset(
@@ -97,6 +112,44 @@ _INDUSTRY_LOOKUP_MARKERS = frozenset(
         "\u51fa\u8d27",
         "\u4efd\u989d",
         "\u5e02\u573a",
+        "filing",
+        "form",
+        "annual",
+        "report",
+        "earnings",
+        "guidance",
+        "revenue",
+        "segment",
+        "backlog",
+        "liquidity",
+        "warranty",
+        "reserves",
+        "cet1",
+        "rfc",
+        "spec",
+        "specification",
+        "webauthn",
+        "passkey",
+        "discoverable",
+        "credential",
+        "chips",
+        "cookie",
+        "abnf",
+        "signature",
+        "input",
+    }
+)
+_INDUSTRY_LOOKUP_PHRASES = frozenset(
+    {
+        "10-k",
+        "10-q",
+        "8-k",
+        "20-f",
+        "6-k",
+        "annual report",
+        "quarterly report",
+        "set-cookie",
+        "http message signatures",
     }
 )
 _INDUSTRY_EXPLANATORY_MARKERS = frozenset(
@@ -117,21 +170,35 @@ _POLICY_LOOKUP_MARKERS = frozenset(
         "order",
         "notice",
         "official",
+        "officiel",
         "directive",
         "regulation",
+        "reglement",
+        "article",
         "obligation",
         "obligations",
+        "compliance",
+        "milestone",
+        "milestones",
+        "eligibility",
+        "scope",
         "transposition",
         "application",
         "commencement",
         "fips",
         "nist",
         "fda",
+        "fcc",
         "epa",
         "ftc",
+        "ofcom",
         "cisa",
         "circia",
         "pccp",
+        "cgmp",
+        "oai",
+        "vai",
+        "nai",
         "\u6700\u65b0",
         "\u7248\u672c",
         "\u751f\u6548",
@@ -189,6 +256,29 @@ _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "metadata_only": 0,
     None: 0,
 }
+_ACADEMIC_FAST_PATH_GENERIC_TERMS = frozenset(
+    {
+        "academic",
+        "benchmark",
+        "benchmarks",
+        "evaluation",
+        "generation",
+        "grounded",
+        "paper",
+        "papers",
+        "peer",
+        "preprint",
+        "research",
+        "retrieval",
+        "review",
+        "reviewed",
+        "study",
+        "studies",
+        "survey",
+        "system",
+        "systems",
+    }
+)
 _DATE_LITERAL_RE = re.compile(r"20\d{2}-\d{2}-\d{2}")
 _YEAR_LITERAL_RE = re.compile(r"20\d{2}")
 _VERSION_LITERAL_RE = re.compile(r"version [^.;,)]+", re.IGNORECASE)
@@ -236,6 +326,14 @@ def _content_terms(text: str) -> set[str]:
             or (token.isdigit() and len(token) == 4)
             or not token.isascii()
         )
+    }
+
+
+def _academic_focus_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in _content_terms(text)
+        if token not in _ACADEMIC_FAST_PATH_GENERIC_TERMS
     }
 
 
@@ -346,6 +444,47 @@ def _top_route_matches(
     )
 
 
+def _academic_fast_path_match_allowed(
+    query: str,
+    *,
+    record: CanonicalEvidence,
+    matched_slice: EvidenceSlice,
+    slice_overlap: int,
+) -> bool:
+    query_terms = _academic_focus_terms(query)
+    required_overlap = min(2, len(query_terms))
+    if required_overlap <= 0:
+        return True
+    if slice_overlap >= required_overlap:
+        return True
+
+    combined_terms = _academic_focus_terms(record.canonical_title)
+    combined_terms.update(_academic_focus_terms(matched_slice.text))
+    combined_overlap = len(query_terms & combined_terms)
+    if combined_overlap < required_overlap:
+        return False
+
+    alignment_score = score_query_alignment(
+        query,
+        route="academic",
+        title=record.canonical_title,
+        snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+        url=record.canonical_url,
+        year=record.year,
+    )
+    return alignment_score >= max(5, required_overlap * 3)
+
+
+def _academic_fast_path_runtime_ok(retrieval_response: RetrieveResponse) -> bool:
+    if retrieval_response.status == "success":
+        return True
+    if retrieval_response.status != "partial":
+        return False
+    return bool(retrieval_response.gaps) and all(
+        gap.startswith("academic_") for gap in retrieval_response.gaps
+    )
+
+
 def _contains_marker(
     normalized_query: str,
     tokens: set[str],
@@ -366,11 +505,20 @@ def _query_contains_marker(query: str, markers: frozenset[str]) -> bool:
 def _is_academic_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
-    return _contains_marker(
-        normalized, tokens, _ACADEMIC_LOOKUP_MARKERS
-    ) and not _contains_marker(
+    if _contains_marker(
         normalized, tokens, _ACADEMIC_EXPLANATORY_MARKERS
-    )
+    ):
+        return False
+
+    if (
+        _contains_marker(normalized, tokens, _ACADEMIC_LOOKUP_MARKERS)
+        or any(marker in normalized for marker in _ACADEMIC_LOOKUP_PHRASES)
+        or "openalex" in tokens
+    ):
+        return True
+
+    traits = derive_query_traits(query)
+    return traits.has_year and len(_academic_focus_terms(query)) >= 3
 
 
 def _is_policy_lookup_query(query: str) -> bool:
@@ -393,6 +541,7 @@ def _is_industry_lookup_query(query: str) -> bool:
     traits = derive_query_traits(query)
     return (
         _contains_marker(normalized, tokens, _INDUSTRY_LOOKUP_MARKERS)
+        or any(marker in normalized for marker in _INDUSTRY_LOOKUP_PHRASES)
         or traits.has_trend_intent
     ) and not _contains_marker(
         normalized, tokens, _INDUSTRY_EXPLANATORY_MARKERS
@@ -1453,11 +1602,21 @@ async def execute_answer_pipeline_with_trace(
     budget = runtime_budget or RuntimeBudget.from_env()
     request_id = uuid.uuid4().hex
     started_at = time.perf_counter()
+    retrieval_deadline_seconds = budget.retrieval_deadline_seconds
+    if (
+        plan.route_label == "industry"
+        and plan.primary_route == "industry"
+        and _is_industry_lookup_query(query)
+    ):
+        retrieval_deadline_seconds = max(
+            retrieval_deadline_seconds,
+            plan.overall_deadline_seconds,
+        )
     retrieval_plan = replace(
         plan,
         overall_deadline_seconds=min(
             plan.overall_deadline_seconds,
-            budget.retrieval_deadline_seconds,
+            retrieval_deadline_seconds,
         ),
     )
     cached_entry = ANSWER_CACHE.get(query=query, plan=retrieval_plan)
@@ -1514,8 +1673,8 @@ async def execute_answer_pipeline_with_trace(
 
     if (
         retrieval_response.primary_route == "academic"
-        and retrieval_response.status == "success"
-        and not retrieval_response.gaps
+        and _academic_fast_path_runtime_ok(retrieval_response)
+        and canonical_evidence
         and _is_academic_lookup_query(query)
     ):
         academic_matches = _top_route_matches(
@@ -1525,9 +1684,11 @@ async def execute_answer_pipeline_with_trace(
             route_role="primary",
             limit=2,
         )
-        if (
-            academic_matches
-            and academic_matches[0][2] >= min(2, len(_content_terms(query)))
+        if academic_matches and _academic_fast_path_match_allowed(
+            query,
+            record=academic_matches[0][0],
+            matched_slice=academic_matches[0][1],
+            slice_overlap=academic_matches[0][2],
         ):
             response = _build_academic_lookup_fast_path_response(
                 retrieval_response,

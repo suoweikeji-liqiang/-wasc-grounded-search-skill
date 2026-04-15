@@ -44,6 +44,41 @@ async def fetch_text(
             return response.text
 
 
+async def fetch_text_limited(
+    *,
+    url: str,
+    params: Mapping[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = 10.0,
+    max_chars: int = 400_000,
+) -> str:
+    merged_headers = dict(_DEFAULT_HEADERS)
+    if headers:
+        merged_headers.update(headers)
+    timeout_config = httpx.Timeout(timeout)
+    async with asyncio.timeout(timeout):
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout_config,
+            trust_env=_trust_env(),
+        ) as client:
+            async with client.stream(
+                "GET",
+                url,
+                params=params,
+                headers=merged_headers,
+            ) as response:
+                response.raise_for_status()
+                parts: list[str] = []
+                total_chars = 0
+                async for chunk in response.aiter_text():
+                    parts.append(chunk)
+                    total_chars += len(chunk)
+                    if total_chars >= max(1, max_chars):
+                        break
+                return "".join(parts)
+
+
 async def fetch_json(
     *,
     url: str,

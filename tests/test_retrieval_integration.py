@@ -426,6 +426,113 @@ def test_execute_retrieval_pipeline_mixed_policy_academic_runtime_case_surfaces_
     )
 
 
+def test_execute_retrieval_pipeline_mixed_runtime_case_prefers_fragment_aligned_records_per_route(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.orchestrate as orchestrate
+
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="explicit_cross_domain",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        )
+    )
+    query = "EU DORA ICT incident reporting timeline and SaaS vendor incident update notice"
+
+    async def _fake_run_retrieval(**_: object) -> RetrievalExecutionOutcome:
+        return _outcome(
+            RetrievalHit(
+                source_id="policy_official_registry",
+                title="EU DORA SaaS vendor incident coordination notice",
+                url="https://eur-lex.europa.eu/dora-vendor-coordination",
+                snippet=(
+                    "EU DORA SaaS vendor incident coordination notice covering vendor updates "
+                    "and notification expectations."
+                ),
+                credibility_tier="official_government",
+                authority="European Union",
+                jurisdiction="EU",
+                publication_date="2025-01-15",
+                effective_date="2025-02-01",
+                version="2025 coordination notice",
+                target_route="policy",
+                variant_reason_codes=("original",),
+                variant_queries=(query,),
+            ),
+            RetrievalHit(
+                source_id="policy_official_registry",
+                title="EU DORA ICT incident reporting timeline",
+                url="https://eur-lex.europa.eu/dora-reporting-timeline",
+                snippet=(
+                    "DORA sets ICT incident reporting timeline, initial notification timing, "
+                    "and follow-up report deadlines."
+                ),
+                credibility_tier="official_government",
+                authority="European Union",
+                jurisdiction="EU",
+                publication_date="2025-01-10",
+                effective_date="2025-02-01",
+                version="2025 reporting timeline",
+                target_route="policy",
+                variant_reason_codes=("cross_domain_fragment_focus",),
+                variant_queries=("EU DORA ICT incident reporting timeline",),
+            ),
+            RetrievalHit(
+                source_id="industry_ddgs",
+                title="SaaS vendor DORA compliance overview",
+                url="https://vendor.example.com/dora-overview",
+                snippet=(
+                    "SaaS vendor overview of DORA compliance, customer updates, and incident "
+                    "communication expectations."
+                ),
+                credibility_tier="company_official",
+                target_route="industry",
+                variant_reason_codes=("original",),
+                variant_queries=(query,),
+            ),
+            RetrievalHit(
+                source_id="industry_ddgs",
+                title="SaaS vendor incident update commitment",
+                url="https://vendor.example.com/incident-update-commitment",
+                snippet=(
+                    "Vendor commits to customer incident update notices and operational status "
+                    "communications during service disruptions."
+                ),
+                credibility_tier="company_official",
+                target_route="industry",
+                variant_reason_codes=("cross_domain_fragment_focus",),
+                variant_queries=("SaaS vendor incident update notice",),
+            ),
+        )
+
+    monkeypatch.setattr(orchestrate, "run_retrieval", _fake_run_retrieval)
+
+    response = asyncio.run(
+        orchestrate.execute_retrieval_pipeline(
+            plan=plan,
+            query=query,
+            adapter_registry={},
+        )
+    )
+
+    primary_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "primary"
+    ]
+    supplemental_titles = [
+        item.canonical_title
+        for item in response.canonical_evidence
+        if item.route_role == "supplemental"
+    ]
+
+    assert primary_titles[0] == "EU DORA ICT incident reporting timeline"
+    assert supplemental_titles[0] == "SaaS vendor incident update commitment"
+
+
 def test_execute_retrieval_pipeline_mixed_chinese_runtime_case_keeps_query_aligned_records_per_route(
     monkeypatch,
 ) -> None:

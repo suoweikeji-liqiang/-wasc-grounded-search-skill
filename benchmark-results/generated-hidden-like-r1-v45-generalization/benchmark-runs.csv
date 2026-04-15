@@ -1,0 +1,51 @@
+case_id,run_index,query,route_label,answer_status,retrieval_status,success,elapsed_ms,evidence_token_estimate,answer_token_estimate,latency_budget_ok,token_budget_ok,failure_reason
+gen2-policy-01,1,EU Cyber Resilience Act application date default vulnerability handling obligations official text,policy,grounded_success,success,True,3327,15,47,True,True,
+gen2-policy-02,1,UK PSTI Act no default passwords compliance date official guidance,policy,retrieval_failure,failure_gaps,False,6006,0,13,False,True,timeout
+gen2-policy-03,1,FinCEN BOI large operating company exemption definition official guidance,policy,grounded_success,success,True,4167,21,71,True,True,
+gen2-policy-04,1,FDA PCCP final guidance required documentation description of modifications official,policy,grounded_success,success,True,4074,14,51,True,True,
+gen2-policy-05,1,BIS advanced computing rule performance density notification requirement official text,policy,retrieval_failure,failure_gaps,False,6012,0,13,False,True,timeout
+gen2-policy-06,1,EPA methane fee waste emissions charge reporting year official guidance,policy,grounded_success,success,True,4718,10,40,True,True,
+gen2-policy-07,1,FTC impersonation rule business-to-business scope civil penalties official text,policy,grounded_success,success,True,4486,10,35,True,True,
+gen2-policy-08,1,NIST FIPS 205 final publication date official,policy,grounded_success,success,True,4200,21,60,True,True,
+gen2-policy-09,1,EU CBAM definitive regime start date authorized declarant obligations official text,policy,retrieval_failure,failure_gaps,False,6011,0,13,False,True,timeout
+gen2-policy-10,1,Ofcom illegal content risk assessment guidance deadline official,policy,grounded_success,success,True,3220,21,59,True,True,
+gen2-academic-01,1,2025 2026 ORPO SimPO preference optimization comparison papers,academic,insufficient_evidence,success,False,6581,40,28,True,True,
+gen2-academic-02,1,2025 speculative decoding draft model verification-free decoding paper,academic,grounded_success,success,True,6014,40,101,False,True,
+gen2-academic-03,1,2025 multimodal factuality chart grounding benchmark papers,academic,grounded_success,success,True,6317,40,106,False,True,
+gen2-academic-04,1,2025 long-video VLM temporal reasoning benchmark papers,academic,grounded_success,success,True,6449,40,116,False,True,
+gen2-academic-05,1,2025 retrieval token pruning ColBERT late interaction efficiency paper,academic,grounded_success,success,True,3025,9,32,True,True,
+gen2-academic-06,1,2025 code generation agent benchmark repository issue resolution paper,academic,grounded_success,success,True,6019,40,106,False,True,
+gen2-academic-07,1,2025 reasoning faithfulness chain-of-thought distillation benchmark paper,academic,grounded_success,success,True,6010,40,116,False,True,
+gen2-academic-08,1,2025 biomedical VLM chest X-ray report hallucination mitigation evaluation papers,academic,grounded_success,success,True,6012,40,110,False,True,
+gen2-academic-09,1,2025 single-cell multimodal foundation model atlas pretraining paper,academic,grounded_success,success,True,6003,40,105,False,True,
+gen2-academic-10,1,2025 2026 LLM judge bias calibration benchmark papers,academic,grounded_success,success,True,5998,40,111,True,True,
+gen2-industry-01,1,Apple 2025 Form 10-K services net sales definition official filing,industry,grounded_success,success,True,8077,9,27,False,True,
+gen2-industry-02,1,ASML 2025 annual report backlog definition system sales service sales,industry,grounded_success,success,True,8017,39,88,False,True,
+gen2-industry-03,1,Visa 2025 Form 10-K payments volume processed transactions definitions,industry,retrieval_failure,failure_gaps,False,9490,0,12,False,True,timeout
+gen2-industry-04,1,United Airlines 2025 annual report CASM-ex fuel definition,industry,grounded_success,success,True,7997,9,29,False,True,
+gen2-industry-05,1,Tesla 2025 Form 10-K energy generation and storage revenue recognition,industry,retrieval_failure,failure_gaps,False,9110,0,12,False,True,timeout
+gen2-industry-06,1,AMD 2025 Form 10-K inventory valuation foundry supply risk factors,industry,grounded_success,success,True,8482,38,87,False,True,
+gen2-industry-07,1,Airbus 2025 annual report order backlog cancellation rights,industry,grounded_success,success,True,8012,40,92,False,True,
+gen2-industry-08,1,Microsoft FY2026 Form 10-K remaining performance obligations definition,industry,grounded_success,success,True,8002,36,81,False,True,
+gen2-industry-09,1,ExxonMobil 2025 annual report proved reserves price assumptions definition,industry,grounded_success,success,True,7999,40,90,False,True,
+gen2-industry-10,1,IATA 2025 cargo demand forecast CTK growth official,industry,insufficient_evidence,success,False,6985,10,23,False,True,
+gen2-mixed-01,1,EU Cyber Resilience Act vulnerability handling obligations and impact on router vendor PSIRT update cadence,policy,retrieval_failure,failure_gaps,False,5997,0,13,True,True,timeout
+gen2-mixed-02,1,UK PSTI default password ban and smart camera manufacturer security update commitment,mixed,retrieval_failure,failure_gaps,False,6010,0,13,False,True,timeout
+gen2-mixed-03,1,EPA methane fee reporting timeline and oil producer capex response presentation,mixed,retrieval_failure,failure_gaps,False,6017,0,13,False,True,timeout
+gen2-mixed-04,1,FTC junk fees disclosure rule and impact on ticketing platform checkout flow update,policy,insufficient_evidence,success,False,4511,10,23,True,True,
+gen2-mixed-05,1,EU Data Act cloud switching obligations and impact on SaaS vendor contract update notice,policy,insufficient_evidence,success,False,5090,15,18,True,True,
+gen2-mixed-06,1,SEC Item 1.05 cyber incident timing rule and company 8-K disclosure playbook update,mixed,retrieval_failure,failure_gaps,False,4906,0,13,True,True,timeout
+gen2-mixed-07,1,EU CBAM emissions reporting deadlines and effect on steelmaker decarbonization project announcement,policy,retrieval_failure,failure_gaps,False,4813,0,13,True,True,timeout
+gen2-mixed-08,1,Battery Regulation recycled content declaration deadlines and impact on EV maker battery passport rollout,mixed,retrieval_failure,failure_gaps,False,5247,0,14,True,True,timeout
+gen2-mixed-09,1,CIRCIA ransomware payment reporting hours and SOC platform incident workflow update,mixed,retrieval_failure,failure_gaps,False,4900,0,13,True,True,timeout
+gen2-mixed-10,1,DMA messaging interoperability obligations and impact on gatekeeper product roadmap update,policy,insufficient_evidence,success,False,3968,15,18,True,True,
+gen2-hard-01,1,NIST FIPS 205 SLH-DSA-192s signature size bytes table,policy,grounded_success,success,True,2001,21,60,True,True,
+gen2-hard-02,1,NIST FIPS 203 ML-KEM-512 encapsulation key size bytes table,policy,grounded_success,success,True,2167,21,59,True,True,
+gen2-hard-03,1,W3C FedCM permissions policy token exact name browser spec,industry,retrieval_failure,failure_gaps,False,7237,0,12,False,True,no_hits
+gen2-hard-04,1,RFC 6265bis Partitioned Set-Cookie attribute token exact string official,industry,retrieval_failure,failure_gaps,False,4547,0,12,True,True,no_hits
+gen2-hard-05,1,ES guia FDA PCCP IA dispositivo medico documentacion requerida oficial,policy,grounded_success,success,True,2038,14,51,True,True,
+gen2-hard-06,1,FR reglement UE 2023 2854 Data Act date d'application article officiel,policy,grounded_success,success,True,3594,42,116,True,True,
+gen2-hard-07,1,ETSI EN 303 645 no universal default passwords provision official,policy,retrieval_failure,failure_gaps,False,6018,0,13,False,True,timeout
+gen2-hard-08,1,2025 arXiv speculative decoding acceptance rate benchmark draft model experiments,academic,grounded_success,success,True,6009,40,101,False,True,
+gen2-hard-09,1,SEC Form 8-K Item 1.05 four business days exact timing company filing language,industry,grounded_success,success,True,8023,40,90,False,True,
+gen2-hard-10,1,2025 2026 arXiv multimodal chart reasoning hallucination benchmark papers,academic,grounded_success,success,True,3026,40,107,True,True,

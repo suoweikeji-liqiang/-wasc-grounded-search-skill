@@ -1,0 +1,252 @@
+[
+  {
+    "case_id": "gen3-policy-01",
+    "query": "EU DORA major ICT incident initial notification deadline official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-02",
+    "query": "FTC click-to-cancel negative option rule annual reminder requirement official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-03",
+    "query": "FDA section 524B cybersecurity device refusal to accept SBOM requirement official guidance",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-04",
+    "query": "EU AI Act deepfake disclosure obligation official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-05",
+    "query": "DOJ data security program prohibited transactions bulk sensitive personal data official rule",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-06",
+    "query": "FCC Cyber Trust Mark lab accreditation recognition requirements official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-07",
+    "query": "NIS2 essential entity significant incident early warning deadline official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-08",
+    "query": "EU Cyber Resilience Act vulnerability exploitation reporting obligation official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-09",
+    "query": "CBAM default values use conditions embedded emissions official text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-policy-10",
+    "query": "EPA PFAS CERCLA hazardous substance reportable quantity official",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-academic-01",
+    "query": "2025 process reward model verifier benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-02",
+    "query": "2025 graph RAG benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-03",
+    "query": "2025 speech language model instruction following benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-04",
+    "query": "2025 SWE-bench code repair agent benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-05",
+    "query": "2025 multimodal computer use agent benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-06",
+    "query": "2025 multilingual reasoning low-resource benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-07",
+    "query": "2025 long-context retrieval collapse benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-08",
+    "query": "2025 diffusion language model discrete diffusion benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-09",
+    "query": "2025 LLM watermark removal robustness paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-academic-10",
+    "query": "2025 robotics vision-language action model benchmark paper",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-industry-01",
+    "query": "Alphabet 2025 Form 10-K TAC definition official filing",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-02",
+    "query": "Amazon 2025 Form 10-K AWS segment operating income definition official filing",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-03",
+    "query": "Netflix 2025 annual report paid memberships definition official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-04",
+    "query": "Salesforce FY2026 Form 10-K current remaining performance obligation definition",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-05",
+    "query": "Qualcomm 2025 annual report QCT QTL revenue definitions official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-06",
+    "query": "Mastercard 2025 Form 10-K gross dollar volume switched transactions definitions",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-07",
+    "query": "Delta Air Lines 2025 annual report TRASM definition official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-08",
+    "query": "Chevron 2025 annual report proved reserves price assumptions definition official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-09",
+    "query": "SAP 2025 annual report current cloud backlog definition official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-industry-10",
+    "query": "Adobe FY2025 annual report remaining performance obligations definition official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-mixed-01",
+    "query": "EU DORA ICT incident reporting timeline and SaaS vendor incident update notice",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-02",
+    "query": "FTC click-to-cancel rule and streaming platform subscription flow redesign update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-03",
+    "query": "FDA section 524B cybersecurity SBOM requirement and medical device vendor secure update commitment",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-04",
+    "query": "EU AI Act deepfake disclosure obligations and video platform creator policy update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-05",
+    "query": "DOJ data security program prohibited data broker transfers and broker privacy policy changes",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-06",
+    "query": "CBAM embedded emissions reporting and aluminum producer decarbonization capex announcement",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-07",
+    "query": "SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-08",
+    "query": "NIS2 early warning deadline and telecom operator incident workflow update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-09",
+    "query": "FCC Cyber Trust Mark scope and router vendor certification roadmap update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-mixed-10",
+    "query": "EU Cyber Resilience Act secure-by-default obligations and IoT camera maker release cadence update",
+    "expected_route": "mixed"
+  },
+  {
+    "case_id": "gen3-hard-01",
+    "query": "RFC 9421 Signature-Input created parameter exact token official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-hard-02",
+    "query": "W3C FedCM well-known file path exact string official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-hard-03",
+    "query": "WebAuthn Level 3 prf extension identifier exact token official",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-hard-04",
+    "query": "DE AI Act Deepfake Kennzeichnungspflicht offizieller Text",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-hard-05",
+    "query": "FR declarant CBAM autorise definition texte officiel",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-hard-06",
+    "query": "ETSI EN 303 645 software update requirement official provision",
+    "expected_route": "policy"
+  },
+  {
+    "case_id": "gen3-hard-07",
+    "query": "2025 arXiv graph RAG benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-hard-08",
+    "query": "2025 2026 arXiv process reward model verifier benchmark papers",
+    "expected_route": "academic"
+  },
+  {
+    "case_id": "gen3-hard-09",
+    "query": "SEC Form 10-K principal versus agent revenue disclosure company filing language",
+    "expected_route": "industry"
+  },
+  {
+    "case_id": "gen3-hard-10",
+    "query": "中文 RFC 6265bis Partitioned 属性 精确 token 官方",
+    "expected_route": "industry"
+  }
+]

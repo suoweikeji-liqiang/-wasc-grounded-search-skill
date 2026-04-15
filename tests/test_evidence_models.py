@@ -84,6 +84,34 @@ def test_build_raw_record_preserves_retrieval_hit_provenance() -> None:
     )
 
 
+def test_build_raw_record_preserves_variant_provenance() -> None:
+    hit = RetrievalHit(
+        source_id="policy_official_registry",
+        title="EU DORA ICT incident reporting timeline",
+        url="https://eur-lex.europa.eu/dora-reporting",
+        snippet="DORA defines ICT incident reporting timeline and follow-up report duties.",
+        credibility_tier="official_government",
+        target_route="policy",
+        variant_reason_codes=("original", "cross_domain_fragment_focus"),
+        variant_queries=(
+            "EU DORA ICT incident reporting timeline and SaaS vendor incident update notice",
+            "EU DORA ICT incident reporting timeline",
+        ),
+    )
+
+    record = build_raw_record(hit=hit, route_role="primary")
+
+    assert record.target_route == "policy"
+    assert record.variant_reason_codes == (
+        "original",
+        "cross_domain_fragment_focus",
+    )
+    assert record.variant_queries == (
+        "EU DORA ICT incident reporting timeline and SaaS vendor incident update notice",
+        "EU DORA ICT incident reporting timeline",
+    )
+
+
 def test_normalize_hit_candidates_applies_route_role_by_source() -> None:
     policy_hit = RetrievalHit(
         source_id="policy_official_registry",
@@ -249,4 +277,3 @@ def test_linked_variants_and_evidence_pack_keep_raw_and_canonical_records() -> N
     assert canonical.raw_records[0] is raw_record
     assert pack.raw_records == (raw_record,)
     assert pack.canonical_evidence == (canonical,)
-

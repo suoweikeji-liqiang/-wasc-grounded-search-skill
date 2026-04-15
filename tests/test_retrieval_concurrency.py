@@ -69,6 +69,112 @@ def test_policy_first_wave_excludes_policy_official_web_allowlist_fallback() -> 
     assert "policy_official_web_allowlist_fallback" not in DOMAIN_FIRST_WAVE_SOURCES["policy"]
 
 
+def test_primary_academic_plan_uses_staged_semantic_scholar_then_arxiv_then_asta() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+
+    plan = build_retrieval_plan(classification)
+
+    assert [step.source.source_id for step in plan.first_wave_sources] == [
+        "academic_semantic_scholar"
+    ]
+    assert [
+        (
+            step.fallback_from_source_id,
+            step.source.source_id,
+            step.trigger_on_failures,
+        )
+        for step in plan.fallback_sources
+    ] == [
+        (
+            "academic_semantic_scholar",
+            "academic_arxiv",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+        (
+            "academic_arxiv",
+            "academic_asta_mcp",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+    ]
+
+
+def test_primary_academic_plan_prefers_arxiv_only_for_explicit_europe_pmc_hint() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+
+    arxiv_plan = build_retrieval_plan(
+        classification,
+        query=(
+            "2025 2026 arXiv test-time scaling large language models "
+            "compute-optimal inference best-of-n reranking"
+        ),
+    )
+    europe_pmc_plan = build_retrieval_plan(
+        classification,
+        query=(
+            "2025 2026 Europe PMC single-cell foundation model transcriptomics "
+            "transformer pretraining cell type annotation"
+        ),
+    )
+
+    assert [step.source.source_id for step in arxiv_plan.first_wave_sources] == [
+        "academic_semantic_scholar"
+    ]
+    assert [
+        (
+            step.fallback_from_source_id,
+            step.source.source_id,
+            step.trigger_on_failures,
+        )
+        for step in arxiv_plan.fallback_sources
+    ] == [
+        (
+            "academic_semantic_scholar",
+            "academic_arxiv",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+        (
+            "academic_arxiv",
+            "academic_asta_mcp",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+    ]
+
+    assert [step.source.source_id for step in europe_pmc_plan.first_wave_sources] == [
+        "academic_arxiv"
+    ]
+    assert [
+        (
+            step.fallback_from_source_id,
+            step.source.source_id,
+            step.trigger_on_failures,
+        )
+        for step in europe_pmc_plan.fallback_sources
+    ] == [
+        (
+            "academic_arxiv",
+            "academic_semantic_scholar",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+        (
+            "academic_semantic_scholar",
+            "academic_asta_mcp",
+            ("no_hits", "timeout", "rate_limited"),
+        ),
+    ]
+
+
 def test_mixed_route_uses_full_primary_plus_single_supplemental_source() -> None:
     mixed_case = next(
         item

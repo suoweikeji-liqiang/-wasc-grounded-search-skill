@@ -60,6 +60,74 @@ def _query_match_score(query: str, record: CanonicalEvidence) -> int:
     )
 
 
+def _route_role_by_target_route(plan: RetrievalPlan) -> dict[str, str]:
+    route_role_by_target_route = {plan.primary_route: "primary"}
+    if plan.supplemental_route is not None:
+        route_role_by_target_route[plan.supplemental_route] = "supplemental"
+    return route_role_by_target_route
+
+
+def _record_variant_pairs(record: CanonicalEvidence) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    for raw_record in record.raw_records:
+        for reason_code, variant_query in zip(
+            raw_record.variant_reason_codes,
+            raw_record.variant_queries,
+            strict=False,
+        ):
+            pair = (reason_code, variant_query)
+            if pair not in pairs:
+                pairs.append(pair)
+    return tuple(pairs)
+
+
+def _record_focus_queries(record: CanonicalEvidence) -> tuple[str, ...]:
+    variant_pairs = _record_variant_pairs(record)
+    return tuple(
+        dict.fromkeys(
+            query
+            for reason_code, query in variant_pairs
+            if reason_code != "original"
+        )
+    )
+
+
+def _record_route_query_match_score(
+    *,
+    record: CanonicalEvidence,
+    route: str,
+) -> int:
+    focus_queries = _record_focus_queries(record)
+    if not focus_queries:
+        return 0
+    return max(
+        score_query_alignment(
+            focus_query,
+            route=route,  # type: ignore[arg-type]
+            title=record.canonical_title,
+            snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+            url=record.canonical_url,
+            authority=record.authority,
+            publication_date=record.publication_date,
+            effective_date=record.effective_date,
+            version=record.version,
+            year=record.year,
+        )
+        for focus_query in focus_queries
+    )
+
+
+def _mixed_route_query_match_score(
+    *,
+    plan: RetrievalPlan,
+    record: CanonicalEvidence,
+) -> int:
+    route = plan.primary_route if record.route_role == "primary" else plan.supplemental_route
+    if route is None:
+        return 0
+    return _record_route_query_match_score(record=record, route=route)
+
+
 def _interleave_mixed_records(
     primary_records: list[CanonicalEvidence],
     supplemental_records: list[CanonicalEvidence],
@@ -79,6 +147,7 @@ def _interleave_mixed_records(
 def _best_mixed_route_record(
     records: list[CanonicalEvidence],
     *,
+    plan: RetrievalPlan,
     query: str,
     route_role: str,
 ) -> CanonicalEvidence | None:
@@ -88,13 +157,17 @@ def _best_mixed_route_record(
     ranked = sorted(
         candidates,
         key=lambda record: (
+            -_mixed_route_query_match_score(plan=plan, record=record),
             -_query_match_score(query, record),
             -getattr(record, "total_score", 0.0),
             record.evidence_id,
         ),
     )
     best = ranked[0]
-    if _query_match_score(query, best) <= 0:
+    if (
+        _mixed_route_query_match_score(plan=plan, record=best) <= 0
+        and _query_match_score(query, best) <= 0
+    ):
         return None
     return best
 
@@ -111,11 +184,13 @@ def _seed_mixed_coverage_records(
 
     best_primary = _best_mixed_route_record(
         records,
+        plan=plan,
         query=query,
         route_role="primary",
     )
     best_supplemental = _best_mixed_route_record(
         records,
+        plan=plan,
         query=query,
         route_role="supplemental",
     )
@@ -159,6 +234,7 @@ def _order_records_for_response(
         ordered_primary = sorted(
             primary_records,
             key=lambda record: (
+                -_mixed_route_query_match_score(plan=plan, record=record),
                 -_query_match_score(query, record),
                 -getattr(record, "total_score", 0.0),
                 record.evidence_id,
@@ -167,6 +243,7 @@ def _order_records_for_response(
         ordered_supplemental = sorted(
             supplemental_records,
             key=lambda record: (
+                -_mixed_route_query_match_score(plan=plan, record=record),
                 -_query_match_score(query, record),
                 -getattr(record, "total_score", 0.0),
                 record.evidence_id,
@@ -324,6 +401,7 @@ async def execute_retrieval_pipeline(
     normalized_records = normalize_hit_candidates(
         hits=prioritized_hits,
         route_role_by_source=_route_role_by_source(plan),
+        route_role_by_target_route=_route_role_by_target_route(plan),
     )
     canonical_records = collapse_evidence_records(normalized_records)
     scored_records = score_evidence_records(canonical_records)

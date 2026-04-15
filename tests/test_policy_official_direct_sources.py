@@ -5,6 +5,241 @@ from __future__ import annotations
 import asyncio
 
 
+def test_eur_lex_direct_source_matches_french_ai_act_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query="FR reglement UE 2024 1689 definition systeme d IA article officiel",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng"
+    assert hits[0]["authority"] == "European Union"
+    assert hits[0]["jurisdiction"] == "EU"
+
+
+def test_us_agency_direct_source_matches_fcc_cyber_trust_mark_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query=(
+                "FCC Cyber Trust Mark minimum security requirements eligibility "
+                "scope official"
+            ),
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Federal Communications Commission"
+    assert hits[0]["jurisdiction"] == "US"
+    assert "fcc.gov" in hits[0]["url"]
+
+
+def test_us_agency_direct_source_filters_out_unrelated_us_policy_records() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FCC Cyber Trust Mark minimum security requirements eligibility scope official",
+            max_results=5,
+        )
+    )
+
+    assert hits == [
+        {
+            "title": "U.S. Cyber Trust Mark",
+            "url": "https://www.fcc.gov/CyberTrustMark",
+            "snippet": (
+                "Official FCC landing page for the U.S. Cyber Trust Mark labeling "
+                "program, including eligibility scope and baseline cybersecurity "
+                "requirements for wireless consumer IoT products."
+            ),
+            "authority": "Federal Communications Commission",
+            "jurisdiction": "US",
+            "publication_date": "2024-03-14",
+            "effective_date": None,
+            "version": "Program page",
+        }
+    ]
+
+
+def test_us_agency_direct_source_matches_fda_inspection_classification_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FDA CGMP inspection classification OAI VAI NAI definitions official",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "U.S. Food and Drug Administration"
+    assert hits[0]["jurisdiction"] == "US"
+    assert "inspection" in hits[0]["title"].lower()
+    assert "fda.gov" in hits[0]["url"]
+
+
+def test_uk_direct_source_matches_ofcom_illegal_harms_codes_query() -> None:
+    from skill.retrieval.live.clients.policy_uk_legislation import search_uk_legislation
+
+    hits = asyncio.run(
+        search_uk_legislation(
+            query=(
+                "Ofcom illegal harms codes of practice online safety act "
+                "compliance milestones official"
+            ),
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Ofcom"
+    assert hits[0]["jurisdiction"] == "UK"
+    assert hits[0]["url"].startswith("https://www.ofcom.org.uk/")
+
+
+def test_eur_lex_direct_source_matches_data_act_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query=(
+                "EU Data Act application date connected products data holder "
+                "obligations trade-secret safeguards official"
+            ),
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2023/2854/oj/eng"
+    assert hits[0]["authority"] == "European Union"
+    assert hits[0]["jurisdiction"] == "EU"
+
+
+def test_policy_registry_live_adapter_uses_eur_lex_direct_source_for_french_ai_act_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex as actual_search_eur_lex
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "FR reglement UE 2024 1689 definition systeme d IA article officiel"
+        assert max_results == 5
+        return []
+
+    async def _empty_search_open_web_policy(
+        *,
+        query: str,
+        config,
+    ) -> list[dict[str, object]]:
+        assert query == "FR reglement UE 2024 1689 definition systeme d IA article officiel"
+        del config
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_eur_lex", actual_search_eur_lex)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        adapter.search_live("FR reglement UE 2024 1689 definition systeme d IA article officiel")
+    )
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng"
+    assert hits[0].authority == "European Union"
+    assert hits[0].jurisdiction == "EU"
+
+
+def test_policy_registry_live_adapter_skips_irrelevant_fixture_shortcut_for_ofcom_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+    from skill.retrieval.live.clients.policy_uk_legislation import (
+        search_uk_legislation as actual_search_uk_legislation,
+    )
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert (
+            query
+            == "UK Online Safety Act Ofcom 2025 2026 compliance milestones illegal harms codes and platform policy changes tied to Ofcom codes"
+        )
+        assert max_results == 5
+        return []
+
+    async def _empty_search_open_web_policy(
+        *,
+        query: str,
+        config,
+    ) -> list[dict[str, object]]:
+        assert (
+            query
+            == "UK Online Safety Act Ofcom 2025 2026 compliance milestones illegal harms codes and platform policy changes tied to Ofcom codes"
+        )
+        del config
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(
+        adapter,
+        "_FIXTURES",
+        (
+            {
+                "title": "Platform policy changes and compliance milestones bulletin",
+                "url": "https://www.mee.gov.cn/policy/latest-regulation",
+                "snippet": "2025 2026 compliance milestones tied to platform policy changes and codes.",
+                "authority": "Ministry of Ecology and Environment",
+                "jurisdiction": "CN",
+                "publication_date": "2026-03-18",
+                "effective_date": "2026-04-01",
+                "version": "2026 bulletin",
+            },
+        ),
+    )
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_uk_legislation", actual_search_uk_legislation)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _empty_direct)
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "UK Online Safety Act Ofcom 2025 2026 compliance milestones illegal harms codes and platform policy changes tied to Ofcom codes"
+        )
+    )
+
+    assert hits
+    assert hits[0].authority == "Ofcom"
+    assert hits[0].jurisdiction == "UK"
+    assert hits[0].url.startswith("https://www.ofcom.org.uk/")
+
+
 def test_policy_registry_live_adapter_uses_eur_lex_direct_source_when_discovery_misses(
     monkeypatch,
 ) -> None:

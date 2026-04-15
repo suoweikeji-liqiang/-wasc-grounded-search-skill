@@ -5,6 +5,50 @@ from __future__ import annotations
 import asyncio
 
 
+def test_policy_parser_accepts_fcc_and_etsi_official_domains() -> None:
+    from skill.retrieval.live.parsers.policy import (
+        is_official_policy_url,
+        policy_domain_metadata,
+    )
+
+    assert is_official_policy_url("https://www.fcc.gov/CyberTrustMark")
+    assert is_official_policy_url(
+        "https://docs.fcc.gov/public/attachments/DOC-401201A1.pdf"
+    )
+    assert is_official_policy_url("https://www.etsi.org/technologies/consumer-iot-security")
+
+    assert policy_domain_metadata("https://www.fcc.gov/CyberTrustMark") == (
+        "Federal Communications Commission",
+        "US",
+    )
+    assert policy_domain_metadata("https://www.etsi.org/technologies/consumer-iot-security") == (
+        "European Telecommunications Standards Institute",
+        "EU",
+    )
+
+
+def test_policy_parser_prioritizes_fcc_and_etsi_for_cyber_trust_queries() -> None:
+    from skill.retrieval.live.parsers.policy import preferred_policy_domains
+
+    domains = preferred_policy_domains(
+        "FCC Cyber Trust Mark minimum security requirements eligibility scope and ETSI EN 303 645 mapping",
+        fallback=False,
+    )
+
+    assert domains[:4] == ("fcc.gov", "www.fcc.gov", "docs.fcc.gov", "etsi.org")
+
+
+def test_policy_parser_prioritizes_ofcom_for_illegal_harms_code_queries() -> None:
+    from skill.retrieval.live.parsers.policy import preferred_policy_domains
+
+    domains = preferred_policy_domains(
+        "UK Online Safety Act Ofcom compliance milestones illegal harms codes of practice",
+        fallback=False,
+    )
+
+    assert domains[:2] == ("ofcom.org.uk", "legislation.gov.uk")
+
+
 def test_policy_registry_client_parses_gov_search_results(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients import policy_registry
