@@ -6,6 +6,7 @@ import re
 
 from bs4 import BeautifulSoup
 
+from skill.evidence.fact_density import fact_density_score, rank_fact_paragraphs
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
 
 _SEGMENT_SPLIT_RE = re.compile(r"(?<=[\.\!\?。！？；;])\s+|\n+")
@@ -213,6 +214,54 @@ def _best_page_excerpt(
     return _best_word_window(query=query, text=cleaned, max_chars=max_chars)
 
 
+def _excerpt_rank(
+    *,
+    query: str,
+    text: str,
+    max_chars: int,
+) -> tuple[float, int, int]:
+    cleaned = _clean_text(text)
+    overlap = _overlap_score(query, cleaned)
+    density = fact_density_score(cleaned)
+    return (
+        density + 2.0 * overlap,
+        overlap,
+        -abs(len(cleaned) - max_chars),
+    )
+
+
+def _best_fact_dense_page_excerpt(
+    *,
+    query: str,
+    page_text: str,
+    max_chars: int,
+) -> str:
+    ranked = rank_fact_paragraphs(
+        page_text,
+        query_terms=_query_terms(query),
+        limit=3,
+        min_chars=40,
+        max_chars=max(max_chars, 360),
+        min_score=1.0,
+    )
+    if not ranked:
+        return ""
+
+    best_excerpt = ""
+    best_rank = (-1.0, -1, -max_chars)
+    for item in ranked:
+        excerpt = _best_word_window(query=query, text=item.text, max_chars=max_chars)
+        rank = (
+            fact_density_score(excerpt) + 2.0 * _overlap_score(query, excerpt),
+            _overlap_score(query, excerpt),
+            -abs(len(excerpt) - max_chars),
+        )
+        if rank > best_rank:
+            best_rank = rank
+            best_excerpt = excerpt
+    return best_excerpt
+
+
 def build_industry_snippet(
     *,
     query: str,
@@ -221,22 +270,46 @@ def build_industry_snippet(
     max_chars: int = 320,
 ) -> str:
     candidate = _windowed_excerpt(candidate_snippet, max_chars=max_chars)
-    page_excerpt = _best_page_excerpt(
-        query=query,
-        page_text=page_text,
-        max_chars=max_chars,
+    page_candidates = [
+        excerpt
+        for excerpt in (
+            _best_page_excerpt(
+                query=query,
+                page_text=page_text,
+                max_chars=max_chars,
+            ),
+            _best_fact_dense_page_excerpt(
+                query=query,
+                page_text=page_text,
+                max_chars=max_chars,
+            ),
+        )
+        if excerpt
+    ]
+    page_excerpt = (
+        max(
+            page_candidates,
+            key=lambda excerpt: _excerpt_rank(
+                query=query,
+                text=excerpt,
+                max_chars=max_chars,
+            ),
+        )
+        if page_candidates
+        else ""
     )
     if not candidate and not page_excerpt:
         return ""
-
-    candidate_score = _overlap_score(query, candidate)
-    page_score = _overlap_score(query, page_excerpt)
-
-    if candidate_score >= page_score and candidate:
-        return candidate
-    if page_excerpt:
+    if not candidate:
         return page_excerpt
-    return candidate
+    if not page_excerpt:
+        return candidate
+
+    candidate_rank = _excerpt_rank(query=query, text=candidate, max_chars=max_chars)
+    page_rank = _excerpt_rank(query=query, text=page_excerpt, max_chars=max_chars)
+    if candidate_rank >= page_rank:
+        return candidate
+    return page_excerpt
 
 
 def extract_query_aligned_page_excerpt(

@@ -1,6 +1,26 @@
 from __future__ import annotations
 
 
+def test_build_industry_snippet_prefers_fact_dense_page_excerpt_over_generic_candidate() -> None:
+    from skill.retrieval.live.parsers.industry import build_industry_snippet
+
+    snippet = build_industry_snippet(
+        query="advanced packaging capacity outlook 2026",
+        candidate_snippet="General outlook for advanced packaging capacity in 2026.",
+        page_text=(
+            "This update reviews the advanced packaging ecosystem, vendor positioning, and the "
+            "broader outlook for advanced packaging capacity in 2026 across major supply chains.\n\n"
+            "SEMI said advanced packaging capacity reached 385,000 wafers per month in 2026, "
+            "up 18% year over year, while CoWoS capacity share rose to 62%."
+        ),
+        max_chars=220,
+    )
+
+    assert "385,000 wafers per month" in snippet
+    assert "18% year over year" in snippet
+    assert "62%" in snippet
+
+
 def test_extract_query_aligned_page_excerpt_prefers_focus_terms_missing_from_metadata() -> None:
     from skill.retrieval.live.parsers.industry import extract_query_aligned_page_excerpt
 

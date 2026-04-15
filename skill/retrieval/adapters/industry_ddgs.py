@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.evidence.fact_density import fact_density_score
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.live.clients import http as http_client
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
@@ -37,6 +38,8 @@ _TIER_ORDER: tuple[str, ...] = (
 _RFC_RE = re.compile(r"(?<![a-z0-9])rfc[\s:-]*(\d{3,5})(?![a-z0-9])", re.IGNORECASE)
 _OFFICIAL_FETCH_SCORE_THRESHOLD = 10
 _OFFICIAL_FETCH_OVERLAP_THRESHOLD = 4
+_OFFICIAL_FETCH_FACT_DENSITY_THRESHOLD = 4.0
+_OFFICIAL_FETCH_STRONG_OVERLAP_THRESHOLD = 6
 _PAGE_FETCH_TIMEOUT_SECONDS = 0.4
 _QUERY_ALIGNED_FETCH_TIMEOUT_SECONDS = 2.0
 _SEC_ARCHIVE_FETCH_TIMEOUT_SECONDS = 4.0
@@ -288,9 +291,14 @@ def _should_fetch_official_candidate(
         },
     )
     overlap = _query_overlap_count(query, title=title, snippet=snippet)
+    fact_density = fact_density_score(f"{title}. {snippet}")
     return not (
         base_score >= _OFFICIAL_FETCH_SCORE_THRESHOLD
         and overlap >= _OFFICIAL_FETCH_OVERLAP_THRESHOLD
+        and (
+            fact_density >= _OFFICIAL_FETCH_FACT_DENSITY_THRESHOLD
+            or overlap >= _OFFICIAL_FETCH_STRONG_OVERLAP_THRESHOLD
+        )
     )
 
 
@@ -985,11 +993,7 @@ async def _rank_live_candidate(
         text=page_text,
     )
     if query_aligned_excerpt and page_focus_overlap >= 2:
-        snippet = build_industry_snippet(
-            query=query,
-            candidate_snippet="",
-            page_text=page_text,
-        )
+        snippet = page_text.strip()
     else:
         snippet = build_industry_snippet(
             query=query,
@@ -1011,11 +1015,18 @@ async def _rank_live_candidate(
         missing_focus_terms,
         text=payload["snippet"],
     )
+    base_fact_density = fact_density_score(candidate_snippet)
+    enriched_fact_density = fact_density_score(payload["snippet"])
     if query_aligned_excerpt and page_focus_overlap >= 2:
         enriched_score = max(base_score, enriched_score)
     elif (
         enriched_focus_overlap >= max(2, base_focus_overlap + 1)
         and enriched_focus_overlap > base_focus_overlap
+    ):
+        enriched_score = max(base_score, enriched_score)
+    elif (
+        payload["snippet"] != candidate_snippet
+        and enriched_fact_density >= base_fact_density + 2.0
     ):
         enriched_score = max(base_score, enriched_score)
     elif base_score > enriched_score:

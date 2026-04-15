@@ -164,6 +164,43 @@ def test_industry_live_adapter_keeps_relevant_candidate_snippet_when_page_text_i
     assert hits[0].snippet == candidate_snippet
 
 
+def test_industry_live_adapter_replaces_generic_search_snippet_with_fact_dense_page_excerpt(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    candidate_snippet = "General outlook for advanced packaging capacity in 2026."
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="SEMI advanced packaging outlook",
+                url="https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                snippet=candidate_snippet,
+            )
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return (
+            "This update reviews the advanced packaging ecosystem, vendor positioning, and the "
+            "broader outlook for advanced packaging capacity in 2026 across major supply chains.\n\n"
+            "SEMI said advanced packaging capacity reached 385,000 wafers per month in 2026, "
+            "up 18% year over year, while CoWoS capacity share rose to 62%."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("advanced packaging capacity outlook 2026"))
+
+    assert len(hits) == 1
+    assert hits[0].snippet != candidate_snippet
+    assert "385,000 wafers per month" in hits[0].snippet
+    assert "18% year over year" in hits[0].snippet
+
+
 def test_industry_live_adapter_extracts_deep_relevant_page_excerpt_for_ranking(
     monkeypatch,
 ) -> None:
