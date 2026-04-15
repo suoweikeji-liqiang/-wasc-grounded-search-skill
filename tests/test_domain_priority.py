@@ -24,9 +24,8 @@ def test_mixed_supplemental_route_uses_industry_web_discovery_as_default_anchor(
     assert SUPPLEMENTAL_STRONGEST_SOURCE["industry"] == "industry_web_discovery"
 
 
-def test_academic_route_first_wave_prefers_asta_before_other_scholarly_sources() -> None:
+def test_academic_route_first_wave_prefers_metadata_sources_before_asta_fallback() -> None:
     assert DOMAIN_FIRST_WAVE_SOURCES["academic"] == (
-        "academic_asta_mcp",
         "academic_semantic_scholar",
         "academic_arxiv",
     )

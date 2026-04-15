@@ -69,7 +69,7 @@ def test_policy_first_wave_excludes_policy_official_web_allowlist_fallback() -> 
     assert "policy_official_web_allowlist_fallback" not in DOMAIN_FIRST_WAVE_SOURCES["policy"]
 
 
-def test_primary_academic_plan_uses_parallel_first_wave_across_all_academic_sources() -> None:
+def test_primary_academic_plan_uses_parallel_metadata_first_sources_before_asta_fallback() -> None:
     classification = ClassificationResult(
         route_label="academic",
         primary_route="academic",
@@ -83,9 +83,10 @@ def test_primary_academic_plan_uses_parallel_first_wave_across_all_academic_sour
     assert [step.source.source_id for step in plan.first_wave_sources] == [
         "academic_semantic_scholar",
         "academic_arxiv",
+    ]
+    assert [step.source.source_id for step in plan.fallback_sources] == [
         "academic_asta_mcp",
     ]
-    assert plan.fallback_sources == ()
 
 
 def test_primary_academic_plan_prefers_arxiv_ordering_only_for_explicit_europe_pmc_hint() -> None:
@@ -115,16 +116,18 @@ def test_primary_academic_plan_prefers_arxiv_ordering_only_for_explicit_europe_p
     assert [step.source.source_id for step in arxiv_plan.first_wave_sources] == [
         "academic_semantic_scholar",
         "academic_arxiv",
+    ]
+    assert [step.source.source_id for step in arxiv_plan.fallback_sources] == [
         "academic_asta_mcp",
     ]
-    assert arxiv_plan.fallback_sources == ()
 
     assert [step.source.source_id for step in europe_pmc_plan.first_wave_sources] == [
         "academic_arxiv",
         "academic_semantic_scholar",
+    ]
+    assert [step.source.source_id for step in europe_pmc_plan.fallback_sources] == [
         "academic_asta_mcp",
     ]
-    assert europe_pmc_plan.fallback_sources == ()
 
 
 def test_mixed_route_uses_full_primary_plus_split_industry_supplemental_sources() -> None:
@@ -146,7 +149,6 @@ def test_mixed_route_uses_full_primary_plus_split_industry_supplemental_sources(
     )
 
     assert primary_first_wave_ids == [
-        "academic_asta_mcp",
         "academic_semantic_scholar",
         "academic_arxiv",
     ]

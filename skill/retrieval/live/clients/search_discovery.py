@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
 from skill.retrieval.live.clients import http as http_client
+from skill.orchestrator.normalize import normalize_query_text
 from skill.retrieval.live.parsers.serp import (
     parse_bing_html,
     parse_duckduckgo_html,
@@ -84,11 +85,16 @@ async def search_candidates(
     max_results: int = 5,
 ) -> list[SearchCandidate]:
     config = _ENGINE_CONFIG[engine]
+    normalized_query = normalize_query_text(query)
     html = await http_client.fetch_text_limited(
         url=config["url"],
         params=config["params"](query),
         timeout=float(config.get("timeout", 2.0)),
         max_chars=int(config.get("max_chars", 120_000)),
+        cache_scope="search",
+        cache_key=(
+            f"search:{engine}:{normalized_query}:chars={int(config.get('max_chars', 120_000))}"
+        ),
     )
     parser = config["parser"]
     parsed = parser(html)

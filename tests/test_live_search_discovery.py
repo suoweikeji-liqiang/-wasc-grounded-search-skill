@@ -216,7 +216,10 @@ def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None
         "https://finance.yahoo.com",
         "https://futurumgroup.com",
     ]
-    assert candidates[0].snippet == "Yahoo Finance. Tue, 04 Feb 2025 08:00:00 GMT"
+    assert candidates[0].snippet == (
+        "Battery Recycling Global Markets Report 2025-2030 Yahoo Finance"
+        " | Source: Yahoo Finance | Tue, 04 Feb 2025 08:00:00 GMT"
+    )
     assert all(candidate.engine == "google_news_rss" for candidate in candidates)
 
 

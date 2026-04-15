@@ -1108,17 +1108,6 @@ async def _rank_live_candidate(
     )
     query_aligned_excerpt = False
     if (
-        engine == "google_news_rss"
-        and not force_fetch
-        and base_score > 0
-    ):
-        return {
-            **base_payload,
-            "_score": base_score,
-            "_tier": tier,
-        }
-
-    if (
         not force_fetch
         and not force_query_aligned_fetch
         and base_score > 0
@@ -1568,6 +1557,13 @@ async def search_live(query: str) -> list[RetrievalHit]:
             max_results=8,
         )
     )
+    news_task = asyncio.create_task(
+        search_multi_engine(
+            query=query,
+            engines=("google_news_rss",),
+            max_results=3,
+        )
+    )
     official_query_tasks = [
         asyncio.create_task(
             search_multi_engine(
@@ -1581,12 +1577,14 @@ async def search_live(query: str) -> list[RetrievalHit]:
     background_search_tasks: list[asyncio.Task[object]] = [
         web_task,
         *official_query_tasks,
+        news_task,
     ]
 
     try:
         task_results = await asyncio.gather(
             web_task,
             *official_query_tasks,
+            news_task,
             return_exceptions=True,
         )
     except asyncio.CancelledError:
@@ -1595,28 +1593,23 @@ async def search_live(query: str) -> list[RetrievalHit]:
     web_result = task_results[0]
     web_candidates = [] if isinstance(web_result, Exception) else web_result
     official_results = task_results[1 : 1 + len(official_query_tasks)]
+    news_result = task_results[-1]
     official_candidates: list[object] = []
     for result in official_results:
         if isinstance(result, Exception):
             continue
         official_candidates.extend(result)
+    if isinstance(news_result, Exception):
+        news_candidates: list[object] = []
+    else:
+        news_candidates = await _resolve_google_news_candidates(list(news_result))
 
     candidate_payloads = _candidate_payloads_from_search_results(list(web_candidates))
     candidate_payloads.extend(_candidate_payloads_from_search_results(official_candidates))
-    if not candidate_payloads and not direct_candidate_payloads:
-        try:
-            news_candidates = await search_multi_engine(
-                query=query,
-                engines=("google_news_rss",),
-                max_results=3,
-            )
-        except Exception:
-            news_candidates = []
-        else:
-            news_candidates = await _resolve_google_news_candidates(list(news_candidates))
-        candidate_payloads.extend(
-            _candidate_payloads_from_search_results(list(news_candidates))
-        )
+    news_payloads = _candidate_payloads_from_search_results(list(news_candidates))
+    for payload in news_payloads:
+        payload["_force_fetch"] = "1"
+    candidate_payloads.extend(news_payloads)
     candidate_payloads.extend(direct_candidate_payloads)
     candidate_payloads = _dedupe_candidate_payloads(candidate_payloads)
     return await _rank_payloads_to_hits(

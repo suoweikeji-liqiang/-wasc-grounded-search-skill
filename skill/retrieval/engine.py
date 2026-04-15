@@ -430,6 +430,27 @@ def _academic_success_requires_fallback(
     )
 
 
+def _skip_academic_asta_fallback(
+    *,
+    plan: RetrievalPlan,
+    current_source: str,
+    fallback_step: PlannedSourceStep,
+    first_wave_results: Mapping[str, SourceExecutionResult],
+) -> bool:
+    if plan.route_label != "academic" or plan.primary_route != "academic":
+        return False
+    if fallback_step.source.source_id != "academic_asta_mcp":
+        return False
+
+    for source_id in ("academic_semantic_scholar", "academic_arxiv"):
+        if source_id == current_source:
+            continue
+        result = first_wave_results.get(source_id)
+        if result is not None and result.status == "success" and result.hits:
+            return True
+    return False
+
+
 def _stop_after_first_success(
     *,
     step: PlannedSourceStep,
@@ -1027,6 +1048,13 @@ async def _run_standard_retrieval_path(
                 (current_source, failure_reason)
             )
             if fallback_step is None:
+                break
+            if _skip_academic_asta_fallback(
+                plan=plan,
+                current_source=current_source,
+                fallback_step=fallback_step,
+                first_wave_results=first_wave_results,
+            ):
                 break
 
             fallback_source_id = fallback_step.source.source_id

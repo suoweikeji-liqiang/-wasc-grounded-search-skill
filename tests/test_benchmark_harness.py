@@ -182,3 +182,75 @@ def test_run_benchmark_suite_emits_10x5_records_with_required_runtime_fields(
             "was_cancelled_by_deadline": False,
         }
     ]
+
+
+def test_run_benchmark_suite_fresh_process_runs_each_attempt_in_isolation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import skill.benchmark.harness as harness
+    from skill.benchmark.models import BenchmarkRunRecord
+
+    cases = harness.load_benchmark_cases(HIDDEN_SMOKE_FIXTURE_PATH)[:2]
+    observed_attempts: list[tuple[str, int, str]] = []
+
+    class _UnexpectedTestClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("fresh-process benchmark mode should not reuse TestClient")
+
+    def _fake_run_case_fresh_process(
+        *,
+        case,
+        run_index: int,
+        app_import_path: str,
+    ) -> BenchmarkRunRecord:
+        observed_attempts.append((case.case_id, run_index, app_import_path))
+        return BenchmarkRunRecord(
+            case_id=case.case_id,
+            run_index=run_index,
+            query=case.query,
+            route_label=case.expected_route or "policy",
+            answer_status="grounded_success",
+            retrieval_status="success",
+            success=True,
+            elapsed_ms=95,
+            evidence_token_estimate=12,
+            answer_token_estimate=8,
+            latency_budget_ok=True,
+            token_budget_ok=True,
+            failure_reason=None,
+            provider_prompt_tokens=None,
+            provider_completion_tokens=None,
+            provider_total_tokens=None,
+            retrieval_trace=[],
+        )
+
+    monkeypatch.setattr(harness, "TestClient", _UnexpectedTestClient)
+    monkeypatch.setattr(
+        harness,
+        "_run_case_fresh_process",
+        _fake_run_case_fresh_process,
+        raising=False,
+    )
+
+    records = harness.run_benchmark_suite(
+        app=_build_fake_benchmark_app(),
+        cases=cases,
+        runs=2,
+        output_dir=tmp_path,
+        fresh_process=True,
+        app_import_path="skill.api.entry:app",
+    )
+
+    assert [(record.case_id, record.run_index) for record in records] == [
+        ("smoke-policy-01", 1),
+        ("smoke-policy-01", 2),
+        ("smoke-policy-02", 1),
+        ("smoke-policy-02", 2),
+    ]
+    assert observed_attempts == [
+        ("smoke-policy-01", 1, "skill.api.entry:app"),
+        ("smoke-policy-01", 2, "skill.api.entry:app"),
+        ("smoke-policy-02", 1, "skill.api.entry:app"),
+        ("smoke-policy-02", 2, "skill.api.entry:app"),
+    ]

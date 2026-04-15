@@ -15,7 +15,6 @@ DOMAIN_FIRST_WAVE_SOURCES: Final[Mapping[ConcreteRoute, tuple[str, ...]]] = Mapp
     {
         "policy": ("policy_official_registry",),
         "academic": (
-            "academic_asta_mcp",
             "academic_semantic_scholar",
             "academic_arxiv",
         ),

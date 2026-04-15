@@ -26,6 +26,13 @@ def _read_int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _read_str_env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return value.strip() or default
+
+
 def _read_mode_env(name: str, default: LiveRetrievalMode) -> LiveRetrievalMode:
     value = (os.getenv(name) or "").strip().lower()
     if not value:
@@ -57,6 +64,7 @@ class LiveRetrievalConfig:
     search_cache_ttl_seconds: int = 1800
     page_cache_ttl_seconds: int = 3600
     academic_cache_ttl_seconds: int = 86400
+    cache_dir: str = ".wasc-live-cache"
 
     @classmethod
     def from_env(cls) -> "LiveRetrievalConfig":
@@ -80,5 +88,9 @@ class LiveRetrievalConfig:
             academic_cache_ttl_seconds=_read_int_env(
                 "WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS",
                 86400,
+            ),
+            cache_dir=_read_str_env(
+                "WASC_LIVE_CACHE_DIR",
+                ".wasc-live-cache",
             ),
         )

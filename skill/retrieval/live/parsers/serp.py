@@ -109,15 +109,19 @@ def parse_google_news_rss(xml_text: str) -> list[dict[str, str]]:
         description_text = _clean_text(
             BeautifulSoup(description_html, "html.parser").get_text(" ", strip=True)
         )
-        snippet_parts = [part for part in (source_text, pub_date) if part]
-        if not snippet_parts and description_text and description_text != title:
+        snippet_parts: list[str] = []
+        if description_text and description_text != title:
             snippet_parts.append(description_text)
+        if source_text:
+            snippet_parts.append(f"Source: {source_text}")
+        if pub_date:
+            snippet_parts.append(pub_date)
 
         results.append(
             {
                 "title": title,
                 "url": link,
-                "snippet": ". ".join(snippet_parts),
+                "snippet": " | ".join(snippet_parts),
                 "source_url": source_url,
             }
         )

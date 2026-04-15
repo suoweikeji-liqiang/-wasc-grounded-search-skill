@@ -145,6 +145,8 @@ async def resolve_google_news_article_url(url: str) -> str | None:
             url=url.split("?", 1)[0],
             timeout=_ARTICLE_PAGE_TIMEOUT_SECONDS,
             max_chars=_ARTICLE_PAGE_MAX_CHARS,
+            cache_scope="page",
+            cache_key=url.split("?", 1)[0],
         )
     except Exception:
         return None

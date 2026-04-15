@@ -11,6 +11,7 @@ from skill.retrieval.live.parsers.academic import (
     parse_openalex_response,
     parse_semantic_scholar_response,
 )
+from skill.orchestrator.normalize import normalize_query_text
 
 
 SEMANTIC_SCHOLAR_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -25,6 +26,11 @@ def _contact_email() -> str:
         or os.getenv("OPENALEX_MAILTO", "")
         or os.getenv("CROSSREF_MAILTO", "")
     ).strip()
+
+
+def _cache_key(provider: str, *, query: str, max_results: int) -> str:
+    normalized_query = normalize_query_text(query)
+    return f"{provider}:{normalized_query}:limit={max(1, max_results)}"
 
 
 async def search_semantic_scholar(
@@ -45,6 +51,12 @@ async def search_semantic_scholar(
         },
         headers=headers or None,
         timeout=10.0,
+        cache_scope="academic",
+        cache_key=_cache_key(
+            "semantic_scholar",
+            query=query,
+            max_results=max_results,
+        ),
     )
     return parse_semantic_scholar_response(payload)
 
@@ -64,6 +76,12 @@ async def search_arxiv(
             "sortOrder": "descending",
         },
         timeout=10.0,
+        cache_scope="academic",
+        cache_key=_cache_key(
+            "arxiv",
+            query=query,
+            max_results=max_results,
+        ),
     )
     return parse_arxiv_feed(xml_text)
 
@@ -88,6 +106,12 @@ async def search_openalex(
         url=OPENALEX_API_URL,
         params=params,
         timeout=10.0,
+        cache_scope="academic",
+        cache_key=_cache_key(
+            "openalex",
+            query=query,
+            max_results=max_results,
+        ),
     )
     return parse_openalex_response(payload)
 
@@ -106,5 +130,11 @@ async def search_europe_pmc(
             "resultType": "lite",
         },
         timeout=10.0,
+        cache_scope="academic",
+        cache_key=_cache_key(
+            "europe_pmc",
+            query=query,
+            max_results=max_results,
+        ),
     )
     return parse_europe_pmc_response(payload)

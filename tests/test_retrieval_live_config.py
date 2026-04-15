@@ -31,6 +31,7 @@ def test_live_retrieval_config_reads_overrides(monkeypatch) -> None:
     monkeypatch.setenv("WASC_LIVE_SEARCH_CACHE_TTL_SECONDS", "12")
     monkeypatch.setenv("WASC_LIVE_PAGE_CACHE_TTL_SECONDS", "34")
     monkeypatch.setenv("WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS", "56")
+    monkeypatch.setenv("WASC_LIVE_CACHE_DIR", ".cache/test-live")
 
     config = LiveRetrievalConfig.from_env()
 
@@ -41,6 +42,7 @@ def test_live_retrieval_config_reads_overrides(monkeypatch) -> None:
     assert config.search_cache_ttl_seconds == 12
     assert config.page_cache_ttl_seconds == 34
     assert config.academic_cache_ttl_seconds == 56
+    assert config.cache_dir == ".cache/test-live"
 
 
 def test_live_retrieval_ttl_cache_expires_entries() -> None:

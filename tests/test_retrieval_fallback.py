@@ -348,7 +348,7 @@ def test_run_retrieval_primary_academic_parallel_first_wave_returns_arxiv_hit() 
 
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
-    assert "asta:start" in events
+    assert "asta:start" not in events
     assert outcome.status == "partial"
     assert any(hit.source_id == "academic_arxiv" for hit in outcome.results)
 
@@ -433,12 +433,66 @@ def test_run_retrieval_primary_academic_parallel_first_wave_merges_semantic_and_
 
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
-    assert "asta:start" in events
+    assert "asta:start" not in events
     assert outcome.status == "partial"
     assert {hit.source_id for hit in outcome.results} == {
         "academic_semantic_scholar",
         "academic_arxiv",
     }
+
+
+def test_run_retrieval_primary_academic_falls_back_to_asta_only_after_metadata_sources_fail() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.05,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:no_hits")
+        return []
+
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append("arxiv:start")
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:no_hits")
+        return []
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:start")
+        await asyncio.sleep(0.01)
+        events.append("asta:end:success")
+        return [_mk_hit("academic_asta_mcp")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="single-cell foundation model transcriptomics",
+            adapter_registry={
+                "academic_semantic_scholar": _semantic_scholar,
+                "academic_arxiv": _arxiv,
+                "academic_asta_mcp": _asta,
+            },
+        )
+    )
+
+    assert "semantic_scholar:start" in events
+    assert "arxiv:start" in events
+    assert "asta:start" in events
+    assert outcome.status == "partial"
+    assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
 
 
 def test_run_retrieval_empty_fallback_sources_skips_fallback_execution() -> None:

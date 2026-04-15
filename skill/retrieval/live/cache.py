@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 from typing import Generic, TypeVar
 
 
@@ -52,3 +55,46 @@ class TTLCache(Generic[ValueT]):
         self._entries.move_to_end(key)
         while len(self._entries) > self.max_entries:
             self._entries.popitem(last=False)
+
+
+class FileTTLCache(Generic[ValueT]):
+    """Small JSON-backed TTL cache shared across fresh processes."""
+
+    def __init__(self, *, root_dir: Path, namespace: str) -> None:
+        self._root_dir = root_dir / namespace
+        self._root_dir.mkdir(parents=True, exist_ok=True)
+        self._clock = time.time
+
+    def _path_for_key(self, key: str) -> Path:
+        digest = sha256(key.encode("utf-8")).hexdigest()
+        return self._root_dir / f"{digest}.json"
+
+    def get(self, key: str) -> ValueT | None:
+        path = self._path_for_key(key)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+        expires_at = float(payload.get("expires_at", 0.0))
+        if expires_at <= self._clock():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return None
+
+        return payload.get("value")  # type: ignore[return-value]
+
+    def set(self, key: str, value: ValueT, *, ttl_seconds: int) -> None:
+        path = self._path_for_key(key)
+        tmp_path = path.with_suffix(".tmp")
+        payload = {
+            "expires_at": self._clock() + max(0, ttl_seconds),
+            "value": value,
+        }
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        tmp_path.replace(path)

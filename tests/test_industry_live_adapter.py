@@ -431,8 +431,12 @@ def test_industry_live_adapter_uses_google_news_rss_when_open_web_discovery_is_e
     async def _empty_search_sec_company_submissions(**_: object) -> list[dict[str, object]]:
         return []
 
-    async def _unexpected_fetch_page_text(**_: object) -> str:
-        raise AssertionError("google_news_rss fallback should not fetch source pages directly")
+    async def _fake_fetch_page_text(*, url: str, **_: object) -> str:
+        assert url == "https://finance.yahoo.com"
+        return (
+            "Battery recycling market-share outlook says regional leaders are "
+            "gaining share in 2025 as feedstock supply improves."
+        )
 
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "search_sec_filings", _empty_search_sec_filings)
@@ -441,13 +445,13 @@ def test_industry_live_adapter_uses_google_news_rss_when_open_web_discovery_is_e
         "search_sec_company_submissions",
         _empty_search_sec_company_submissions,
     )
-    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
 
     hits = asyncio.run(adapter.search_live("battery recycling market share 2025"))
 
     assert len(hits) == 1
     assert hits[0].url == "https://finance.yahoo.com"
-    assert "Yahoo Finance" in hits[0].snippet
+    assert "market-share outlook" in hits[0].snippet
     assert observed_engine_calls == [
         ("duckduckgo", "bing", "google"),
         ("google_news_rss",),

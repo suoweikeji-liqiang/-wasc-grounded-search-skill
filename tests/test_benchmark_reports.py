@@ -249,3 +249,52 @@ def test_run_benchmark_cli_forces_live_shadow_eval(monkeypatch, tmp_path) -> Non
         "mode": "live",
         "fixture_shortcuts": "0",
     }
+
+
+def test_run_benchmark_cli_smoke_gate_uses_hidden_fixture_and_fresh_process(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    module_path = Path(__file__).resolve().parent.parent / "scripts" / "run_benchmark.py"
+    spec = importlib.util.spec_from_file_location("phase5_run_benchmark_smoke", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_benchmark.py",
+            "--smoke-gate",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    observed: dict[str, object] = {}
+
+    def _fake_load_benchmark_cases(path: Path) -> list[object]:
+        observed["cases_path"] = path
+        return []
+
+    monkeypatch.setattr(module, "load_benchmark_cases", _fake_load_benchmark_cases)
+
+    def _fake_run_benchmark_suite(**kwargs: object) -> list[BenchmarkRunRecord]:
+        observed["fresh_process"] = kwargs["fresh_process"]
+        observed["runs"] = kwargs["runs"]
+        observed["app_import_path"] = kwargs["app_import_path"]
+        return []
+
+    monkeypatch.setattr(module, "run_benchmark_suite", _fake_run_benchmark_suite)
+    monkeypatch.setattr(module, "write_benchmark_reports", lambda records, output_dir: None)
+
+    module.main()
+
+    assert observed == {
+        "cases_path": Path("tests/fixtures/benchmark_hidden_style_smoke_cases.json"),
+        "fresh_process": True,
+        "runs": 1,
+        "app_import_path": "skill.api.entry:app",
+    }

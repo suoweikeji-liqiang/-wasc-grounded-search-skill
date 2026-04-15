@@ -183,13 +183,11 @@ def _build_primary_academic_parallel_plan(
     ordered_source_ids = [
         "academic_semantic_scholar",
         "academic_arxiv",
-        "academic_asta_mcp",
     ]
     if query is not None and _prefer_arxiv_first_for_academic_query(query):
         ordered_source_ids = [
             "academic_arxiv",
             "academic_semantic_scholar",
-            "academic_asta_mcp",
         ]
 
     return tuple(

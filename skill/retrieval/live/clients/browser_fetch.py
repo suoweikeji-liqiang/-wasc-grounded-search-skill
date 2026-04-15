@@ -42,7 +42,12 @@ async def fetch_page_text(
         raise ValueError("Only headless browser mode is supported")
 
     try:
-        html = await http_client.fetch_text(url=url, timeout=timeout_seconds)
+        html = await http_client.fetch_text(
+            url=url,
+            timeout=timeout_seconds,
+            cache_scope="page",
+            cache_key=url,
+        )
         content = extract_page_content(html, max_chars=max_chars)
         if content:
             return content
