@@ -382,12 +382,15 @@ def _candidate_payloads_from_search_results(
         snippet = getattr(candidate, "snippet", None)
         if not title or not url or not snippet:
             continue
+        source_url = getattr(candidate, "source_url", None)
+        tier_url = str(source_url) if source_url else str(url)
         payloads.append(
             {
                 "title": str(title),
                 "url": str(url),
                 "snippet": str(snippet),
-                "_tier": _tier_for_url(str(url)),
+                "_tier": _tier_for_url(tier_url),
+                "_engine": str(getattr(candidate, "engine", "")),
             }
         )
     return payloads
@@ -422,6 +425,7 @@ async def _rank_payloads_to_hits(
                 url=payload["url"],
                 candidate_snippet=payload["snippet"],
                 tier=payload["_tier"],
+                engine=payload.get("_engine", ""),
                 force_fetch=payload.get("_force_fetch") == "1",
                 config=config,
             )
@@ -436,6 +440,7 @@ async def _rank_payloads_to_hits(
                 url=str(record["url"]),
                 candidate_snippet=str(record["snippet"]),
                 tier=str(record.get("credibility_tier") or "company_official"),
+                engine="",
                 config=config,
             )
         )
@@ -932,6 +937,7 @@ async def _rank_live_candidate(
     url: str,
     candidate_snippet: str,
     tier: str,
+    engine: str = "",
     force_fetch: bool = False,
     config: LiveRetrievalConfig,
 ) -> dict[str, str | int] | None:
@@ -952,6 +958,17 @@ async def _rank_live_candidate(
         < _OFFICIAL_FETCH_OVERLAP_THRESHOLD
     )
     query_aligned_excerpt = False
+    if (
+        engine == "google_news_rss"
+        and not force_fetch
+        and base_score > 0
+    ):
+        return {
+            **base_payload,
+            "_score": base_score,
+            "_tier": tier,
+        }
+
     if (
         not force_fetch
         and not force_query_aligned_fetch
@@ -1166,6 +1183,18 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     candidate_payloads = _candidate_payloads_from_search_results(list(web_candidates))
     candidate_payloads.extend(_candidate_payloads_from_search_results(official_candidates))
+    if not candidate_payloads and not direct_candidate_payloads:
+        try:
+            news_candidates = await search_multi_engine(
+                query=query,
+                engines=("google_news_rss",),
+                max_results=3,
+            )
+        except Exception:
+            news_candidates = []
+        candidate_payloads.extend(
+            _candidate_payloads_from_search_results(list(news_candidates))
+        )
     candidate_payloads.extend(direct_candidate_payloads)
     candidate_payloads = _dedupe_candidate_payloads(candidate_payloads)
     return await _rank_payloads_to_hits(

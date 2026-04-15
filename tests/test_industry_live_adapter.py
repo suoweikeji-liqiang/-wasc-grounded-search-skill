@@ -243,6 +243,60 @@ def test_industry_live_adapter_extracts_deep_relevant_page_excerpt_for_ranking(
     assert "semiconductor packaging capacity" in hits[0].snippet.lower()
 
 
+def test_industry_live_adapter_uses_google_news_rss_when_open_web_discovery_is_empty(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_engine_calls: list[tuple[str, ...]] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        engines = tuple(kwargs["engines"])
+        observed_engine_calls.append(engines)
+        if engines == ("duckduckgo", "bing", "google"):
+            return []
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="Battery Recycling Global Markets Report 2025-2030 - Yahoo Finance",
+                    url="https://news.google.com/rss/articles/example-1",
+                    snippet="Yahoo Finance. Tue, 04 Feb 2025 08:00:00 GMT",
+                    source_url="https://finance.yahoo.com",
+                )
+            ]
+        return []
+
+    async def _empty_search_sec_filings(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_search_sec_company_submissions(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("google_news_rss fallback should not fetch source pages directly")
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "search_sec_filings", _empty_search_sec_filings)
+    monkeypatch.setattr(
+        adapter,
+        "search_sec_company_submissions",
+        _empty_search_sec_company_submissions,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("battery recycling market share 2025"))
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://news.google.com/rss/articles/example-1"
+    assert "Yahoo Finance" in hits[0].snippet
+    assert observed_engine_calls == [
+        ("duckduckgo", "bing", "google"),
+        ("google_news_rss",),
+    ]
+
+
 def test_industry_live_adapter_merges_official_sec_filings_for_company_filing_queries(
     monkeypatch,
 ) -> None:

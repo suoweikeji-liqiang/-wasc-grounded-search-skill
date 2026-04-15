@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from bs4 import BeautifulSoup
@@ -80,6 +81,44 @@ def parse_google_html(html: str) -> list[dict[str, str]]:
                 "title": _clean_text(link.get_text(" ", strip=True)),
                 "url": str(link["href"]),
                 "snippet": _clean_text(snippet.get_text(" ", strip=True)) if snippet else "",
+            }
+        )
+    return results
+
+
+def parse_google_news_rss(xml_text: str) -> list[dict[str, str]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+
+    results: list[dict[str, str]] = []
+    for item in root.findall(".//item"):
+        title = _clean_text(item.findtext("title") or "")
+        pub_date = _clean_text(item.findtext("pubDate") or "")
+        source = item.find("source")
+        source_text = _clean_text(source.text or "") if source is not None else ""
+        source_url = (
+            _clean_text(source.attrib.get("url", "")) if source is not None else ""
+        )
+        link = _clean_text(item.findtext("link") or "")
+        if not title or not link:
+            continue
+
+        description_html = item.findtext("description") or ""
+        description_text = _clean_text(
+            BeautifulSoup(description_html, "html.parser").get_text(" ", strip=True)
+        )
+        snippet_parts = [part for part in (source_text, pub_date) if part]
+        if not snippet_parts and description_text and description_text != title:
+            snippet_parts.append(description_text)
+
+        results.append(
+            {
+                "title": title,
+                "url": link,
+                "snippet": ". ".join(snippet_parts),
+                "source_url": source_url,
             }
         )
     return results

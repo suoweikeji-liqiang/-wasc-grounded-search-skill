@@ -65,6 +65,33 @@ _GOOGLE_HTML = """
 </html>
 """
 
+_GOOGLE_NEWS_RSS = """
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Battery Recycling Global Markets Report 2025-2030 - Yahoo Finance</title>
+      <link>https://news.google.com/rss/articles/example-1</link>
+      <pubDate>Tue, 04 Feb 2025 08:00:00 GMT</pubDate>
+      <description><![CDATA[
+        <a href="https://news.google.com/rss/articles/example-1">Battery Recycling Global Markets Report 2025-2030</a>
+        <font color="#6f6f6f">Yahoo Finance</font>
+      ]]></description>
+      <source url="https://finance.yahoo.com">Yahoo Finance</source>
+    </item>
+    <item>
+      <title>Advanced Packaging Bottleneck Spurs Investment - The Futurum Group</title>
+      <link>https://news.google.com/rss/articles/example-2</link>
+      <pubDate>Wed, 05 Feb 2025 08:00:00 GMT</pubDate>
+      <description><![CDATA[
+        <a href="https://news.google.com/rss/articles/example-2">Advanced Packaging Bottleneck Spurs Investment</a>
+        <font color="#6f6f6f">The Futurum Group</font>
+      ]]></description>
+      <source url="https://futurumgroup.com">The Futurum Group</source>
+    </item>
+  </channel>
+</rss>
+"""
+
 
 def test_search_candidates_duckduckgo_returns_normalized_candidates(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
@@ -166,6 +193,31 @@ def test_search_candidates_bing_unwraps_redirect_urls(monkeypatch) -> None:
 
     assert len(candidates) == 1
     assert candidates[0].url.startswith("https://eur-lex.europa.eu/")
+
+
+def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    async def _fake_fetch_text(**_: object) -> str:
+        return _GOOGLE_NEWS_RSS
+
+    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+
+    candidates = asyncio.run(
+        search_candidates(query="battery recycling market share 2025", engine="google_news_rss")
+    )
+
+    assert [candidate.url for candidate in candidates] == [
+        "https://news.google.com/rss/articles/example-1",
+        "https://news.google.com/rss/articles/example-2",
+    ]
+    assert [candidate.source_url for candidate in candidates] == [
+        "https://finance.yahoo.com",
+        "https://futurumgroup.com",
+    ]
+    assert candidates[0].snippet == "Yahoo Finance. Tue, 04 Feb 2025 08:00:00 GMT"
+    assert all(candidate.engine == "google_news_rss" for candidate in candidates)
 
 
 def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:

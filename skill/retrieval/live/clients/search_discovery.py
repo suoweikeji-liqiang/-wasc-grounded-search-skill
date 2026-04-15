@@ -11,6 +11,7 @@ from skill.retrieval.live.parsers.serp import (
     parse_bing_html,
     parse_duckduckgo_html,
     parse_google_html,
+    parse_google_news_rss,
 )
 
 
@@ -20,6 +21,7 @@ class SearchCandidate:
     title: str
     url: str
     snippet: str
+    source_url: str = ""
 
 
 _ENGINE_CONFIG = {
@@ -27,16 +29,30 @@ _ENGINE_CONFIG = {
         "url": "https://html.duckduckgo.com/html/",
         "params": lambda query: {"q": query},
         "parser": parse_duckduckgo_html,
+        "timeout": 2.0,
     },
     "bing": {
         "url": "https://www.bing.com/search",
         "params": lambda query: {"q": query},
         "parser": parse_bing_html,
+        "timeout": 2.0,
     },
     "google": {
         "url": "https://www.google.com/search",
         "params": lambda query: {"q": query, "hl": "en"},
         "parser": parse_google_html,
+        "timeout": 2.0,
+    },
+    "google_news_rss": {
+        "url": "https://news.google.com/rss/search",
+        "params": lambda query: {
+            "q": query,
+            "hl": "en-US",
+            "gl": "US",
+            "ceid": "US:en",
+        },
+        "parser": parse_google_news_rss,
+        "timeout": 1.2,
     },
 }
 
@@ -67,7 +83,7 @@ async def search_candidates(
     html = await http_client.fetch_text(
         url=config["url"],
         params=config["params"](query),
-        timeout=2.0,
+        timeout=float(config.get("timeout", 2.0)),
     )
     parser = config["parser"]
     parsed = parser(html)
@@ -77,6 +93,7 @@ async def search_candidates(
             title=item["title"],
             url=item["url"],
             snippet=item["snippet"],
+            source_url=str(item.get("source_url", "")),
         )
         for item in parsed[: max(1, max_results)]
     ]
