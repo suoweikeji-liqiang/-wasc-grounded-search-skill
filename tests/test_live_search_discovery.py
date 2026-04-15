@@ -97,10 +97,10 @@ def test_search_candidates_duckduckgo_returns_normalized_candidates(monkeypatch)
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
 
-    async def _fake_fetch_text(**_: object) -> str:
+    async def _fake_fetch_text_limited(**_: object) -> str:
         return _DDG_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(search_candidates(query="battery recycling", engine="duckduckgo"))
 
@@ -113,10 +113,10 @@ def test_search_candidates_bing_returns_normalized_candidates(monkeypatch) -> No
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
 
-    async def _fake_fetch_text(**_: object) -> str:
+    async def _fake_fetch_text_limited(**_: object) -> str:
         return _BING_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(search_candidates(query="battery recycling", engine="bing"))
 
@@ -129,14 +129,14 @@ def test_search_multi_engine_tolerates_google_failure(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_multi_engine
 
-    async def _fake_fetch_text(*, url: str, **_: object) -> str:
+    async def _fake_fetch_text_limited(*, url: str, **_: object) -> str:
         if "google" in url:
             raise TimeoutError("google timed out")
         if "bing" in url:
             return _BING_HTML
         return _DDG_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(
         search_multi_engine(
@@ -155,14 +155,14 @@ def test_search_multi_engine_dedupes_urls_across_engines(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_multi_engine
 
-    async def _fake_fetch_text(*, url: str, **_: object) -> str:
+    async def _fake_fetch_text_limited(*, url: str, **_: object) -> str:
         if "google" in url:
             return _GOOGLE_HTML
         if "bing" in url:
             return _BING_HTML
         return _DDG_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(
         search_multi_engine(
@@ -184,10 +184,10 @@ def test_search_candidates_bing_unwraps_redirect_urls(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
 
-    async def _fake_fetch_text(**_: object) -> str:
+    async def _fake_fetch_text_limited(**_: object) -> str:
         return _BING_REDIRECT_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(search_candidates(query="AI Act obligations", engine="bing"))
 
@@ -199,10 +199,10 @@ def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
 
-    async def _fake_fetch_text(**_: object) -> str:
+    async def _fake_fetch_text_limited(**_: object) -> str:
         return _GOOGLE_NEWS_RSS
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(
         search_candidates(query="battery recycling market share 2025", engine="google_news_rss")
@@ -227,7 +227,7 @@ def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
     started_urls: list[str] = []
     all_started = asyncio.Event()
 
-    async def _fake_fetch_text(*, url: str, **_: object) -> str:
+    async def _fake_fetch_text_limited(*, url: str, **_: object) -> str:
         started_urls.append(url)
         if len(started_urls) == 3:
             all_started.set()
@@ -238,7 +238,7 @@ def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
             return _BING_HTML
         return _DDG_HTML
 
-    monkeypatch.setattr(http_client, "fetch_text", _fake_fetch_text)
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
 
     candidates = asyncio.run(
         asyncio.wait_for(
@@ -258,3 +258,30 @@ def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
         "https://example.com/gamma",
         "https://example.com/delta",
     ]
+
+
+def test_search_candidates_uses_limited_fetch_for_live_serp_pages(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    observed_calls: list[tuple[str, int]] = []
+
+    async def _fake_fetch_text_limited(
+        *,
+        url: str,
+        max_chars: int,
+        **_: object,
+    ) -> str:
+        observed_calls.append((url, max_chars))
+        return _BING_HTML
+
+    async def _unexpected_fetch_text(**_: object) -> str:
+        raise AssertionError("search_candidates should use fetch_text_limited for SERP pages")
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+    monkeypatch.setattr(http_client, "fetch_text", _unexpected_fetch_text)
+
+    candidates = asyncio.run(search_candidates(query="battery recycling", engine="bing"))
+
+    assert [candidate.title for candidate in candidates] == ["Beta Result", "Gamma Result"]
+    assert observed_calls == [("https://www.bing.com/search", 120000)]

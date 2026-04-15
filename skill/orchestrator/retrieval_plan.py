@@ -39,12 +39,37 @@ _ALLOWED_SOURCE_IDS: frozenset[str] = frozenset(
 )
 _PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS = 8.0
 _PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS = 9.0
+_PRIMARY_INDUSTRY_GLOBAL_CONCURRENCY_CAP = 2
 _MIXED_OVERALL_DEADLINE_SECONDS = 8.0
 _MIXED_DISCOVERY_DEADLINE_SECONDS = 2.5
 _MIXED_DEEP_DEADLINE_SECONDS = 5.0
 _MIXED_SHORTLIST_TOP_K = 4
 _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET = 5
 _ACADEMIC_ARXIV_HINTS: tuple[str, ...] = ("europe pmc",)
+_INDUSTRY_OFFICIAL_FIRST_MARKERS: tuple[str, ...] = (
+    "10-k",
+    "10k",
+    "10-q",
+    "10q",
+    "8-k",
+    "8k",
+    "20-f",
+    "20f",
+    "6-k",
+    "6k",
+    "annual report",
+    "quarterly report",
+    "earnings",
+    "filing",
+    "guidance",
+    "investor",
+    "investors",
+    "risk factors",
+    "segment",
+    "segments",
+    "revenue",
+    "revenues",
+)
 
 
 @dataclass(frozen=True)
@@ -87,9 +112,31 @@ class RetrievalPlan:
     mixed_pooled_enabled: bool = False
 
 
-def _build_primary_first_wave(primary_route: ConcreteRoute) -> list[PlannedSourceStep]:
+def _industry_first_wave_source_ids(query: str | None) -> tuple[str, ...]:
+    if query is None:
+        return DOMAIN_FIRST_WAVE_SOURCES["industry"]
+    normalized_query = normalize_query_text(query)
+    if any(marker in normalized_query for marker in _INDUSTRY_OFFICIAL_FIRST_MARKERS):
+        return DOMAIN_FIRST_WAVE_SOURCES["industry"]
+    return (
+        "industry_web_discovery",
+        "industry_news_rss",
+        "industry_official_or_filings",
+    )
+
+
+def _build_primary_first_wave(
+    primary_route: ConcreteRoute,
+    *,
+    query: str | None = None,
+) -> list[PlannedSourceStep]:
     steps: list[PlannedSourceStep] = []
-    for source_id in DOMAIN_FIRST_WAVE_SOURCES[primary_route]:
+    source_ids = (
+        _industry_first_wave_source_ids(query)
+        if primary_route == "industry"
+        else DOMAIN_FIRST_WAVE_SOURCES[primary_route]
+    )
+    for source_id in source_ids:
         if source_id in _FALLBACK_ONLY_SOURCES:
             raise ValueError(f"Fallback-only source cannot be first-wave: {source_id}")
         steps.append(
@@ -208,7 +255,10 @@ def build_retrieval_plan(
     if classification.route_label == "academic" and classification.primary_route == "academic":
         first_wave_steps = list(_build_primary_academic_parallel_plan(query=query))
     else:
-        first_wave_steps = _build_primary_first_wave(classification.primary_route)
+        first_wave_steps = _build_primary_first_wave(
+            classification.primary_route,
+            query=query,
+        )
 
     if (
         classification.route_label == "mixed"
@@ -223,10 +273,12 @@ def build_retrieval_plan(
     per_source_timeout_seconds = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds = OVERALL_RETRIEVAL_DEADLINE_SECONDS
     query_variant_budget = 3
+    global_concurrency_cap = GLOBAL_CONCURRENCY_CAP
     if classification.route_label == "industry" and classification.primary_route == "industry":
         per_source_timeout_seconds = _PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS
         overall_deadline_seconds = _PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS
         query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
+        global_concurrency_cap = _PRIMARY_INDUSTRY_GLOBAL_CONCURRENCY_CAP
     elif classification.route_label == "mixed":
         overall_deadline_seconds = _MIXED_OVERALL_DEADLINE_SECONDS
         query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
@@ -239,6 +291,7 @@ def build_retrieval_plan(
         query_variant_budget=query_variant_budget,
         per_source_timeout_seconds=per_source_timeout_seconds,
         overall_deadline_seconds=overall_deadline_seconds,
+        global_concurrency_cap=global_concurrency_cap,
         mixed_discovery_deadline_seconds=(
             _MIXED_DISCOVERY_DEADLINE_SECONDS
             if classification.route_label == "mixed"

@@ -313,3 +313,43 @@ def test_run_retrieval_overall_deadline_cancel_converges_partial_results() -> No
     assert cancelled_sources
     assert any(hit.source_id == quick_source for hit in outcome.results)
     assert outcome.status == "partial"
+
+
+def test_run_retrieval_primary_industry_stops_after_first_successful_variant() -> None:
+    classification = ClassificationResult(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        reason_code="industry_hit",
+        scores={"policy": 0, "academic": 0, "industry": 5},
+    )
+    base_plan = build_retrieval_plan(
+        classification,
+        query="advanced packaging capacity outlook 2026",
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        overall_deadline_seconds=0.2,
+        per_source_timeout_seconds=0.2,
+    )
+
+    observed_queries: list[str] = []
+
+    async def _adapter(query: str) -> list[RetrievalHit]:
+        observed_queries.append(query)
+        await asyncio.sleep(0.01)
+        return [_mk_hit(first_step.source.source_id)]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={first_step.source.source_id: _adapter},
+        )
+    )
+
+    assert observed_queries == ["advanced packaging capacity outlook 2026"]
+    assert outcome.status == "success"

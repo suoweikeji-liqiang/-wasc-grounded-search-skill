@@ -11,6 +11,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
   "beautifulsoup4>=4.12,<5.0",
+  "ddgs>=9.13,<10.0",
   "fastapi>=0.115,<1.0",
   "httpx>=0.28,<1.0",
   "pydantic>=2.12,<3.0",

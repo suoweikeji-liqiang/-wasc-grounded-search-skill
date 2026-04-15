@@ -30,18 +30,21 @@ _ENGINE_CONFIG = {
         "params": lambda query: {"q": query},
         "parser": parse_duckduckgo_html,
         "timeout": 2.0,
+        "max_chars": 120_000,
     },
     "bing": {
         "url": "https://www.bing.com/search",
         "params": lambda query: {"q": query},
         "parser": parse_bing_html,
         "timeout": 2.0,
+        "max_chars": 120_000,
     },
     "google": {
         "url": "https://www.google.com/search",
         "params": lambda query: {"q": query, "hl": "en"},
         "parser": parse_google_html,
         "timeout": 2.0,
+        "max_chars": 120_000,
     },
     "google_news_rss": {
         "url": "https://news.google.com/rss/search",
@@ -52,7 +55,8 @@ _ENGINE_CONFIG = {
             "ceid": "US:en",
         },
         "parser": parse_google_news_rss,
-        "timeout": 1.2,
+        "timeout": 3.0,
+        "max_chars": 120_000,
     },
 }
 
@@ -80,10 +84,11 @@ async def search_candidates(
     max_results: int = 5,
 ) -> list[SearchCandidate]:
     config = _ENGINE_CONFIG[engine]
-    html = await http_client.fetch_text(
+    html = await http_client.fetch_text_limited(
         url=config["url"],
         params=config["params"](query),
         timeout=float(config.get("timeout", 2.0)),
+        max_chars=int(config.get("max_chars", 120_000)),
     )
     parser = config["parser"]
     parsed = parser(html)

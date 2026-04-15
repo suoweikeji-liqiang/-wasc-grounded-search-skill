@@ -65,6 +65,12 @@ _ACADEMIC_FOCUS_STOPWORDS: frozenset[str] = frozenset(
         "survey",
     }
 )
+_INDUSTRY_EARLY_STOP_MARKERS: tuple[str, ...] = (
+    "advanced packaging",
+    "packaging capacity",
+    "semiconductor packaging",
+    "cowos",
+)
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "cross_domain_fragment_focus": 6,
     "document_focus": 4,
@@ -424,6 +430,23 @@ def _academic_success_requires_fallback(
     )
 
 
+def _stop_after_first_success(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+) -> bool:
+    normalized_query = normalize_query_text(query)
+    return (
+        plan.route_label == "industry"
+        and plan.primary_route == "industry"
+        and step.source.source_id == "industry_web_discovery"
+        and step.source.route == "industry"
+        and not step.source.is_supplemental
+        and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+    )
+
+
 def _stage_for_step(step: PlannedSourceStep) -> str:
     return "fallback" if step.fallback_from_source_id is not None else "first_wave"
 
@@ -599,6 +622,19 @@ async def _run_source_variants(
                 )
                 for hit in attempt.hits
             )
+            if _stop_after_first_success(step=step, plan=plan, query=query):
+                return _with_source_telemetry(
+                    SourceExecutionResult(
+                        source_id=source_id,
+                        status="success",
+                        hits=_dedupe_hits(merged_hits),
+                        error_class="ok",
+                    ),
+                    stage=stage,
+                    retrieval_started_at=retrieval_started_at,
+                    source_started_at=source_started_at,
+                    source_finished_at=loop.time(),
+                )
             continue
 
         failure_reason = attempt.failure_reason or "adapter_error"

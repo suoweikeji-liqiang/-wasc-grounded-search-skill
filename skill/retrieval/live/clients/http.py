@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Mapping
+from typing import cast
 
 import httpx
 
@@ -99,3 +100,32 @@ async def fetch_json(
             response = await client.get(url, params=params, headers=merged_headers)
             response.raise_for_status()
             return response.json()
+
+
+async def post_text(
+    *,
+    url: str,
+    data: Mapping[str, str] | str | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = 10.0,
+) -> str:
+    merged_headers = dict(_DEFAULT_HEADERS)
+    if headers:
+        merged_headers.update(headers)
+    timeout_config = httpx.Timeout(timeout)
+    async with asyncio.timeout(timeout):
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=timeout_config,
+            trust_env=_trust_env(),
+        ) as client:
+            if isinstance(data, str):
+                response = await client.post(url, content=data, headers=merged_headers)
+            else:
+                response = await client.post(
+                    url,
+                    data=cast(Mapping[str, str] | None, data),
+                    headers=merged_headers,
+                )
+            response.raise_for_status()
+            return response.text

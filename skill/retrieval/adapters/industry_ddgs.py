@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from skill.config.live_retrieval import LiveRetrievalConfig
 from skill.evidence.fact_density import fact_density_score
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
+from skill.retrieval.live.clients import google_news as google_news_client
 from skill.retrieval.live.clients import http as http_client
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
 from skill.retrieval.live.clients.sec_edgar import (
@@ -19,7 +20,7 @@ from skill.retrieval.live.clients.sec_edgar import (
     search_sec_filings,
 )
 from skill.retrieval.live.parsers.page_content import extract_page_content
-from skill.retrieval.live.clients.search_discovery import search_multi_engine
+from skill.retrieval.live.clients.search_discovery import SearchCandidate, search_multi_engine
 from skill.retrieval.live.parsers.industry import (
     build_industry_snippet,
     extract_query_aligned_page_excerpt,
@@ -49,6 +50,8 @@ _SEC_ARCHIVE_FETCH_TIMEOUT_SECONDS = 4.0
 _SEC_ARCHIVE_INITIAL_FETCH_CHAR_LIMIT = 650_000
 _SEC_ARCHIVE_FETCH_CHAR_LIMIT = 900_000
 _QUERY_ALIGNED_FETCH_CHAR_LIMIT = 300_000
+_DDGS_NEWS_BACKUP_TIMEOUT_SECONDS = 5.0
+_DDGS_NEWS_BACKUP_BACKEND = "duckduckgo,brave"
 _COMPANY_IR_HOME_TIMEOUT_SECONDS = 1.8
 _COMPANY_IR_PAGE_TIMEOUT_SECONDS = 0.8
 _COMPANY_IR_STRONG_SCORE_THRESHOLD = 10
@@ -372,6 +375,17 @@ def _official_search_queries(query: str) -> tuple[str, ...]:
         queries.append(f"{query} site:developer.chrome.com")
     if "iata" in normalized or ("rpk" in normalized and "aviation" in normalized):
         queries.append(f"{query} site:iata.org")
+    if any(
+        marker in normalized
+        for marker in (
+            "advanced packaging",
+            "packaging capacity",
+            "semiconductor packaging",
+            "cowos",
+        )
+    ):
+        queries.append(f"{query} site:semi.org")
+        queries.append(f"SEMI {query}")
     return tuple(dict.fromkeys(queries))
 
 
@@ -386,14 +400,20 @@ def _candidate_payloads_from_search_results(
         if not title or not url or not snippet:
             continue
         source_url = getattr(candidate, "source_url", None)
-        tier_url = str(source_url) if source_url else str(url)
+        engine = str(getattr(candidate, "engine", ""))
+        preferred_url = (
+            str(source_url)
+            if engine == "google_news_rss" and source_url
+            else str(url)
+        )
+        tier_url = str(source_url) if source_url else preferred_url
         payloads.append(
             {
                 "title": str(title),
-                "url": str(url),
+                "url": preferred_url,
                 "snippet": str(snippet),
                 "_tier": _tier_for_url(tier_url),
-                "_engine": str(getattr(candidate, "engine", "")),
+                "_engine": engine,
             }
         )
     return payloads
@@ -411,6 +431,82 @@ def _dedupe_candidate_payloads(
         seen_urls.add(url)
         deduped.append(payload)
     return deduped
+
+
+def _ddgs_backup_query(query: str) -> str:
+    normalized = normalize_query_text(query)
+    if (
+        "advanced packaging" in normalized
+        and "capacity" in normalized
+        and "semiconductor" not in normalized
+    ):
+        return f"semiconductor {query}"
+    return query
+
+
+def _industry_outlook_backup_query(query: str) -> str | None:
+    normalized = normalize_query_text(query)
+    if not (
+        "advanced packaging" in normalized
+        and "capacity" in normalized
+        and "outlook" in normalized
+    ):
+        return None
+    year_match = re.search(r"(?<!\d)(20\d{2})(?!\d)", normalized)
+    if year_match is not None:
+        return f"{year_match.group(1)} semiconductor industry outlook"
+    return "semiconductor industry outlook"
+
+
+async def _search_ddgs_news_backup(
+    *,
+    query: str,
+    max_results: int = 3,
+) -> list[dict[str, str]]:
+    def _run_ddgs_news_search() -> list[dict[str, str]]:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            return []
+
+        with DDGS() as ddgs:
+            results = list(
+                ddgs.text(
+                    _ddgs_backup_query(query),
+                    max_results=max_results,
+                    backend=_DDGS_NEWS_BACKUP_BACKEND,
+                    region="us-en",
+                    safesearch="off",
+                )
+            )
+
+        payloads: list[dict[str, str]] = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or item.get("href") or "").strip()
+            snippet = str(item.get("body") or "").strip()
+            if not title or not url or not snippet:
+                continue
+            payloads.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "_tier": _tier_for_url(url),
+                    "_engine": "ddgs_news_backup",
+                }
+            )
+        return payloads
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_run_ddgs_news_search),
+            timeout=_DDGS_NEWS_BACKUP_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return []
 
 
 async def _rank_payloads_to_hits(
@@ -511,6 +607,55 @@ async def _cancel_search_tasks(tasks: list[asyncio.Task[object]]) -> None:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _resolve_google_news_candidates(
+    candidates: list[SearchCandidate],
+) -> list[SearchCandidate]:
+    resolution_tasks: list[asyncio.Task[str | None]] = []
+    task_candidates: list[SearchCandidate] = []
+
+    for candidate in candidates:
+        if candidate.engine != "google_news_rss":
+            continue
+        resolution_tasks.append(
+            asyncio.create_task(
+                google_news_client.resolve_google_news_article_url(candidate.url)
+            )
+        )
+        task_candidates.append(candidate)
+
+    if not resolution_tasks:
+        return candidates
+
+    try:
+        resolution_results = await asyncio.gather(
+            *resolution_tasks,
+            return_exceptions=True,
+        )
+    except asyncio.CancelledError:
+        await _cancel_search_tasks(list(resolution_tasks))
+        raise
+
+    resolved_by_url: dict[str, str] = {}
+    for candidate, result in zip(task_candidates, resolution_results, strict=False):
+        if isinstance(result, Exception) or not result:
+            continue
+        resolved_by_url[candidate.url] = result
+
+    resolved_candidates: list[SearchCandidate] = []
+    for candidate in candidates:
+        resolved_source_url = resolved_by_url.get(candidate.url, candidate.source_url)
+        resolved_candidates.append(
+            SearchCandidate(
+                engine=candidate.engine,
+                title=candidate.title,
+                url=candidate.url,
+                snippet=candidate.snippet,
+                source_url=resolved_source_url,
+            )
+        )
+    return resolved_candidates
 
 
 def _detect_known_company_ir_target(query: str) -> dict[str, object] | None:
@@ -1157,18 +1302,46 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
         if fixture_hits:
             return fixture_hits[:3]
 
-    try:
-        web_candidates = await search_multi_engine(
-            query=query,
+    discovery_query = _ddgs_backup_query(query)
+    web_task = asyncio.create_task(
+        search_multi_engine(
+            query=discovery_query,
             engines=_non_rss_engines(config),
             max_results=8,
         )
+    )
+    ddgs_backup_task = asyncio.create_task(
+        _search_ddgs_news_backup(query=query, max_results=3)
+    )
+    try:
+        web_candidates = await web_task
     except Exception:
         web_candidates = []
+    except asyncio.CancelledError:
+        await _cancel_search_tasks([web_task, ddgs_backup_task])
+        raise
 
     candidate_payloads = _dedupe_candidate_payloads(
         _candidate_payloads_from_search_results(list(web_candidates))
     )
+    if candidate_payloads:
+        await _cancel_search_tasks([ddgs_backup_task])
+    else:
+        try:
+            backup_payloads = await ddgs_backup_task
+        except Exception:
+            backup_payloads = []
+        if not backup_payloads:
+            broader_outlook_query = _industry_outlook_backup_query(query)
+            if broader_outlook_query is not None:
+                try:
+                    backup_payloads = await _search_ddgs_news_backup(
+                        query=broader_outlook_query,
+                        max_results=3,
+                    )
+                except Exception:
+                    backup_payloads = []
+        candidate_payloads = _dedupe_candidate_payloads(backup_payloads)
     return await _rank_payloads_to_hits(
         query=query,
         candidate_payloads=candidate_payloads,
@@ -1201,10 +1374,12 @@ async def search_news_rss_live(query: str) -> list[RetrievalHit]:
         news_candidates = await search_multi_engine(
             query=query,
             engines=("google_news_rss",),
-            max_results=5,
+            max_results=3,
         )
     except Exception:
         news_candidates = []
+    else:
+        news_candidates = await _resolve_google_news_candidates(list(news_candidates))
 
     candidate_payloads = _candidate_payloads_from_search_results(list(news_candidates))
     for payload in candidate_payloads:
@@ -1437,6 +1612,8 @@ async def search_live(query: str) -> list[RetrievalHit]:
             )
         except Exception:
             news_candidates = []
+        else:
+            news_candidates = await _resolve_google_news_candidates(list(news_candidates))
         candidate_payloads.extend(
             _candidate_payloads_from_search_results(list(news_candidates))
         )
