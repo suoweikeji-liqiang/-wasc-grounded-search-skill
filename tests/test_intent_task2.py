@@ -189,3 +189,15 @@ def test_classify_query_keeps_strong_policy_queries_concrete_despite_trailing_cr
     assert data_act.route_label == "policy"
     assert data_act.primary_route == "policy"
     assert data_act.supplemental_route is None
+
+
+def test_classify_query_assigns_supplemental_route_for_non_explicit_mixed_ambiguity() -> None:
+    policy_academic = classify_query("政策研究路径评估框架示例说明")
+    assert policy_academic.route_label == "mixed"
+    assert policy_academic.primary_route == "policy"
+    assert policy_academic.supplemental_route == "academic"
+
+    academic_industry = classify_query("这篇论文行业趋势解读案例分享")
+    assert academic_industry.route_label == "mixed"
+    assert academic_industry.primary_route == "academic"
+    assert academic_industry.supplemental_route == "industry"

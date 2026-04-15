@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -204,3 +205,47 @@ def test_run_benchmark_cli_uses_phase_5_defaults(monkeypatch) -> None:
     assert args.cases == Path("tests/fixtures/benchmark_phase5_cases.json")
     assert args.runs == 5
     assert args.output_dir == Path("benchmark-results")
+
+
+def test_run_benchmark_cli_forces_live_shadow_eval(monkeypatch, tmp_path) -> None:
+    module_path = Path(__file__).resolve().parent.parent / "scripts" / "run_benchmark.py"
+    spec = importlib.util.spec_from_file_location("phase5_run_benchmark", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.delenv("WASC_RETRIEVAL_MODE", raising=False)
+    monkeypatch.delenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_benchmark.py",
+            "--cases",
+            "tests/fixtures/benchmark_phase5_cases.json",
+            "--runs",
+            "1",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(module, "load_benchmark_cases", lambda _path: [])
+
+    observed: dict[str, str | None] = {}
+
+    def _fake_run_benchmark_suite(**kwargs: object) -> list[BenchmarkRunRecord]:
+        del kwargs
+        observed["mode"] = os.environ.get("WASC_RETRIEVAL_MODE")
+        observed["fixture_shortcuts"] = os.environ.get("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED")
+        return []
+
+    monkeypatch.setattr(module, "run_benchmark_suite", _fake_run_benchmark_suite)
+    monkeypatch.setattr(module, "write_benchmark_reports", lambda records, output_dir: None)
+
+    module.main()
+
+    assert observed == {
+        "mode": "live",
+        "fixture_shortcuts": "0",
+    }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -13,6 +14,11 @@ if str(REPO_ROOT) not in sys.path:
 from skill.api.entry import app
 from skill.benchmark.harness import load_benchmark_cases, run_benchmark_suite
 from skill.benchmark.report import write_benchmark_reports
+
+
+def _configure_shadow_eval_environment() -> None:
+    os.environ["WASC_RETRIEVAL_MODE"] = "live"
+    os.environ["WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED"] = "0"
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +47,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    _configure_shadow_eval_environment()
     args = parse_args()
     cases = load_benchmark_cases(args.cases)
     records = run_benchmark_suite(

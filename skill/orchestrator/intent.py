@@ -257,6 +257,14 @@ def _is_policy_academic_research_path_ambiguity(
     )
 
 
+def _mixed_supplemental_route(
+    ranked: tuple[ConcreteRoute, ...],
+    scores: Mapping[str, int],
+) -> ConcreteRoute | None:
+    second_route = ranked[1]
+    return second_route if scores[second_route] > 0 else None
+
+
 def classify_query(query: str) -> ClassificationResult:
     normalized_query = normalize_query_text(query)
     tokens = query_tokens(normalized_query)
@@ -282,7 +290,7 @@ def classify_query(query: str) -> ClassificationResult:
         return ClassificationResult(
             route_label="mixed",
             primary_route=primary_route,
-            supplemental_route=None,
+            supplemental_route=_mixed_supplemental_route(ranked, scores),
             reason_code="short_query",
             scores=scores,
         )
@@ -302,7 +310,7 @@ def classify_query(query: str) -> ClassificationResult:
         return ClassificationResult(
             route_label="mixed",
             primary_route=primary_route,
-            supplemental_route=None,
+            supplemental_route=_mixed_supplemental_route(ranked, scores),
             reason_code="low_signal",
             scores=scores,
         )
@@ -311,7 +319,7 @@ def classify_query(query: str) -> ClassificationResult:
         return ClassificationResult(
             route_label="mixed",
             primary_route=primary_route,
-            supplemental_route=None,
+            supplemental_route=_mixed_supplemental_route(ranked, scores),
             reason_code="policy_academic_research_path",
             scores=scores,
         )
@@ -320,7 +328,7 @@ def classify_query(query: str) -> ClassificationResult:
         return ClassificationResult(
             route_label="mixed",
             primary_route=primary_route,
-            supplemental_route=None,
+            supplemental_route=_mixed_supplemental_route(ranked, scores),
             reason_code="score_tie",
             scores=scores,
         )

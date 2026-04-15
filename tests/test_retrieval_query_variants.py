@@ -590,3 +590,4 @@ def test_build_retrieval_plan_partitions_mixed_budget_for_discovery_and_deep_fet
     assert mixed_plan.mixed_discovery_deadline_seconds == 2.5
     assert mixed_plan.mixed_deep_deadline_seconds == 5.0
     assert mixed_plan.mixed_shortlist_top_k == 4
+    assert mixed_plan.mixed_pooled_enabled is True

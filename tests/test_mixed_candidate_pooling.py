@@ -174,7 +174,9 @@ def test_run_retrieval_falls_back_to_standard_path_when_pooled_hook_returns_none
     ]
 
 
-def test_run_retrieval_keeps_mixed_pooled_hook_disabled_by_default(monkeypatch) -> None:
+def test_run_retrieval_enables_mixed_pooled_hook_by_default_for_dual_route_mixed_plan(
+    monkeypatch,
+) -> None:
     import skill.retrieval.engine as engine
 
     plan = build_retrieval_plan(
@@ -211,11 +213,14 @@ def test_run_retrieval_keeps_mixed_pooled_hook_disabled_by_default(monkeypatch) 
             ),
         }
 
-    async def _unexpected_pooled(**_: object):
-        raise AssertionError("mixed pooled hook should be disabled by default")
+    observed: dict[str, bool] = {"pooled_called": False}
+
+    async def _fake_pooled(**_: object):
+        observed["pooled_called"] = True
+        return None
 
     monkeypatch.setattr(engine, "_run_first_wave", _fake_run_first_wave)
-    monkeypatch.setattr(engine, "_run_mixed_pooled_path", _unexpected_pooled)
+    monkeypatch.setattr(engine, "_run_mixed_pooled_path", _fake_pooled)
 
     outcome = asyncio.run(
         engine.run_retrieval(
@@ -225,6 +230,7 @@ def test_run_retrieval_keeps_mixed_pooled_hook_disabled_by_default(monkeypatch) 
         )
     )
 
+    assert observed["pooled_called"] is True
     assert outcome.status == "success"
     assert [item.title for item in outcome.results] == [
         "policy-fragment",

@@ -80,10 +80,12 @@
     "query": "政策研究路径评估框架示例说明",
     "expected_route_label": "mixed",
     "expected_primary_route": "policy",
-    "expected_supplemental_route": null,
+    "expected_supplemental_route": "academic",
     "expected_source_families_contains": [
       "official_government",
-      "regulator"
+      "regulator",
+      "academic_metadata",
+      "paper_repository"
     ],
     "reason_category": "precedence_tie_policy_over_academic"
   },
@@ -92,10 +94,12 @@
     "query": "这篇论文行业趋势解读案例分享",
     "expected_route_label": "mixed",
     "expected_primary_route": "academic",
-    "expected_supplemental_route": null,
+    "expected_supplemental_route": "industry",
     "expected_source_families_contains": [
       "academic_metadata",
-      "paper_repository"
+      "paper_repository",
+      "company_official",
+      "industry_association"
     ],
     "reason_category": "precedence_tie_academic_over_industry"
   },
@@ -104,11 +108,13 @@
     "query": "请问政策研究路径如何设计实施",
     "expected_route_label": "mixed",
     "expected_primary_route": "policy",
-    "expected_supplemental_route": null,
+    "expected_supplemental_route": "academic",
     "expected_source_families_contains": [
       "official_government",
       "regulator",
-      "standards_body"
+      "standards_body",
+      "academic_metadata",
+      "paper_repository"
     ],
     "reason_category": "ambiguous_tie_defaults_precedence"
   }

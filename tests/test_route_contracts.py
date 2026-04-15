@@ -314,7 +314,7 @@ def test_precedence_regressions_use_concrete_primary_route(
 
     assert payload["route_label"] == "mixed"
     assert payload["primary_route"] == fixture["expected_primary_route"]
-    assert payload["supplemental_route"] is None
+    assert payload["supplemental_route"] == fixture["expected_supplemental_route"]
 
 
 def test_low_signal_query_regression(client: TestClient, phase1_fixtures: list[dict[str, Any]]) -> None:
@@ -363,8 +363,13 @@ def test_ambiguous_mixed_contract_uses_concrete_primary_family_table(
 
     assert payload["route_label"] == "mixed"
     assert payload["primary_route"] in ALLOWED_CONCRETE_ROUTES
-    assert payload["supplemental_route"] is None
-    assert payload["source_families"] == list(ROUTE_SOURCE_FAMILIES[payload["primary_route"]])
+    assert payload["supplemental_route"] == fixture["expected_supplemental_route"]
+
+    expected_families = list(ROUTE_SOURCE_FAMILIES[payload["primary_route"]])
+    if payload["supplemental_route"] is not None:
+        expected_families.extend(ROUTE_SOURCE_FAMILIES[payload["supplemental_route"]])
+
+    assert payload["source_families"] == list(dict.fromkeys(expected_families))
 
 
 @pytest.mark.parametrize("case", ENGLISH_BENCHMARK_ROUTE_CASES, ids=lambda case: case["query"])

@@ -261,4 +261,7 @@ def build_retrieval_plan(
         mixed_shortlist_top_k=(
             _MIXED_SHORTLIST_TOP_K if classification.route_label == "mixed" else 0
         ),
+        mixed_pooled_enabled=(
+            classification.route_label == "mixed" and supplemental_route is not None
+        ),
     )
