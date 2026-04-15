@@ -507,6 +507,82 @@ def test_policy_allowlist_live_adapter_rejects_non_official_domains(monkeypatch)
     assert "blog.example.com" not in hits[0].url
 
 
+def test_policy_allowlist_live_adapter_uses_fact_dense_page_paragraphs_when_intro_is_long(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_web_allowlist as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="bing",
+                title="Climate Order",
+                url="https://www.gov.cn/zhengce/climate-order",
+                snippet="",
+            )
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return (
+            "This climate order page provides general background on national coordination, "
+            "institutional alignment, implementation framing, and long-term planning context "
+            "for agencies and supervised entities across multiple sectors.\n\n"
+            "The introductory overview explains why the policy matters, how it fits within the "
+            "broader strategy, and what kinds of implementation questions regulated parties "
+            "should expect over time as additional guidance is issued.\n\n"
+            "Authority: State Council. Publication date: 2026-04-01. Effective date: 2026-05-01. "
+            "Version: 2026-04 edition. Article 12 requires quarterly methane reporting.\n\n"
+            "Archive and navigation links."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("latest climate order version article 12 effective date"))
+
+    assert len(hits) == 1
+    assert "Effective date: 2026-05-01" in hits[0].snippet
+    assert "Version: 2026-04 edition" in hits[0].snippet
+    assert "Article 12 requires quarterly methane reporting" in hits[0].snippet
+
+
+def test_policy_allowlist_live_adapter_replaces_generic_search_snippet_with_fact_dense_page_text(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_web_allowlist as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+        return [
+            SearchCandidate(
+                engine="duckduckgo",
+                title="Climate Order",
+                url="https://www.gov.cn/zhengce/climate-order",
+                snippet="Official climate order release and overview.",
+            )
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return (
+            "Official climate order release page.\n\n"
+            "Authority: State Council. Publication date: 2026-04-01. Effective date: 2026-05-01. "
+            "Version: 2026-04 edition. Article 12 requires quarterly methane reporting and "
+            "Article 15 defines the compliance record format.\n\n"
+            "Supplementary contact information."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_live("latest climate order effective date version"))
+
+    assert len(hits) == 1
+    assert hits[0].snippet != "Official climate order release and overview."
+    assert "Effective date: 2026-05-01" in hits[0].snippet
+    assert "Article 15 defines the compliance record format" in hits[0].snippet
+
+
 def test_policy_registry_live_adapter_uses_federal_register_for_us_official_queries(
     monkeypatch,
 ) -> None:

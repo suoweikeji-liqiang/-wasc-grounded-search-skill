@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
 from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.evidence.fact_density import rank_fact_paragraphs
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
 from skill.retrieval.live.clients.search_discovery import search_multi_engine
 from skill.retrieval.live.parsers.policy import (
@@ -23,6 +25,7 @@ _SEARCH_TIMEOUT_SECONDS = 2.4
 _SEARCH_MAX_RESULTS = 3
 _CANDIDATE_LIMIT = 5
 _PAGE_FETCH_TIMEOUT_SECONDS = 1.0
+_SNIPPET_MAX_CHARS = 720
 
 _RAW_FIXTURES: tuple[dict[str, Any], ...] = (
     {
@@ -71,6 +74,50 @@ def _score(query: str, fixture: dict[str, Any]) -> int:
     tokens = [token for token in query.lower().split() if token]
     haystack = " ".join((str(fixture["title"]), str(fixture["snippet"]))).lower()
     return sum(1 for token in tokens if token in haystack)
+
+
+def _query_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw_term in re.findall(r"[^\s]+", query.lower()):
+        term = raw_term.strip(".,:;()[]{}\"'")
+        if not term:
+            continue
+        if len(term) < 3 and not any(char.isdigit() for char in term):
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return tuple(terms)
+
+
+def _truncate_snippet(text: str, *, max_chars: int = _SNIPPET_MAX_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars].rstrip()
+    last_break = max(truncated.rfind("\n\n"), truncated.rfind(". "), truncated.rfind("; "))
+    if last_break >= max_chars // 2:
+        truncated = truncated[:last_break].rstrip()
+    return truncated
+
+
+def _build_snippet(*, query: str, candidate_snippet: str, page_text: str) -> str:
+    ranked = rank_fact_paragraphs(
+        page_text,
+        query_terms=_query_terms(query),
+        limit=2,
+        min_chars=40,
+        max_chars=360,
+        min_score=1.0,
+    )
+    if ranked:
+        return _truncate_snippet("\n\n".join(item.text for item in ranked))
+    if candidate_snippet:
+        return _truncate_snippet(candidate_snippet.strip())
+    if page_text:
+        return _truncate_snippet(page_text[:_SNIPPET_MAX_CHARS].strip())
+    return ""
 
 
 async def search_fixture(query: str) -> list[RetrievalHit]:
@@ -128,6 +175,11 @@ async def _rank_candidate(
             if part
         ),
     )
+    snippet = _build_snippet(
+        query=query,
+        candidate_snippet=getattr(candidate, "snippet", ""),
+        page_text=page_text,
+    )
     if metadata["authority"] is None or (
         metadata["publication_date"] is None
         and metadata["effective_date"] is None
@@ -135,13 +187,12 @@ async def _rank_candidate(
             query,
             {
                 "title": candidate.title,
-                "snippet": candidate.snippet or page_text[:320],
+                "snippet": snippet,
             },
         )
         <= 0
     ):
         return None
-    snippet = candidate.snippet or page_text[:320]
     return {
         "title": candidate.title,
         "url": candidate.url,
