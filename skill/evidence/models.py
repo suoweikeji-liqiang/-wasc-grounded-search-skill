@@ -129,8 +129,8 @@ class CanonicalEvidence:
             raise ValueError("raw_records must not be empty")
         if self.route_role not in _ROUTE_ROLES:
             raise ValueError("route_role must be primary or supplemental")
-        if len(self.retained_slices) > 2:
-            raise ValueError("retained_slices must contain at most 2 entries by default")
+        if len(self.retained_slices) > 4:
+            raise ValueError("retained_slices must contain at most 4 entries by default")
         if self.token_estimate < 0:
             raise ValueError("token_estimate must be non-negative")
         if self.token_estimate == 0:

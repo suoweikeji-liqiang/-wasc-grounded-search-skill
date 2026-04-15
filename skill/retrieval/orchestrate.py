@@ -24,9 +24,9 @@ from skill.retrieval.models import RetrievalHit
 from skill.retrieval.priority import prioritize_hits, score_query_alignment
 
 Adapter = Callable[[str], Awaitable[list[RetrievalHit]]]
-DEFAULT_EVIDENCE_TOKEN_BUDGET = 48
-DEFAULT_EVIDENCE_TOP_K = 4
-DEFAULT_SUPPLEMENTAL_MIN_ITEMS = 1
+DEFAULT_EVIDENCE_TOKEN_BUDGET = 256
+DEFAULT_EVIDENCE_TOP_K = 6
+DEFAULT_SUPPLEMENTAL_MIN_ITEMS = 2
 _INDUSTRY_CREDIBILITY_PRIORITY: dict[str | None, int] = {
     "company_official": 0,
     "industry_association": 1,

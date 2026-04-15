@@ -96,7 +96,7 @@ def _build_academic_slices(records: list[RawEvidenceRecord]) -> tuple[EvidenceSl
                 token_estimate=record.token_estimate,
             )
         )
-        if len(slices) == 2:
+        if len(slices) == 4:
             break
     return tuple(slices)
 

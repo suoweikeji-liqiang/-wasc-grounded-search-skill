@@ -84,7 +84,7 @@ def _build_policy_slices(records: list[RawEvidenceRecord]) -> tuple[EvidenceSlic
                 token_estimate=record.token_estimate,
             )
         )
-        if len(slices) == 2:
+        if len(slices) == 4:
             break
     return tuple(slices)
 
