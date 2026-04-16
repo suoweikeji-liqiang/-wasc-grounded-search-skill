@@ -671,10 +671,10 @@ def test_run_retrieval_primary_industry_stops_first_wave_early_after_web_discove
     )
     elapsed = time.perf_counter() - started_at
 
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert any(hit.source_id == "industry_web_discovery" for hit in outcome.results)
-    assert "news:cancelled" in events
-    assert "official:cancelled" in events
+    assert "news:start" not in events
+    assert "official:start" not in events
     assert elapsed < 0.2
 
 
@@ -729,6 +729,55 @@ def test_run_retrieval_primary_industry_packaging_query_stops_after_first_no_hit
         "industry_news_rss": ["advanced packaging capacity outlook 2026"],
         "industry_official_or_filings": ["advanced packaging capacity outlook 2026"],
     }
+
+
+def test_run_retrieval_primary_industry_packaging_query_uses_fallback_chain_after_web_discovery_failure() -> None:
+    classification = ClassificationResult(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        reason_code="industry_hit",
+        scores={"policy": 0, "academic": 0, "industry": 5},
+    )
+    plan = replace(
+        build_retrieval_plan(classification, query="advanced packaging capacity outlook 2026"),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.2,
+        overall_deadline_seconds=0.5,
+        global_concurrency_cap=3,
+    )
+    observed_calls: list[str] = []
+
+    async def _web(_: str) -> list[RetrievalHit]:
+        observed_calls.append("industry_web_discovery")
+        return []
+
+    async def _news(_: str) -> list[RetrievalHit]:
+        observed_calls.append("industry_news_rss")
+        return []
+
+    async def _official(_: str) -> list[RetrievalHit]:
+        observed_calls.append("industry_official_or_filings")
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={
+                "industry_web_discovery": _web,
+                "industry_news_rss": _news,
+                "industry_official_or_filings": _official,
+            },
+        )
+    )
+
+    assert outcome.status == "failure_gaps"
+    assert observed_calls == [
+        "industry_web_discovery",
+        "industry_news_rss",
+        "industry_official_or_filings",
+    ]
 
 
 def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_primary_success() -> None:

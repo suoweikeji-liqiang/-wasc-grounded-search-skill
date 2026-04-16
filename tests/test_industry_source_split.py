@@ -49,9 +49,17 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
 
     assert [step.source.source_id for step in general_industry_plan.first_wave_sources] == [
         "industry_web_discovery",
-        "industry_news_rss",
-        "industry_official_or_filings",
     ]
+    assert (
+        general_industry_plan.fallback_sources[0].fallback_from_source_id
+        == "industry_web_discovery"
+    )
+    assert general_industry_plan.fallback_sources[0].source.source_id == "industry_news_rss"
+    assert any(
+        step.fallback_from_source_id == "industry_news_rss"
+        and step.source.source_id == "industry_official_or_filings"
+        for step in general_industry_plan.fallback_sources
+    )
     assert general_industry_plan.global_concurrency_cap == 3
 
     mixed_plan = build_retrieval_plan(
@@ -67,9 +75,9 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
 
     assert [step.source.source_id for step in mixed_plan.first_wave_sources] == [
         "policy_official_registry",
-        "industry_official_or_filings",
         "industry_web_discovery",
         "industry_news_rss",
+        "industry_official_or_filings",
     ]
     assert all(
         step.source.is_supplemental

@@ -1961,6 +1961,10 @@ async def execute_answer_pipeline_with_trace(
             retrieval_deadline_seconds,
             plan.overall_deadline_seconds,
         )
+    budget = replace(
+        budget,
+        retrieval_deadline_seconds=retrieval_deadline_seconds,
+    )
     retrieval_plan = replace(
         plan,
         overall_deadline_seconds=min(

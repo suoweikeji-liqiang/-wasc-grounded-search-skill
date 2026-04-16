@@ -16,6 +16,7 @@ from skill.config.retrieval import (
 )
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.normalize import normalize_query_text
+from skill.orchestrator.query_traits import derive_query_traits
 from skill.retrieval.models import RetrievalFailureReason
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
@@ -118,6 +119,8 @@ def _industry_first_wave_source_ids(query: str | None) -> tuple[str, ...]:
     normalized_query = normalize_query_text(query)
     if any(marker in normalized_query for marker in _INDUSTRY_OFFICIAL_FIRST_MARKERS):
         return DOMAIN_FIRST_WAVE_SOURCES["industry"]
+    if derive_query_traits(query).has_trend_intent:
+        return ("industry_web_discovery",)
     return (
         "industry_web_discovery",
         "industry_news_rss",
@@ -147,7 +150,11 @@ def _build_primary_first_wave(
     return steps
 
 
-def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[PlannedSourceStep]:
+def _build_supplemental_first_wave(
+    supplemental_route: ConcreteRoute,
+    *,
+    query: str | None = None,
+) -> list[PlannedSourceStep]:
     if supplemental_route == "industry":
         return [
             PlannedSourceStep(
@@ -157,7 +164,7 @@ def _build_supplemental_first_wave(supplemental_route: ConcreteRoute) -> list[Pl
                     is_supplemental=True,
                 ),
             )
-            for source_id in DOMAIN_FIRST_WAVE_SOURCES[supplemental_route]
+            for source_id in _industry_first_wave_source_ids(query)
             if source_id not in _FALLBACK_ONLY_SOURCES
         ]
     supplemental_source_id = SUPPLEMENTAL_STRONGEST_SOURCE[supplemental_route]
@@ -209,8 +216,20 @@ def _prefer_arxiv_first_for_academic_query(query: str) -> bool:
 def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tuple[PlannedSourceStep, ...]:
     first_wave_ids = {step.source.source_id for step in first_wave_steps}
     fallback_steps_by_key: dict[tuple[str, str], PlannedSourceStep] = {}
+    pending_steps = list(first_wave_steps)
+    processed_steps: set[tuple[str, str | None, str, bool]] = set()
 
-    for step in first_wave_steps:
+    while pending_steps:
+        step = pending_steps.pop(0)
+        step_key = (
+            step.source.source_id,
+            step.fallback_from_source_id,
+            step.source.route,
+            step.source.is_supplemental,
+        )
+        if step_key in processed_steps:
+            continue
+        processed_steps.add(step_key)
         transitions = SOURCE_BACKUP_CHAIN.get(step.source.source_id, {})
         for failure_reason, target_source_id in transitions.items():
             if target_source_id is None or target_source_id in first_wave_ids:
@@ -239,6 +258,8 @@ def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tu
                         failure_reason,
                     ),
                 )
+                existing_step = fallback_steps_by_key[dedupe_key]
+            pending_steps.append(fallback_steps_by_key[dedupe_key])
     return tuple(fallback_steps_by_key.values())
 
 
@@ -263,7 +284,12 @@ def build_retrieval_plan(
         and classification.supplemental_route is not None
     ):
         supplemental_route = classification.supplemental_route
-        first_wave_steps.extend(_build_supplemental_first_wave(supplemental_route))
+        first_wave_steps.extend(
+            _build_supplemental_first_wave(
+                supplemental_route,
+                query=query,
+            )
+        )
 
     first_wave = tuple(first_wave_steps)
     if fallback is None:

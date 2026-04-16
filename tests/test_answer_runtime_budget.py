@@ -2125,6 +2125,50 @@ def test_execute_answer_pipeline_with_trace_keeps_extended_retrieval_budget_for_
     assert result.response.answer_status == "grounded_success"
 
 
+def test_execute_answer_pipeline_with_trace_marks_extended_primary_industry_lookup_budget_as_latency_ok(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**kwargs: object) -> RetrieveResponse:
+        return _industry_fast_path_retrieve_response()
+
+    perf_counter_values = iter((100.0, 108.2))
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+    monkeypatch.setattr(
+        synthesis_orchestrate.time,
+        "perf_counter",
+        lambda: next(perf_counter_values),
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("primary industry lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share 2025",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.runtime_trace.retrieval_elapsed_ms == 8200
+    assert result.runtime_trace.elapsed_ms == 8200
+    assert result.runtime_trace.latency_budget_ok is True
+
+
 def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(
     monkeypatch,
 ) -> None:
