@@ -10,7 +10,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from skill.api.schema import AnswerResponse, RetrieveCanonicalEvidenceItem, RetrieveResponse
-from skill.config.retrieval import SUPPLEMENTAL_STRONGEST_SOURCE
+from skill.config.retrieval import (
+    COVERAGE_FRONTIER_MIN_REMAINING_SECONDS_TO_PROBE,
+    COVERAGE_FRONTIER_PER_PROBE_TIMEOUT_SECONDS,
+)
 from skill.evidence.dedupe import collapse_evidence_records
 from skill.evidence.models import CanonicalEvidence, EvidenceSlice, LinkedVariant, RawEvidenceRecord
 from skill.evidence.normalize import normalize_hit_candidates
@@ -41,6 +44,14 @@ from skill.synthesis.generator import (
     generate_answer_draft,
 )
 from skill.synthesis.models import ClaimCitation, KeyPoint, SourceReference, StructuredAnswerDraft
+from skill.synthesis.retrieval_policy import (
+    CoverageFrontierProbe,
+    attach_probe_alignment,
+    build_coverage_frontier_candidates,
+    decide_coverage_frontier_sufficiency,
+    has_budget_for_coverage_frontier_probe,
+    select_coverage_frontier_winner,
+)
 from skill.synthesis.prompt import build_grounded_answer_prompt
 from skill.synthesis.state import determine_answer_status
 from skill.synthesis.uncertainty import build_uncertainty_notes
@@ -262,10 +273,7 @@ _ACADEMIC_PAPER_MARKERS = frozenset({"paper", "papers", "\u8bba\u6587"})
 _MIXED_IMPACT_QUERY_MARKERS = frozenset(
     {"impact", "effect", "\u5f71\u54cd", "\u6548\u5e94"}
 )
-_POST_PRIMARY_SUPPLEMENTAL_PROBE_TIMEOUT_SECONDS = 0.9
-_POST_PRIMARY_SUPPLEMENTAL_MIN_REMAINING_SECONDS = 2.0
-_POST_PRIMARY_SUPPLEMENTAL_MIN_ALIGNMENT_SCORE = 6
-_POST_PRIMARY_SUPPLEMENTAL_VARIANT_PRIORITY: dict[str, int] = {
+_COVERAGE_FRONTIER_VARIANT_PRIORITY: dict[str, int] = {
     "cross_domain_fragment_focus": 0,
     "document_focus": 1,
     "document_concept_focus": 2,
@@ -580,7 +588,14 @@ def _is_cross_domain_effect_query(query: str) -> bool:
     )
 
 
-def _choose_post_primary_supplemental_variant(query: str) -> tuple[str, str] | None:
+def _choose_coverage_frontier_variant(
+    query: str,
+    *,
+    source_route: str,
+) -> tuple[str, str] | None:
+    if source_route != "policy":
+        return None
+
     variants = build_query_variants(
         query=query,
         route_label="mixed",
@@ -599,7 +614,7 @@ def _choose_post_primary_supplemental_variant(query: str) -> tuple[str, str] | N
     selected = min(
         candidates,
         key=lambda variant: (
-            _POST_PRIMARY_SUPPLEMENTAL_VARIANT_PRIORITY.get(variant.reason_code, 99),
+            _COVERAGE_FRONTIER_VARIANT_PRIORITY.get(variant.reason_code, 99),
             len(variant.query),
             variant.query,
         ),
@@ -607,7 +622,7 @@ def _choose_post_primary_supplemental_variant(query: str) -> tuple[str, str] | N
     return selected.query, selected.reason_code
 
 
-def _should_probe_policy_cross_domain_supplement(
+def _should_activate_coverage_frontier(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
@@ -640,169 +655,130 @@ def _should_probe_policy_cross_domain_supplement(
     )
 
 
-def _post_primary_probe_trace_entry(
+def _coverage_frontier_trace_entry(
     *,
-    source_id: str,
+    stage: str,
+    probe: CoverageFrontierProbe,
     started_at_ms: int,
     elapsed_ms: int,
-    probe_query: str,
-    probe_reason_code: str,
     hit_count: int,
     failure_reason: RetrievalFailureReason | None,
     error_class: str,
+    probe_variant_reason_code: str,
 ) -> dict[str, object]:
     return {
-        "source_id": source_id,
-        "stage": "post_primary_probe",
+        "source_id": probe.source_id,
+        "stage": stage,
         "started_at_ms": started_at_ms,
         "elapsed_ms": elapsed_ms,
         "hit_count": hit_count,
         "failure_reason": failure_reason,
-        "gaps": [] if failure_reason is None else [source_id],
+        "gaps": [] if failure_reason is None else [probe.source_id],
         "error_class": error_class,
         "planner_backup_source_id": None,
         "was_cancelled_by_deadline": False,
-        "probe_query": probe_query,
-        "probe_reason_code": probe_reason_code,
+        "probe_query": probe.probe_query,
+        "probe_reason_code": probe.reason_code,
+        "probe_variant_reason_code": probe_variant_reason_code,
+        "source_route": probe.source_route,
+        "target_route": probe.target_route,
+        "alignment_score": probe.alignment_score,
+        "selected_evidence_id": probe.selected_evidence_id,
+        "selected_title": probe.selected_title,
+        "selected_url": probe.selected_url,
     }
 
 
-async def _maybe_probe_policy_cross_domain_supplement(
+def _select_coverage_frontier_hit(
+    probe: CoverageFrontierProbe,
     *,
     query: str,
-    retrieval_response: RetrieveResponse,
-    canonical_evidence: tuple[CanonicalEvidence, ...],
-    adapter_registry: Mapping[str, Adapter],
-    runtime_budget: RuntimeBudget,
-    retrieval_elapsed_seconds: float,
-    retrieval_trace: tuple[dict[str, object], ...],
-) -> tuple[RetrieveResponse, tuple[CanonicalEvidence, ...], tuple[dict[str, object], ...], float]:
-    if not _should_probe_policy_cross_domain_supplement(
-        retrieval_response,
-        canonical_evidence,
-        query=query,
-    ):
-        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
-
-    selected_variant = _choose_post_primary_supplemental_variant(query)
-    if selected_variant is None:
-        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
-    probe_query, probe_reason_code = selected_variant
-
-    source_id = SUPPLEMENTAL_STRONGEST_SOURCE["industry"]
-    adapter = adapter_registry.get(source_id) or adapter_registry.get("industry_ddgs")
-    if adapter is None:
-        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
-
-    remaining_request_seconds = runtime_budget.remaining_request_seconds(
-        elapsed_seconds=retrieval_elapsed_seconds,
-    )
-    probe_timeout_seconds = min(
-        _POST_PRIMARY_SUPPLEMENTAL_PROBE_TIMEOUT_SECONDS,
-        remaining_request_seconds - _POST_PRIMARY_SUPPLEMENTAL_MIN_REMAINING_SECONDS,
-    )
-    if probe_timeout_seconds <= 0:
-        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
-    if runtime_budget.remaining_synthesis_seconds(
-        retrieval_elapsed_seconds=retrieval_elapsed_seconds + probe_timeout_seconds,
-    ) <= 0.5:
-        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
-
-    probe_started_at = time.perf_counter()
-    failure_reason: RetrievalFailureReason | None = None
-    error_class = "ok"
-    annotated_hits: list[RetrievalHit] = []
-    try:
-        probe_hits = await asyncio.wait_for(
-            adapter(probe_query),
-            timeout=probe_timeout_seconds,
-        )
-    except TimeoutError:
-        failure_reason = "timeout"
-        error_class = "timeout"
-        probe_hits = []
-    except Exception:
-        failure_reason = "adapter_error"
-        error_class = "adapter_error"
-        probe_hits = []
-    probe_elapsed_seconds = time.perf_counter() - probe_started_at
-    started_at_ms = int(round(retrieval_elapsed_seconds * 1000))
-    elapsed_ms = int(round(probe_elapsed_seconds * 1000))
-
-    if probe_hits:
-        for hit in prioritize_hits(
-            "industry",
+    probe_hits: list[RetrievalHit],
+) -> tuple[CoverageFrontierProbe, RetrievalHit | None, int]:
+    ranked_hits = list(
+        prioritize_hits(
+            probe.target_route,
             [
                 replace(
                     hit,
-                    target_route="industry",
-                    variant_reason_codes=(probe_reason_code,),
-                    variant_queries=(probe_query,),
+                    target_route=probe.target_route,
+                    variant_reason_codes=(probe.reason_code,),
+                    variant_queries=(probe.probe_query,),
                 )
                 for hit in probe_hits
             ],
-            primary_route="industry",
+            primary_route=probe.target_route,
             supplemental_route=None,
-            query=probe_query,
-        ):
-            variant_alignment = score_query_alignment(
-                probe_query,
-                route="industry",
-                title=hit.title,
-                snippet=hit.snippet,
-                url=hit.url,
-                authority=hit.authority,
-                publication_date=hit.publication_date,
-                effective_date=hit.effective_date,
-                version=hit.version,
-                year=hit.year,
-            )
-            original_alignment = score_query_alignment(
-                query,
-                route="industry",
-                title=hit.title,
-                snippet=hit.snippet,
-                url=hit.url,
-                authority=hit.authority,
-                publication_date=hit.publication_date,
-                effective_date=hit.effective_date,
-                version=hit.version,
-                year=hit.year,
-            )
-            if max(variant_alignment, original_alignment) < _POST_PRIMARY_SUPPLEMENTAL_MIN_ALIGNMENT_SCORE:
-                continue
-            annotated_hits.append(hit)
-            break
-
-    if not annotated_hits:
-        if failure_reason is None:
-            failure_reason = "no_hits"
-            error_class = "parse_empty"
-        return (
-            retrieval_response,
-            canonical_evidence,
-            retrieval_trace
-            + (
-                _post_primary_probe_trace_entry(
-                    source_id=source_id,
-                    started_at_ms=started_at_ms,
-                    elapsed_ms=elapsed_ms,
-                    probe_query=probe_query,
-                    probe_reason_code=probe_reason_code,
-                    hit_count=0,
-                    failure_reason=failure_reason,
-                    error_class=error_class,
-                ),
-            ),
-            probe_elapsed_seconds,
+            query=probe.probe_query,
         )
+    )
+    best_probe = probe
+    best_hit: RetrievalHit | None = None
+    best_key = (-1, "", "", "", "")
+
+    for hit in ranked_hits:
+        original_query_probe = attach_probe_alignment(
+            probe,
+            query=query,
+            hit=hit,
+        )
+        probe_query_alignment = score_query_alignment(
+            probe.probe_query,
+            route=probe.target_route,
+            title=hit.title,
+            snippet=hit.snippet,
+            url=hit.url,
+            authority=hit.authority,
+            publication_date=hit.publication_date,
+            effective_date=hit.effective_date,
+            version=hit.version,
+            year=hit.year,
+        )
+        candidate_probe = replace(
+            original_query_probe,
+            alignment_score=max(
+                original_query_probe.alignment_score,
+                probe_query_alignment,
+            ),
+        )
+        candidate_key = (
+            candidate_probe.alignment_score,
+            candidate_probe.selected_evidence_id or "",
+            candidate_probe.selected_title or "",
+            candidate_probe.selected_url or "",
+            hit.source_id,
+        )
+        if candidate_key > best_key:
+            best_key = candidate_key
+            best_probe = candidate_probe
+            best_hit = hit
+
+    if best_hit is None or best_probe.alignment_score <= 0:
+        return probe, None, len(ranked_hits)
+    return best_probe, best_hit, len(ranked_hits)
+
+
+def _merge_coverage_frontier_evidence(
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    supplemental_hits: tuple[RetrievalHit, ...],
+    runtime_budget: RuntimeBudget,
+) -> tuple[tuple[CanonicalEvidence, ...], bool, bool, bool]:
+    if not supplemental_hits:
+        return canonical_evidence, False, False, False
 
     supplemental_records = score_evidence_records(
         collapse_evidence_records(
             normalize_hit_candidates(
-                annotated_hits,
-                route_role_by_source={hit.source_id: "supplemental" for hit in annotated_hits},
-                route_role_by_target_route={"industry": "supplemental"},
+                supplemental_hits,
+                route_role_by_source={
+                    hit.source_id: "supplemental" for hit in supplemental_hits
+                },
+                route_role_by_target_route={
+                    hit.target_route: "supplemental"
+                    for hit in supplemental_hits
+                    if hit.target_route is not None
+                },
             )
         )
     )
@@ -812,50 +788,320 @@ async def _maybe_probe_policy_cross_domain_supplement(
         top_k=DEFAULT_EVIDENCE_TOP_K,
         supplemental_min_items=DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
     )
-    if not any(record.route_role == "supplemental" for record in combined_pack.canonical_evidence):
+    has_supplemental_evidence = any(
+        record.route_role == "supplemental"
+        for record in combined_pack.canonical_evidence
+    )
+    return (
+        combined_pack.canonical_evidence,
+        combined_pack.clipped,
+        combined_pack.pruned,
+        has_supplemental_evidence,
+    )
+
+
+async def _maybe_apply_coverage_frontier_policy(
+    *,
+    query: str,
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    adapter_registry: Mapping[str, Adapter],
+    runtime_budget: RuntimeBudget,
+    retrieval_elapsed_seconds: float,
+    retrieval_trace: tuple[dict[str, object], ...],
+) -> tuple[
+    RetrieveResponse,
+    tuple[CanonicalEvidence, ...],
+    tuple[dict[str, object], ...],
+    float,
+    AnswerResponse | None,
+]:
+    if not _should_activate_coverage_frontier(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+    ):
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    selected_variant = _choose_coverage_frontier_variant(
+        query,
+        source_route=retrieval_response.primary_route,
+    )
+    if selected_variant is None:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+    probe_query, probe_variant_reason_code = selected_variant
+
+    remaining_request_seconds = runtime_budget.remaining_request_seconds(
+        elapsed_seconds=retrieval_elapsed_seconds,
+    )
+    if not has_budget_for_coverage_frontier_probe(
+        remaining_request_seconds=remaining_request_seconds,
+    ):
+        early_response = _build_budget_enforced_response(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason=(
+                "remaining request budget was below the minimum required for "
+                "complementary coverage probing."
+            ),
+        )
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, early_response
+
+    frontier_candidates = tuple(
+        replace(
+            candidate,
+            reason_code=(
+                f"{candidate.reason_code}:{probe_variant_reason_code}"
+            ),
+        )
+        for candidate in build_coverage_frontier_candidates(
+            source_route=retrieval_response.primary_route,
+            probe_query=probe_query,
+        )
+    )
+    if not frontier_candidates:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    total_probe_elapsed_seconds = 0.0
+    total_candidate_hit_count = 0
+    updated_trace = list(retrieval_trace)
+    selected_hits_by_evidence_id: dict[str, RetrievalHit] = {}
+    selected_probes: list[CoverageFrontierProbe] = []
+    any_probe_executed = False
+
+    for frontier_probe in frontier_candidates:
+        adapter = adapter_registry.get(frontier_probe.source_id)
+        if adapter is None:
+            continue
+
+        current_remaining_seconds = runtime_budget.remaining_request_seconds(
+            elapsed_seconds=retrieval_elapsed_seconds + total_probe_elapsed_seconds,
+        )
+        if not has_budget_for_coverage_frontier_probe(
+            remaining_request_seconds=current_remaining_seconds,
+        ):
+            break
+
+        probe_timeout_seconds = min(
+            COVERAGE_FRONTIER_PER_PROBE_TIMEOUT_SECONDS,
+            current_remaining_seconds
+            - COVERAGE_FRONTIER_MIN_REMAINING_SECONDS_TO_PROBE,
+        )
+        if probe_timeout_seconds <= 0:
+            break
+        if runtime_budget.remaining_synthesis_seconds(
+            retrieval_elapsed_seconds=(
+                retrieval_elapsed_seconds
+                + total_probe_elapsed_seconds
+                + probe_timeout_seconds
+            ),
+        ) <= 0.5:
+            break
+
+        any_probe_executed = True
+        probe_started_at = time.perf_counter()
+        failure_reason: RetrievalFailureReason | None = None
+        error_class = "ok"
+        try:
+            probe_hits = await asyncio.wait_for(
+                adapter(frontier_probe.probe_query),
+                timeout=probe_timeout_seconds,
+            )
+        except TimeoutError:
+            failure_reason = "timeout"
+            error_class = "timeout"
+            probe_hits = []
+        except Exception:
+            failure_reason = "adapter_error"
+            error_class = "adapter_error"
+            probe_hits = []
+        probe_elapsed_seconds = time.perf_counter() - probe_started_at
+        total_probe_elapsed_seconds += probe_elapsed_seconds
+
+        annotated_probe = frontier_probe
+        if probe_hits:
+            annotated_probe, selected_hit, candidate_hit_count = _select_coverage_frontier_hit(
+                frontier_probe,
+                query=query,
+                probe_hits=probe_hits,
+            )
+            total_candidate_hit_count += candidate_hit_count
+            if selected_hit is not None and annotated_probe.selected_evidence_id is not None:
+                selected_hits_by_evidence_id[annotated_probe.selected_evidence_id] = selected_hit
+                selected_probes.append(annotated_probe)
+        else:
+            selected_hit = None
+        if failure_reason is None and annotated_probe.selected_evidence_id is None:
+            failure_reason = "no_hits"
+            error_class = "parse_empty"
+
+        updated_trace.append(
+            _coverage_frontier_trace_entry(
+                stage="coverage_frontier_probe",
+                probe=annotated_probe,
+                started_at_ms=int(
+                    round(
+                        (retrieval_elapsed_seconds + total_probe_elapsed_seconds - probe_elapsed_seconds)
+                        * 1000
+                    )
+                ),
+                elapsed_ms=int(round(probe_elapsed_seconds * 1000)),
+                hit_count=len(probe_hits),
+                failure_reason=failure_reason,
+                error_class=error_class,
+                probe_variant_reason_code=probe_variant_reason_code,
+            )
+        )
+
+    if not any_probe_executed:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    winner = select_coverage_frontier_winner(tuple(selected_probes))
+    if winner is None:
+        early_response = _build_coverage_frontier_insufficient_response(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason="no aligned complementary evidence emerged from the bounded coverage frontier.",
+        )
         return (
             retrieval_response,
             canonical_evidence,
-            retrieval_trace
-            + (
-                _post_primary_probe_trace_entry(
-                    source_id=source_id,
-                    started_at_ms=started_at_ms,
-                    elapsed_ms=elapsed_ms,
-                    probe_query=probe_query,
-                    probe_reason_code=probe_reason_code,
-                    hit_count=0,
-                    failure_reason="no_hits",
-                    error_class="parse_empty",
-                ),
-            ),
-            probe_elapsed_seconds,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            early_response,
+        )
+
+    ambiguous_frontier = (
+        len(selected_probes) > 1
+        or total_candidate_hit_count > len(selected_probes)
+    )
+    augmented_hits = (
+        (selected_hits_by_evidence_id[winner.selected_evidence_id],)
+        if ambiguous_frontier and winner.selected_evidence_id is not None
+        else tuple(
+            selected_hits_by_evidence_id[probe.selected_evidence_id]
+            for probe in selected_probes
+            if probe.selected_evidence_id is not None
+            and probe.selected_evidence_id in selected_hits_by_evidence_id
+        )
+    )
+    merged_evidence, clipped, pruned, has_supplemental_evidence = _merge_coverage_frontier_evidence(
+        canonical_evidence,
+        supplemental_hits=augmented_hits,
+        runtime_budget=runtime_budget,
+    )
+    if not has_supplemental_evidence:
+        early_response = _build_coverage_frontier_insufficient_response(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason="frontier probe hits were not retained after evidence packing.",
+        )
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            early_response,
         )
 
     updated_response = retrieval_response.model_copy(
         update={
-            "supplemental_route": "industry",
-            "evidence_clipped": retrieval_response.evidence_clipped or combined_pack.clipped,
-            "evidence_pruned": retrieval_response.evidence_pruned or combined_pack.pruned,
+            "supplemental_route": winner.target_route,
+            "evidence_clipped": retrieval_response.evidence_clipped or clipped,
+            "evidence_pruned": retrieval_response.evidence_pruned or pruned,
         }
     )
-    updated_trace = retrieval_trace + (
-        _post_primary_probe_trace_entry(
-            source_id=source_id,
-            started_at_ms=started_at_ms,
-            elapsed_ms=elapsed_ms,
-            probe_query=probe_query,
-            probe_reason_code=probe_reason_code,
-            hit_count=len(annotated_hits),
+    local_candidate = _build_local_answer_candidate(
+        updated_response,
+        merged_evidence,
+        query=query,
+        require_clean_runtime=True,
+    )
+    local_grounded = (
+        local_candidate is not None
+        and local_candidate.answer_status == "grounded_success"
+    )
+
+    decision = (
+        "deepen"
+        if ambiguous_frontier
+        else decide_coverage_frontier_sufficiency(
+            has_grounded_local_answer=local_grounded,
+            aligned_supplemental_evidence_count=(
+                len(selected_probes) if local_grounded else 0
+            ),
+            winner=winner,
+        )
+    )
+    if decision == "grounded_success":
+        return (
+            updated_response,
+            merged_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+    if decision != "deepen" or winner.selected_evidence_id is None:
+        early_response = _build_coverage_frontier_insufficient_response(
+            updated_response,
+            merged_evidence,
+            query=query,
+            reason="bounded coverage frontier did not establish enough grounded complementary support.",
+        )
+        return (
+            updated_response,
+            merged_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            early_response,
+        )
+
+    updated_trace.append(
+        _coverage_frontier_trace_entry(
+            stage="coverage_frontier_deepen",
+            probe=winner,
+            started_at_ms=int(
+                round(
+                    (retrieval_elapsed_seconds + total_probe_elapsed_seconds) * 1000
+                )
+            ),
+            elapsed_ms=0,
+            hit_count=1,
             failure_reason=None,
             error_class="ok",
-        ),
+            probe_variant_reason_code=probe_variant_reason_code,
+        )
+    )
+    local_candidate = _build_local_answer_candidate(
+        updated_response,
+        merged_evidence,
+        query=query,
+        require_clean_runtime=True,
+    )
+    if local_candidate is not None and local_candidate.answer_status == "grounded_success":
+        return (
+            updated_response,
+            merged_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+
+    early_response = _build_coverage_frontier_insufficient_response(
+        updated_response,
+        merged_evidence,
+        query=query,
+        reason="bounded deepen on the best frontier branch still could not ground the answer.",
     )
     return (
         updated_response,
-        combined_pack.canonical_evidence,
-        updated_trace,
-        probe_elapsed_seconds,
+        merged_evidence,
+        tuple(updated_trace),
+        total_probe_elapsed_seconds,
+        early_response,
     )
 
 
@@ -1388,6 +1634,47 @@ def _build_budget_enforced_response(
         key_points=key_points,
         sources=sources,
         uncertainty_notes=[f"Budget enforcement: {reason}", *uncertainty_notes],
+        gaps=list(retrieval_response.gaps),
+    )
+
+
+def _build_coverage_frontier_insufficient_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+    reason: str,
+) -> AnswerResponse:
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
+    )
+    conclusion = "Available evidence was insufficient to fully support the requested answer."
+    key_points: list[dict[str, object]] = []
+    sources: list[dict[str, str]] = []
+    if canonical_evidence:
+        conclusion, key_points, sources = _build_partial_response_payload(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            reason=reason,
+        )
+    return AnswerResponse(
+        answer_status="insufficient_evidence",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion=conclusion,
+        key_points=key_points,
+        sources=sources,
+        uncertainty_notes=[f"Coverage frontier: {reason}", *uncertainty_notes],
         gaps=list(retrieval_response.gaps),
     )
 
@@ -2413,7 +2700,8 @@ async def execute_answer_pipeline_with_trace(
             canonical_evidence,
             retrieval_trace,
             supplemental_probe_elapsed_seconds,
-        ) = await _maybe_probe_policy_cross_domain_supplement(
+            coverage_frontier_response,
+        ) = await _maybe_apply_coverage_frontier_policy(
             query=query,
             retrieval_response=retrieval_response,
             canonical_evidence=canonical_evidence,
@@ -2425,6 +2713,23 @@ async def execute_answer_pipeline_with_trace(
         if supplemental_probe_elapsed_seconds > 0:
             retrieval_elapsed_seconds += supplemental_probe_elapsed_seconds
             evidence_token_estimate = _estimate_evidence_tokens(canonical_evidence)
+        if coverage_frontier_response is not None:
+            response = coverage_frontier_response
+            answer_token_estimate = _estimate_response_tokens(response)
+            return AnswerExecutionResult(
+                response=response,
+                runtime_trace=_build_runtime_trace(
+                    request_id=request_id,
+                    response=response,
+                    retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                    synthesis_elapsed_seconds=0.0,
+                    evidence_token_estimate=evidence_token_estimate,
+                    answer_token_estimate=answer_token_estimate,
+                    runtime_budget=budget,
+                    budget_exhausted_phase=None,
+                    retrieval_trace=retrieval_trace,
+                ),
+            )
         local_fast_path_response = _build_local_answer_candidate(
             retrieval_response,
             canonical_evidence,

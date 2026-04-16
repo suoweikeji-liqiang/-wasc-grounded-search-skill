@@ -115,3 +115,23 @@ SOURCE_CREDIBILITY_TIERS: Final[Mapping[str, str]] = MappingProxyType(
         "industry_news_rss": "trusted_news",
     }
 )
+
+# Coverage-frontier retrieval policy (bounded v1 rollout).
+COVERAGE_FRONTIER_MAX_PROBES: Final[int] = 2
+COVERAGE_FRONTIER_PER_PROBE_TIMEOUT_SECONDS: Final[float] = 0.9
+COVERAGE_FRONTIER_MIN_REMAINING_SECONDS_TO_PROBE: Final[float] = 2.0
+COVERAGE_FRONTIER_MIN_ALIGNMENT_TO_DEEPEN: Final[int] = 6
+COVERAGE_FRONTIER_COMPLEMENTARY_SOURCES: Final[
+    Mapping[tuple[ConcreteRoute, ConcreteRoute], tuple[str, ...]]
+] = MappingProxyType(
+    {
+        ("policy", "industry"): (
+            "industry_web_discovery",
+            "industry_official_or_filings",
+        ),
+        ("industry", "policy"): (
+            "policy_official_registry",
+            "policy_official_web_allowlist_fallback",
+        ),
+    }
+)

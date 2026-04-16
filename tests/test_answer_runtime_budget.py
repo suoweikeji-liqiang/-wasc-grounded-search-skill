@@ -632,6 +632,36 @@ def _policy_cross_domain_primary_only_retrieve_response() -> RetrieveResponse:
     )
 
 
+_COVERAGE_FRONTIER_POLICY_QUERY = (
+    "FTC junk fees disclosure rule and impact on ticketing platform "
+    "checkout flow update"
+)
+
+
+def _aligned_industry_ticketing_hit() -> RetrievalHit:
+    return RetrievalHit(
+        source_id="industry_web_discovery",
+        title="Ticketing platform checkout flow update",
+        url="https://example.com/ticketing-checkout-flow-update",
+        snippet=(
+            "Ticketing platform checkout flow update adds all-in price "
+            "disclosure before purchase confirmation."
+        ),
+    )
+
+
+def _unrelated_industry_payroll_hit() -> RetrievalHit:
+    return RetrievalHit(
+        source_id="industry_web_discovery",
+        title="Unrelated enterprise payroll migration update",
+        url="https://example.com/payroll-migration-update",
+        snippet=(
+            "Enterprise payroll migration playbook for internal finance "
+            "shared services."
+        ),
+    )
+
+
 def _mixed_weak_overlap_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="mixed",
@@ -1570,15 +1600,17 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_fast_path_when_partial_ha
     assert result.runtime_trace.synthesis_elapsed_ms == 0
 
 
-def test_execute_answer_pipeline_with_trace_probes_single_industry_supplement_after_policy_success(
+def test_execute_answer_pipeline_with_trace_builds_coverage_frontier_after_policy_success(
     monkeypatch,
 ) -> None:
     import skill.synthesis.orchestrate as synthesis_orchestrate
     from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
     from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
 
     query = "FTC junk fees disclosure rule and impact on ticketing platform checkout flow update"
     observed_queries: list[str] = []
+    ANSWER_CACHE.clear()
 
     async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
         return _policy_cross_domain_primary_only_retrieve_response()
@@ -1636,9 +1668,181 @@ def test_execute_answer_pipeline_with_trace_probes_single_industry_supplement_af
     assert result.runtime_trace.synthesis_elapsed_ms == 0
     assert any(
         entry["source_id"] == "industry_web_discovery"
-        and entry["stage"] == "post_primary_probe"
+        and entry["stage"] == "coverage_frontier_probe"
         and entry["hit_count"] == 1
         for entry in result.runtime_trace.retrieval_trace
+    )
+
+
+def test_execute_answer_pipeline_with_trace_coverage_frontier_probe_builds_bounded_frontier_after_primary_policy_success(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_cross_domain_primary_only_retrieve_response()
+
+    async def _industry_web_discovery_adapter(_: str) -> list[RetrievalHit]:
+        return [_aligned_industry_ticketing_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "coverage frontier should recover grounded success before synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    frontier_probe_count = sum(
+        1
+        for entry in result.runtime_trace.retrieval_trace
+        if entry["stage"] == "coverage_frontier_probe"
+    )
+    assert frontier_probe_count >= 1
+    assert frontier_probe_count <= 2
+
+
+def test_execute_answer_pipeline_with_trace_coverage_frontier_skips_when_budget_low(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    adapter_call_count = 0
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_cross_domain_primary_only_retrieve_response()
+
+    async def _industry_web_discovery_adapter(_: str) -> list[RetrievalHit]:
+        nonlocal adapter_call_count
+        adapter_call_count += 1
+        return [_aligned_industry_ticketing_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "Generated fallback should not be used under low budget frontier gate.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(request_deadline_seconds=0.75),
+        )
+    )
+
+    assert adapter_call_count == 0
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert not any(
+        entry["stage"] == "coverage_frontier_probe"
+        for entry in result.runtime_trace.retrieval_trace
+    )
+
+
+def test_execute_answer_pipeline_with_trace_coverage_frontier_deepen_one_aligned_branch(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_cross_domain_primary_only_retrieve_response()
+
+    async def _industry_web_discovery_adapter(_: str) -> list[RetrievalHit]:
+        return [_aligned_industry_ticketing_hit(), _unrelated_industry_payroll_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "frontier deepen should stay local and avoid synthesis for aligned branch"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    source_titles = {source.title for source in result.response.sources}
+    assert "Ticketing platform checkout flow update" in source_titles
+    assert "Unrelated enterprise payroll migration update" not in source_titles
+    deepen_entries = tuple(
+        entry
+        for entry in result.runtime_trace.retrieval_trace
+        if entry["stage"] == "coverage_frontier_deepen"
+    )
+    assert len(deepen_entries) == 1
+    assert any(
+        entry.get("selected_title") == "Ticketing platform checkout flow update"
+        or entry.get("selected_url") == "https://example.com/ticketing-checkout-flow-update"
+        or entry.get("selected_evidence_id") == "industry-frontier-ticketing"
+        for entry in deepen_entries
+    )
+    assert all(
+        entry.get("selected_title") != "Unrelated enterprise payroll migration update"
+        and entry.get("selected_url") != "https://example.com/payroll-migration-update"
+        and entry.get("selected_evidence_id") != "industry-frontier-payroll"
+        for entry in deepen_entries
     )
 
 
