@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -460,7 +461,71 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_t
         )
     )
 
-    assert observed_calls == ["semantic_scholar", "openalex"]
+    assert sorted(observed_calls) == ["openalex", "semantic_scholar"]
+    assert len(hits) == 1
+    assert hits[0].doi == "10.5555/evidence.2026.10"
+
+
+def test_semantic_scholar_live_adapter_prewarms_openalex_before_primary_timeout(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    observed_calls: list[str] = []
+
+    async def _hung_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_calls.append("semantic_scholar")
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        await asyncio.sleep(0.2)
+        return []
+
+    async def _delayed_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_calls.append("openalex")
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        await asyncio.sleep(0.08)
+        return [
+            {
+                "title": "Grounded Search Evidence Packing",
+                "url": "https://doi.org/10.5555/evidence.2026.10",
+                "snippet": "OpenAlex metadata record for the paper.",
+                "doi": "10.5555/evidence.2026.10",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _hung_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _delayed_openalex)
+    monkeypatch.setattr(adapter, "_PRIMARY_API_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(adapter, "_OPENALEX_TIMEOUT_SECONDS", 0.12)
+
+    started = time.perf_counter()
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live("grounded search evidence packing paper"),
+            timeout=0.18,
+        )
+    )
+    elapsed = time.perf_counter() - started
+
+    assert sorted(observed_calls) == ["openalex", "semantic_scholar"]
+    assert elapsed < 0.18
     assert len(hits) == 1
     assert hits[0].doi == "10.5555/evidence.2026.10"
 

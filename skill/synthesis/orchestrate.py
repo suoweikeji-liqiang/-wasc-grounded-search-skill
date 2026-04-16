@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 import uuid
@@ -9,20 +10,28 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from skill.api.schema import AnswerResponse, RetrieveCanonicalEvidenceItem, RetrieveResponse
+from skill.config.retrieval import SUPPLEMENTAL_STRONGEST_SOURCE
+from skill.evidence.dedupe import collapse_evidence_records
 from skill.evidence.models import CanonicalEvidence, EvidenceSlice, LinkedVariant, RawEvidenceRecord
+from skill.evidence.normalize import normalize_hit_candidates
+from skill.evidence.pack import build_evidence_pack
+from skill.evidence.score import score_evidence_records
 from skill.orchestrator.budget import (
     AnswerExecutionResult,
     RuntimeBudget,
     RuntimeTrace,
 )
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
-from skill.retrieval.models import RetrievalHit
+from skill.retrieval.models import RetrievalFailureReason, RetrievalHit
 from skill.retrieval.orchestrate import (
     Adapter,
+    DEFAULT_EVIDENCE_TOP_K,
+    DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
     consume_last_retrieval_trace,
     execute_retrieval_pipeline,
 )
-from skill.retrieval.priority import score_query_alignment
+from skill.retrieval.priority import prioritize_hits, score_query_alignment
+from skill.retrieval.query_variants import build_query_variants
 from skill.orchestrator.query_traits import derive_query_traits
 from skill.synthesis.cache import ANSWER_CACHE, CachedAnswerEntry
 from skill.synthesis.citation_check import validate_answer_citations
@@ -253,6 +262,18 @@ _ACADEMIC_PAPER_MARKERS = frozenset({"paper", "papers", "\u8bba\u6587"})
 _MIXED_IMPACT_QUERY_MARKERS = frozenset(
     {"impact", "effect", "\u5f71\u54cd", "\u6548\u5e94"}
 )
+_POST_PRIMARY_SUPPLEMENTAL_PROBE_TIMEOUT_SECONDS = 0.9
+_POST_PRIMARY_SUPPLEMENTAL_MIN_REMAINING_SECONDS = 2.0
+_POST_PRIMARY_SUPPLEMENTAL_MIN_ALIGNMENT_SCORE = 6
+_POST_PRIMARY_SUPPLEMENTAL_VARIANT_PRIORITY: dict[str, int] = {
+    "cross_domain_fragment_focus": 0,
+    "document_focus": 1,
+    "document_concept_focus": 2,
+    "industry_focus": 3,
+    "industry_trend": 4,
+    "industry_share": 5,
+    "core_focus": 6,
+}
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
     "survey_or_review": 2,
@@ -556,6 +577,285 @@ def _is_cross_domain_effect_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     return any(marker in normalized for marker in _CROSS_DOMAIN_EFFECT_MARKERS) or (
         derive_query_traits(query).is_cross_domain_impact
+    )
+
+
+def _choose_post_primary_supplemental_variant(query: str) -> tuple[str, str] | None:
+    variants = build_query_variants(
+        query=query,
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        target_route="industry",
+        variant_limit=5,
+    )
+    candidates = [
+        variant
+        for variant in variants
+        if variant.reason_code != "original"
+    ]
+    if not candidates:
+        return None
+    selected = min(
+        candidates,
+        key=lambda variant: (
+            _POST_PRIMARY_SUPPLEMENTAL_VARIANT_PRIORITY.get(variant.reason_code, 99),
+            len(variant.query),
+            variant.query,
+        ),
+    )
+    return selected.query, selected.reason_code
+
+
+def _should_probe_policy_cross_domain_supplement(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+) -> bool:
+    if retrieval_response.route_label == "mixed":
+        return False
+    if retrieval_response.primary_route != "policy":
+        return False
+    if retrieval_response.supplemental_route is not None:
+        return False
+    if retrieval_response.status != "success" or retrieval_response.failure_reason is not None:
+        return False
+    if retrieval_response.gaps or not canonical_evidence:
+        return False
+    if not _is_cross_domain_effect_query(query):
+        return False
+
+    query_terms = _content_terms(query)
+    primary_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="policy",
+        route_role="primary",
+        limit=1,
+    )
+    return bool(
+        primary_matches
+        and primary_matches[0][2] >= min(2, len(query_terms))
+    )
+
+
+def _post_primary_probe_trace_entry(
+    *,
+    source_id: str,
+    started_at_ms: int,
+    elapsed_ms: int,
+    probe_query: str,
+    probe_reason_code: str,
+    hit_count: int,
+    failure_reason: RetrievalFailureReason | None,
+    error_class: str,
+) -> dict[str, object]:
+    return {
+        "source_id": source_id,
+        "stage": "post_primary_probe",
+        "started_at_ms": started_at_ms,
+        "elapsed_ms": elapsed_ms,
+        "hit_count": hit_count,
+        "failure_reason": failure_reason,
+        "gaps": [] if failure_reason is None else [source_id],
+        "error_class": error_class,
+        "planner_backup_source_id": None,
+        "was_cancelled_by_deadline": False,
+        "probe_query": probe_query,
+        "probe_reason_code": probe_reason_code,
+    }
+
+
+async def _maybe_probe_policy_cross_domain_supplement(
+    *,
+    query: str,
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    adapter_registry: Mapping[str, Adapter],
+    runtime_budget: RuntimeBudget,
+    retrieval_elapsed_seconds: float,
+    retrieval_trace: tuple[dict[str, object], ...],
+) -> tuple[RetrieveResponse, tuple[CanonicalEvidence, ...], tuple[dict[str, object], ...], float]:
+    if not _should_probe_policy_cross_domain_supplement(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+    ):
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
+
+    selected_variant = _choose_post_primary_supplemental_variant(query)
+    if selected_variant is None:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
+    probe_query, probe_reason_code = selected_variant
+
+    source_id = SUPPLEMENTAL_STRONGEST_SOURCE["industry"]
+    adapter = adapter_registry.get(source_id) or adapter_registry.get("industry_ddgs")
+    if adapter is None:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
+
+    remaining_request_seconds = runtime_budget.remaining_request_seconds(
+        elapsed_seconds=retrieval_elapsed_seconds,
+    )
+    probe_timeout_seconds = min(
+        _POST_PRIMARY_SUPPLEMENTAL_PROBE_TIMEOUT_SECONDS,
+        remaining_request_seconds - _POST_PRIMARY_SUPPLEMENTAL_MIN_REMAINING_SECONDS,
+    )
+    if probe_timeout_seconds <= 0:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
+    if runtime_budget.remaining_synthesis_seconds(
+        retrieval_elapsed_seconds=retrieval_elapsed_seconds + probe_timeout_seconds,
+    ) <= 0.5:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0
+
+    probe_started_at = time.perf_counter()
+    failure_reason: RetrievalFailureReason | None = None
+    error_class = "ok"
+    annotated_hits: list[RetrievalHit] = []
+    try:
+        probe_hits = await asyncio.wait_for(
+            adapter(probe_query),
+            timeout=probe_timeout_seconds,
+        )
+    except TimeoutError:
+        failure_reason = "timeout"
+        error_class = "timeout"
+        probe_hits = []
+    except Exception:
+        failure_reason = "adapter_error"
+        error_class = "adapter_error"
+        probe_hits = []
+    probe_elapsed_seconds = time.perf_counter() - probe_started_at
+    started_at_ms = int(round(retrieval_elapsed_seconds * 1000))
+    elapsed_ms = int(round(probe_elapsed_seconds * 1000))
+
+    if probe_hits:
+        for hit in prioritize_hits(
+            "industry",
+            [
+                replace(
+                    hit,
+                    target_route="industry",
+                    variant_reason_codes=(probe_reason_code,),
+                    variant_queries=(probe_query,),
+                )
+                for hit in probe_hits
+            ],
+            primary_route="industry",
+            supplemental_route=None,
+            query=probe_query,
+        ):
+            variant_alignment = score_query_alignment(
+                probe_query,
+                route="industry",
+                title=hit.title,
+                snippet=hit.snippet,
+                url=hit.url,
+                authority=hit.authority,
+                publication_date=hit.publication_date,
+                effective_date=hit.effective_date,
+                version=hit.version,
+                year=hit.year,
+            )
+            original_alignment = score_query_alignment(
+                query,
+                route="industry",
+                title=hit.title,
+                snippet=hit.snippet,
+                url=hit.url,
+                authority=hit.authority,
+                publication_date=hit.publication_date,
+                effective_date=hit.effective_date,
+                version=hit.version,
+                year=hit.year,
+            )
+            if max(variant_alignment, original_alignment) < _POST_PRIMARY_SUPPLEMENTAL_MIN_ALIGNMENT_SCORE:
+                continue
+            annotated_hits.append(hit)
+            break
+
+    if not annotated_hits:
+        if failure_reason is None:
+            failure_reason = "no_hits"
+            error_class = "parse_empty"
+        return (
+            retrieval_response,
+            canonical_evidence,
+            retrieval_trace
+            + (
+                _post_primary_probe_trace_entry(
+                    source_id=source_id,
+                    started_at_ms=started_at_ms,
+                    elapsed_ms=elapsed_ms,
+                    probe_query=probe_query,
+                    probe_reason_code=probe_reason_code,
+                    hit_count=0,
+                    failure_reason=failure_reason,
+                    error_class=error_class,
+                ),
+            ),
+            probe_elapsed_seconds,
+        )
+
+    supplemental_records = score_evidence_records(
+        collapse_evidence_records(
+            normalize_hit_candidates(
+                annotated_hits,
+                route_role_by_source={hit.source_id: "supplemental" for hit in annotated_hits},
+                route_role_by_target_route={"industry": "supplemental"},
+            )
+        )
+    )
+    combined_pack = build_evidence_pack(
+        score_evidence_records([*canonical_evidence, *supplemental_records]),
+        token_budget=runtime_budget.evidence_token_budget,
+        top_k=DEFAULT_EVIDENCE_TOP_K,
+        supplemental_min_items=DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
+    )
+    if not any(record.route_role == "supplemental" for record in combined_pack.canonical_evidence):
+        return (
+            retrieval_response,
+            canonical_evidence,
+            retrieval_trace
+            + (
+                _post_primary_probe_trace_entry(
+                    source_id=source_id,
+                    started_at_ms=started_at_ms,
+                    elapsed_ms=elapsed_ms,
+                    probe_query=probe_query,
+                    probe_reason_code=probe_reason_code,
+                    hit_count=0,
+                    failure_reason="no_hits",
+                    error_class="parse_empty",
+                ),
+            ),
+            probe_elapsed_seconds,
+        )
+
+    updated_response = retrieval_response.model_copy(
+        update={
+            "supplemental_route": "industry",
+            "evidence_clipped": retrieval_response.evidence_clipped or combined_pack.clipped,
+            "evidence_pruned": retrieval_response.evidence_pruned or combined_pack.pruned,
+        }
+    )
+    updated_trace = retrieval_trace + (
+        _post_primary_probe_trace_entry(
+            source_id=source_id,
+            started_at_ms=started_at_ms,
+            elapsed_ms=elapsed_ms,
+            probe_query=probe_query,
+            probe_reason_code=probe_reason_code,
+            hit_count=len(annotated_hits),
+            failure_reason=None,
+            error_class="ok",
+        ),
+    )
+    return (
+        updated_response,
+        combined_pack.canonical_evidence,
+        updated_trace,
+        probe_elapsed_seconds,
     )
 
 
@@ -1522,17 +1822,28 @@ def _build_local_answer_candidate(
         and retrieval_response.primary_route == "industry"
         and _is_industry_lookup_query(query)
     )
+    partial_mixed_cross_domain_allowed = (
+        retrieval_response.status == "partial"
+        and retrieval_response.route_label == "mixed"
+        and retrieval_response.supplemental_route is not None
+        and _is_cross_domain_effect_query(query)
+    )
 
     if retrieval_response.status not in {"success", "partial"}:
         return None
-    if retrieval_response.status == "partial" and not partial_industry_lookup_allowed:
+    if retrieval_response.status == "partial" and not (
+        partial_industry_lookup_allowed or partial_mixed_cross_domain_allowed
+    ):
         return None
 
     if require_clean_runtime and (
         retrieval_response.evidence_pruned
         or (
             retrieval_response.gaps
-            and not partial_industry_lookup_allowed
+            and not (
+                partial_industry_lookup_allowed
+                or partial_mixed_cross_domain_allowed
+            )
         )
     ):
         return None
@@ -1589,17 +1900,28 @@ def _build_local_answer_candidate(
                 supplemental_route_overlap,
             ) = supplemental_route_matches[0]
 
-    if (
-        retrieval_response.route_label == "mixed"
-        and retrieval_response.supplemental_route is not None
+    cross_domain_dual_route_allowed = (
+        retrieval_response.supplemental_route is not None
         and _is_cross_domain_effect_query(query)
+        and (
+            retrieval_response.route_label == "mixed"
+            or retrieval_response.primary_route == "policy"
+        )
+    )
+
+    if (
+        cross_domain_dual_route_allowed
         and primary_route_record is not None
         and primary_route_slice is not None
         and supplemental_route_record is not None
         and supplemental_route_slice is not None
         and primary_route_overlap >= min(2, len(query_terms))
         and supplemental_route_overlap >= min(2, len(query_terms))
-        and (not require_clean_runtime or not retrieval_response.gaps)
+        and (
+            not require_clean_runtime
+            or not retrieval_response.gaps
+            or partial_mixed_cross_domain_allowed
+        )
     ):
         return _build_mixed_cross_domain_fast_path_response(
             retrieval_response,
@@ -2085,6 +2407,30 @@ async def execute_answer_pipeline_with_trace(
         query=query,
         require_clean_runtime=True,
     )
+    if local_fast_path_response is None:
+        (
+            retrieval_response,
+            canonical_evidence,
+            retrieval_trace,
+            supplemental_probe_elapsed_seconds,
+        ) = await _maybe_probe_policy_cross_domain_supplement(
+            query=query,
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            adapter_registry=adapter_registry,
+            runtime_budget=budget,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            retrieval_trace=retrieval_trace,
+        )
+        if supplemental_probe_elapsed_seconds > 0:
+            retrieval_elapsed_seconds += supplemental_probe_elapsed_seconds
+            evidence_token_estimate = _estimate_evidence_tokens(canonical_evidence)
+        local_fast_path_response = _build_local_answer_candidate(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            require_clean_runtime=True,
+        )
     if local_fast_path_response is not None:
         response = local_fast_path_response
         answer_token_estimate = _estimate_response_tokens(response)

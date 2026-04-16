@@ -718,6 +718,46 @@ def test_run_retrieval_prioritizes_ascii_core_academic_variant_before_original()
     assert outcome.results[0].title == "grounded-search-evidence-packing"
 
 
+def test_run_retrieval_skips_duplicate_academic_upstream_queries_after_normalization() -> None:
+    query = "有哪些 grounded search evidence packing 论文"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            reason_code="academic_keywords",
+            scores={"policy": 0, "academic": 5, "industry": 0},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.3,
+        overall_deadline_seconds=0.4,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    observed_queries: list[str] = []
+
+    async def _academic_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        await asyncio.sleep(0.01)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _academic_adapter},
+        )
+    )
+
+    assert outcome.status == "failure_gaps"
+    assert observed_queries == ["grounded search evidence packing"]
+
+
 def test_run_retrieval_keeps_original_industry_query_before_cjk_gloss_fallback() -> None:
     query = "动力电池回收市场份额预测"
     base_plan = build_retrieval_plan(

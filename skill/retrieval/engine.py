@@ -9,6 +9,7 @@ from typing import Any
 
 from skill.orchestrator.retrieval_plan import PlannedSourceStep, RetrievalPlan
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
+from skill.retrieval.adapters.academic_live_common import academic_upstream_query
 from skill.retrieval.fallback_fsm import (
     map_exception_to_failure_reason,
 )
@@ -712,6 +713,7 @@ async def _run_source_variants(
     )
     if step.source.route == "academic":
         variants = _prioritize_academic_variants(variants)
+        variants = _dedupe_academic_variants_by_upstream_query(variants)
     elif step.source.route == "industry":
         variants = _prioritize_industry_variants(variants)
 
@@ -867,6 +869,20 @@ def _prioritize_academic_variants(
         )
     )
     return tuple(variant for _, variant in indexed_variants)
+
+
+def _dedupe_academic_variants_by_upstream_query(
+    variants: tuple[QueryVariant, ...],
+) -> tuple[QueryVariant, ...]:
+    deduped: list[QueryVariant] = []
+    seen_upstream_queries: set[str] = set()
+    for variant in variants:
+        upstream_query = academic_upstream_query(variant.query)
+        if upstream_query in seen_upstream_queries:
+            continue
+        seen_upstream_queries.add(upstream_query)
+        deduped.append(variant)
+    return tuple(deduped)
 
 
 def _prioritize_industry_variants(

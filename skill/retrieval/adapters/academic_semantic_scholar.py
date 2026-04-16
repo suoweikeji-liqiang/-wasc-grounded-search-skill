@@ -131,6 +131,9 @@ async def search_live(query: str) -> list[RetrievalHit]:
         if fixture_hits:
             return fixture_hits[:3]
 
+    openalex_task = asyncio.create_task(
+        academic_api.search_openalex(query=upstream_query, max_results=5)
+    )
     try:
         records = await asyncio.wait_for(
             academic_api.search_semantic_scholar(query=upstream_query, max_results=5),
@@ -158,11 +161,14 @@ async def search_live(query: str) -> list[RetrievalHit]:
         for item in ranked_records
     ]
     if hits:
+        if not openalex_task.done():
+            openalex_task.cancel()
+            await asyncio.gather(openalex_task, return_exceptions=True)
         return hits
 
     try:
         openalex_records = await asyncio.wait_for(
-            academic_api.search_openalex(query=upstream_query, max_results=5),
+            openalex_task,
             timeout=_OPENALEX_TIMEOUT_SECONDS,
         )
     except Exception:

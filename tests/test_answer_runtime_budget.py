@@ -573,6 +573,65 @@ def _mixed_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _mixed_partial_fast_path_retrieve_response() -> RetrieveResponse:
+    response = _mixed_fast_path_retrieve_response()
+    return RetrieveResponse(
+        route_label=response.route_label,
+        primary_route=response.primary_route,
+        supplemental_route=response.supplemental_route,
+        browser_automation=response.browser_automation,
+        status="partial",
+        failure_reason="timeout",
+        gaps=["industry_news_rss"],
+        results=response.results,
+        canonical_evidence=response.canonical_evidence,
+        evidence_clipped=response.evidence_clipped,
+        evidence_pruned=response.evidence_pruned,
+    )
+
+
+def _policy_cross_domain_primary_only_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-1",
+                "domain": "policy",
+                "canonical_title": "FTC junk fees disclosure rule",
+                "canonical_url": "https://www.ftc.gov/legal-library/browse/rules/junk-fees-disclosure-rule",
+                "route_role": "primary",
+                "authority": "Federal Trade Commission",
+                "jurisdiction": "US",
+                "jurisdiction_status": "observed",
+                "publication_date": "2026-02-10",
+                "effective_date": "2026-05-12",
+                "version": "Final rule",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "The FTC junk fees disclosure rule requires ticketing "
+                            "platforms to show mandatory fees before checkout confirmation."
+                        ),
+                        "source_record_id": "policy-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _mixed_weak_overlap_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="mixed",
@@ -1464,6 +1523,123 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
     }
     assert result.response.uncertainty_notes == []
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_mixed_fast_path_when_partial_has_dual_route_citations(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_partial_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "mixed dual-route evidence should bypass grounded synthesis even with partial retrieval"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query="autonomous driving policy impact on industry",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "partial"
+    assert result.response.failure_reason == "timeout"
+    assert len(result.response.key_points) == 2
+    assert {source.evidence_id for source in result.response.sources} == {
+        "policy-1",
+        "industry-1",
+    }
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_probes_single_industry_supplement_after_policy_success(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    query = "FTC junk fees disclosure rule and impact on ticketing platform checkout flow update"
+    observed_queries: list[str] = []
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_cross_domain_primary_only_retrieve_response()
+
+    async def _industry_web_discovery_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        return [
+            RetrievalHit(
+                source_id="industry_web_discovery",
+                title="Ticketing platform checkout flow update",
+                url="https://example.com/ticketing-checkout-flow-update",
+                snippet=(
+                    "Ticketing platform checkout flow update adds all-in price "
+                    "disclosure before purchase confirmation."
+                ),
+            )
+        ]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "policy-first cross-domain probe should recover a local dual-route fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query=query,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert observed_queries == ["ticketing platform checkout flow update"]
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.route_label == "policy"
+    assert result.response.primary_route == "policy"
+    assert result.response.supplemental_route == "industry"
+    assert len(result.response.key_points) == 2
+    assert {source.title for source in result.response.sources} == {
+        "FTC junk fees disclosure rule",
+        "Ticketing platform checkout flow update",
+    }
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+    assert any(
+        entry["source_id"] == "industry_web_discovery"
+        and entry["stage"] == "post_primary_probe"
+        and entry["hit_count"] == 1
+        for entry in result.runtime_trace.retrieval_trace
+    )
 
 
 def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path_for_chinese_impact_query(
