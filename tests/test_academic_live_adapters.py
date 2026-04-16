@@ -270,42 +270,35 @@ def test_asta_mcp_live_adapter_falls_back_to_search_discovery_when_mcp_fails(
     assert hits[0].evidence_level == "peer_reviewed"
 
 
-def test_arxiv_live_adapter_falls_back_to_search_discovery_when_api_is_rate_limited(
+def test_arxiv_live_adapter_returns_empty_when_primary_api_is_rate_limited_and_europe_pmc_misses(
     monkeypatch,
 ) -> None:
     import skill.retrieval.adapters.academic_arxiv as adapter
     from skill.retrieval.live.clients import academic_api
-    from skill.retrieval.live.clients.search_discovery import SearchCandidate
 
     async def _failing_search_arxiv(*, query: str, max_results: int = 5) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
         raise RuntimeError("429")
 
-    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
-        return [
-            SearchCandidate(
-                engine="bing",
-                title="Grounded Search Evidence Packing Preprint",
-                url="https://arxiv.org/abs/2604.12345",
-                snippet="Preprint on evidence packing.",
-            )
-        ]
+    async def _empty_europe_pmc(*, query: str, max_results: int = 5) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        return []
 
     monkeypatch.setattr(academic_api, "search_arxiv", _failing_search_arxiv)
-    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _empty_europe_pmc)
 
     hits = asyncio.run(adapter.search_live("grounded search evidence packing"))
 
-    assert len(hits) == 1
-    assert hits[0].arxiv_id == "2604.12345"
-    assert hits[0].evidence_level == "preprint"
+    assert hits == []
 
 
-def test_arxiv_live_adapter_filters_weak_search_discovery_fallback_hits(
+def test_arxiv_live_adapter_returns_empty_when_no_upstream_results_match_query(
     monkeypatch,
 ) -> None:
     import skill.retrieval.adapters.academic_arxiv as adapter
     from skill.retrieval.live.clients import academic_api
-    from skill.retrieval.live.clients.search_discovery import SearchCandidate
 
     async def _empty_search_arxiv(
         *,
@@ -316,67 +309,70 @@ def test_arxiv_live_adapter_filters_weak_search_discovery_fallback_hits(
         assert max_results == 5
         return []
 
-    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
-        return [
-            SearchCandidate(
-                engine="bing",
-                title="Unrelated distributed systems paper",
-                url="https://arxiv.org/abs/2601.00001",
-                snippet="A paper on distributed systems.",
-            )
-        ]
+    async def _empty_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latency-aware retrieval paper"
+        assert max_results == 5
+        return []
 
     monkeypatch.setattr(academic_api, "search_arxiv", _empty_search_arxiv)
-    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _empty_europe_pmc)
 
     hits = asyncio.run(adapter.search_live("latency-aware retrieval paper"))
 
     assert hits == []
 
 
-def test_semantic_scholar_live_adapter_falls_back_to_search_discovery_when_api_is_rate_limited(
+def test_semantic_scholar_live_adapter_returns_empty_when_primary_api_is_rate_limited_and_openalex_misses(
     monkeypatch,
 ) -> None:
     import skill.retrieval.adapters.academic_semantic_scholar as adapter
     from skill.retrieval.live.clients import academic_api
-    from skill.retrieval.live.clients.search_discovery import SearchCandidate
 
     async def _failing_search_semantic_scholar(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
         raise RuntimeError("429")
 
-    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
-        return [
-            SearchCandidate(
-                engine="bing",
-                title="Grounded Search Evidence Packing",
-                url="https://doi.org/10.5555/evidence.2026.10",
-                snippet="Peer-reviewed paper on evidence packing.",
-            )
-        ]
+    async def _empty_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        return []
 
     monkeypatch.setattr(
         academic_api,
         "search_semantic_scholar",
         _failing_search_semantic_scholar,
     )
-    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(academic_api, "search_openalex", _empty_openalex)
 
     hits = asyncio.run(adapter.search_live("grounded search evidence packing"))
 
-    assert len(hits) == 1
-    assert hits[0].doi == "10.5555/evidence.2026.10"
-    assert hits[0].evidence_level == "peer_reviewed"
+    assert hits == []
 
-
-def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_misses(
+def test_semantic_scholar_live_adapter_does_not_fallback_to_search_discovery_after_dual_empty(
     monkeypatch,
 ) -> None:
-    import skill.retrieval.adapters.academic_semantic_scholar as adapter
-    from skill.retrieval.live.clients import academic_api
+    import importlib
+    import sys
+    from pathlib import Path
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    for module_name in tuple(sys.modules):
+        if module_name == "skill" or module_name.startswith("skill."):
+            sys.modules.pop(module_name)
+    adapter = importlib.import_module("skill.retrieval.adapters.academic_semantic_scholar")
 
     async def _empty_semantic_scholar(
         *,
@@ -387,39 +383,26 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_m
         assert max_results == 5
         return []
 
-    async def _fake_openalex(
+    async def _empty_openalex(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
         assert query == "grounded search evidence packing paper"
         assert max_results == 5
-        return [
-            {
-                "title": "Grounded Search Evidence Packing",
-                "url": "https://doi.org/10.5555/evidence.2026.10",
-                "snippet": "OpenAlex metadata record for the paper.",
-                "doi": "10.5555/evidence.2026.10",
-                "first_author": "Lin",
-                "year": 2026,
-                "evidence_level": "peer_reviewed",
-            }
-        ]
+        return []
 
-    monkeypatch.setattr(
-        academic_api,
-        "search_semantic_scholar",
-        _empty_semantic_scholar,
-    )
-    monkeypatch.setattr(academic_api, "search_openalex", _fake_openalex)
+    class SearchDiscoveryCalled(BaseException):
+        pass
 
-    hits = asyncio.run(adapter.search_live("grounded search evidence packing paper"))
+    async def _forbidden_search_multi_engine(**_: object):
+        raise SearchDiscoveryCalled("search_multi_engine should not be called")
 
-    assert len(hits) == 1
-    assert hits[0].title == "Grounded Search Evidence Packing"
-    assert hits[0].doi == "10.5555/evidence.2026.10"
-    assert hits[0].first_author == "Lin"
-    assert hits[0].year == 2026
+    monkeypatch.setattr(adapter.academic_api, "search_semantic_scholar", _empty_semantic_scholar)
+    monkeypatch.setattr(adapter.academic_api, "search_openalex", _empty_openalex)
+    monkeypatch.setattr(adapter, "search_multi_engine", _forbidden_search_multi_engine, raising=False)
+
+    asyncio.run(adapter.search_live("grounded search evidence packing paper"))
 
 
 def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_times_out(
@@ -506,13 +489,8 @@ def test_semantic_scholar_live_adapter_normalizes_mixed_language_query_for_upstr
         observed_queries.append(query)
         return []
 
-    async def _empty_search_multi_engine(**kwargs: object):
-        observed_queries.append(str(kwargs["query"]))
-        return []
-
     monkeypatch.setattr(academic_api, "search_semantic_scholar", _empty_semantic_scholar)
     monkeypatch.setattr(academic_api, "search_openalex", _empty_openalex)
-    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
 
     hits = asyncio.run(adapter.search_live("多源 evidence ranking benchmark 论文"))
 
@@ -520,7 +498,6 @@ def test_semantic_scholar_live_adapter_normalizes_mixed_language_query_for_upstr
     assert observed_queries == [
         "evidence ranking benchmark",
         "evidence ranking benchmark",
-        "evidence ranking benchmark site:doi.org",
     ]
 
 
@@ -695,60 +672,50 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_misses(
     assert hits[0].evidence_level == "peer_reviewed"
 
 
-def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
+
+
+def test_arxiv_live_adapter_does_not_fallback_to_search_discovery_after_dual_empty(
     monkeypatch,
 ) -> None:
-    import skill.retrieval.adapters.academic_arxiv as adapter
-    from skill.retrieval.live.clients import academic_api
+    import importlib
+    import sys
+    from pathlib import Path
 
-    observed_calls: list[str] = []
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    for module_name in tuple(sys.modules):
+        if module_name == "skill" or module_name.startswith("skill."):
+            sys.modules.pop(module_name)
+    adapter = importlib.import_module("skill.retrieval.adapters.academic_arxiv")
 
-    async def _hung_search_arxiv(
+    async def _empty_search_arxiv(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
-        observed_calls.append("arxiv")
         assert query == "synthetic bone graft review paper"
         assert max_results == 5
-        await asyncio.sleep(0.2)
         return []
 
-    async def _fast_search_europe_pmc(
+    async def _empty_search_europe_pmc(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
-        observed_calls.append("europe_pmc")
         assert query == "synthetic bone graft review paper"
         assert max_results == 5
-        return [
-            {
-                "title": "A Review of Synthetic Bone Grafts in Lumbar Interbody Fusion.",
-                "url": "https://europepmc.org/article/MED/41899792",
-                "snippet": "Review article indexed by Europe PMC.",
-                "doi": "10.3390/bioengineering13030262",
-                "first_author": "Wise",
-                "year": 2026,
-                "evidence_level": "peer_reviewed",
-            }
-        ]
+        return []
 
-    monkeypatch.setattr(academic_api, "search_arxiv", _hung_search_arxiv)
-    monkeypatch.setattr(academic_api, "search_europe_pmc", _fast_search_europe_pmc)
-    monkeypatch.setattr(adapter, "_PRIMARY_API_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(adapter, "_FALLBACK_EUROPE_PMC_TIMEOUT_SECONDS", 0.1)
+    class SearchDiscoveryCalled(BaseException):
+        pass
 
-    hits = asyncio.run(
-        asyncio.wait_for(
-            adapter.search_live("synthetic bone graft review paper"),
-            timeout=0.25,
-        )
-    )
+    async def _forbidden_search_multi_engine(**_: object) -> list[object]:
+        raise SearchDiscoveryCalled("search_multi_engine should not be called")
 
-    assert observed_calls == ["arxiv", "europe_pmc"]
-    assert len(hits) == 1
-    assert hits[0].doi == "10.3390/bioengineering13030262"
+    monkeypatch.setattr(adapter.academic_api, "search_arxiv", _empty_search_arxiv)
+    monkeypatch.setattr(adapter.academic_api, "search_europe_pmc", _empty_search_europe_pmc)
+    monkeypatch.setattr(adapter, "search_multi_engine", _forbidden_search_multi_engine, raising=False)
+
+    asyncio.run(adapter.search_live("synthetic bone graft review paper"))
 
 
 def test_arxiv_live_adapter_normalizes_mixed_language_query_for_upstreams(
@@ -781,7 +748,7 @@ def test_arxiv_live_adapter_normalizes_mixed_language_query_for_upstreams(
 
     monkeypatch.setattr(academic_api, "search_arxiv", _empty_arxiv)
     monkeypatch.setattr(academic_api, "search_europe_pmc", _empty_europe_pmc)
-    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine, raising=False)
 
     hits = asyncio.run(adapter.search_live("多源 evidence ranking benchmark 论文"))
 
@@ -789,7 +756,6 @@ def test_arxiv_live_adapter_normalizes_mixed_language_query_for_upstreams(
     assert observed_queries == [
         "evidence ranking benchmark",
         "evidence ranking benchmark",
-        "evidence ranking benchmark site:arxiv.org",
     ]
 
 
