@@ -52,6 +52,9 @@ _SEC_ARCHIVE_FETCH_CHAR_LIMIT = 900_000
 _QUERY_ALIGNED_FETCH_CHAR_LIMIT = 300_000
 _DDGS_NEWS_BACKUP_TIMEOUT_SECONDS = 2.0
 _DDGS_BACKUP_HEADSTART_SECONDS = 0.35
+_GOOGLE_NEWS_DISCOVERY_CANDIDATE_LIMIT = 1
+_GOOGLE_NEWS_FALLBACK_CANDIDATE_LIMIT = 2
+_SECONDARY_DISCOVERY_HEADSTART_SECONDS = 0.35
 _DDGS_NEWS_BACKUP_BACKEND = "duckduckgo,brave"
 _COMPANY_IR_HOME_TIMEOUT_SECONDS = 1.8
 _COMPANY_IR_PAGE_TIMEOUT_SECONDS = 0.8
@@ -279,6 +282,15 @@ def _uses_cjk_text(text: str) -> bool:
     return re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text) is not None
 
 
+def _prefer_cjk_news_only_discovery(query: str) -> bool:
+    if not _uses_cjk_text(query):
+        return False
+    return not any(
+        token.isascii() and any(char.isalpha() for char in token)
+        for token in _content_tokens(query)
+    )
+
+
 def _query_overlap_count(query: str, *, title: str, snippet: str) -> int:
     record_tokens = set(_content_tokens(f"{title} {snippet}"))
     return sum(1 for token in _content_tokens(query) if token in record_tokens)
@@ -406,21 +418,25 @@ def _candidate_payloads_from_search_results(
             continue
         source_url = getattr(candidate, "source_url", None)
         engine = str(getattr(candidate, "engine", ""))
+        grounding_strategy = str(
+            getattr(candidate, "google_news_grounding_strategy", "")
+        )
         preferred_url = (
             str(source_url)
             if engine == "google_news_rss" and source_url
             else str(url)
         )
         tier_url = str(source_url) if source_url else preferred_url
-        payloads.append(
-            {
-                "title": str(title),
-                "url": preferred_url,
-                "snippet": str(snippet),
-                "_tier": _tier_for_url(tier_url),
-                "_engine": engine,
-            }
-        )
+        payload = {
+            "title": str(title),
+            "url": preferred_url,
+            "snippet": str(snippet),
+            "_tier": _tier_for_url(tier_url),
+            "_engine": engine,
+        }
+        if grounding_strategy:
+            payload["_google_news_grounding_strategy"] = grounding_strategy
+        payloads.append(payload)
     return payloads
 
 
@@ -564,6 +580,10 @@ async def _rank_payloads_to_hits(
                 candidate_snippet=payload["snippet"],
                 tier=payload["_tier"],
                 engine=payload.get("_engine", ""),
+                google_news_grounding_strategy=payload.get(
+                    "_google_news_grounding_strategy",
+                    "",
+                ),
                 force_fetch=payload.get("_force_fetch") == "1",
                 config=config,
             )
@@ -681,7 +701,8 @@ def _normalize_google_news_title_for_search(title: str) -> str:
     if len(parts) > 1:
         title = " - ".join(parts[:-1])
     title = re.sub(r"^20\d{2}\s+", "", title).strip()
-    title = re.sub(r"[^A-Za-z0-9]+", " ", title).strip()
+    title = "".join(char if char.isalnum() else " " for char in title)
+    title = re.sub(r"\s+", " ", title).strip()
     words = title.split()
     if len(words) > 10:
         words = words[:10]
@@ -709,6 +730,9 @@ def _article_like_source_candidate(candidate: SearchCandidate) -> SearchCandidat
         url=candidate.source_url,
         snippet=candidate.snippet,
         source_url=candidate.source_url,
+        google_news_grounding_strategy=(
+            candidate.google_news_grounding_strategy or "direct_source_url"
+        ),
     )
 
 
@@ -781,6 +805,11 @@ async def _resolve_google_news_candidates(
                 url=candidate.url,
                 snippet=candidate.snippet,
                 source_url=resolved_source_url,
+                google_news_grounding_strategy=(
+                    "resolved_article_url"
+                    if candidate.url in resolved_by_url
+                    else candidate.google_news_grounding_strategy
+                ),
             )
         )
     return resolved_candidates
@@ -844,6 +873,7 @@ async def _search_google_news_publisher_candidates(
                     url=publisher_candidate.url,
                     snippet=publisher_candidate.snippet or candidate.snippet,
                     source_url=publisher_candidate.url,
+                    google_news_grounding_strategy="publisher_search",
                 )
             )
             break
@@ -1308,6 +1338,7 @@ async def _rank_live_candidate(
     candidate_snippet: str,
     tier: str,
     engine: str = "",
+    google_news_grounding_strategy: str = "",
     force_fetch: bool = False,
     config: LiveRetrievalConfig,
 ) -> dict[str, str | int] | None:
@@ -1345,8 +1376,13 @@ async def _rank_live_candidate(
             "_tier": tier,
         }
 
+    use_query_aligned_fetch = _should_query_align_fetch(url) or (
+        engine == "google_news_rss"
+        and force_fetch
+        and google_news_grounding_strategy == "resolved_article_url"
+    )
     try:
-        if _should_query_align_fetch(url):
+        if use_query_aligned_fetch:
             page_text = await _fetch_query_aligned_page_text(
                 query=query,
                 title=title,
@@ -1514,72 +1550,88 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
 
     discovery_query = _ddgs_backup_query(query)
     broader_outlook_query = _industry_outlook_backup_query(query)
+    prefer_cjk_news_only = _prefer_cjk_news_only_discovery(query)
     focused_queries = (
         _official_search_queries(query)
         if broader_outlook_query is not None
+        and not prefer_cjk_news_only
         else ()
     )
     bing_rss_backup_queries = (
         _bing_rss_backup_queries(query)
         if broader_outlook_query is not None
+        and not prefer_cjk_news_only
         else ()
     )
     backup_queries = [query]
     if broader_outlook_query is not None and broader_outlook_query != query:
         backup_queries.append(broader_outlook_query)
 
-    web_task = asyncio.create_task(
-        search_multi_engine(
-            query=discovery_query,
-            engines=_non_rss_engines(config),
-            max_results=8,
-            stop_after_first_success=True,
+    if prefer_cjk_news_only:
+        web_task = asyncio.create_task(asyncio.sleep(0, result=[]))
+    else:
+        web_task = asyncio.create_task(
+            search_multi_engine(
+                query=discovery_query,
+                engines=_non_rss_engines(config),
+                max_results=8,
+                stop_after_first_success=True,
+            )
         )
-    )
     news_task = asyncio.create_task(
         search_multi_engine(
             query=query,
             engines=("google_news_rss",),
-            max_results=3,
+            max_results=_GOOGLE_NEWS_DISCOVERY_CANDIDATE_LIMIT,
         )
     )
-    focused_web_tasks = {
-        focused_query: asyncio.create_task(
-            search_multi_engine(
-                query=focused_query,
-                engines=_non_rss_engines(config),
-                max_results=5,
-                stop_after_first_success=True,
-            )
-        )
-        for focused_query in focused_queries
-    }
-    bing_rss_backup_tasks = {
-        backup_query: asyncio.create_task(
-            search_multi_engine(
-                query=backup_query,
-                engines=("bing_rss",),
-                max_results=5,
-            )
-        )
-        for backup_query in bing_rss_backup_queries
-    }
+    focused_web_tasks: dict[str, asyncio.Task[list[object]]] = {}
+    bing_rss_backup_tasks: dict[str, asyncio.Task[list[object]]] = {}
     candidate_payloads: list[dict[str, str]] = []
     ranked_hits: list[RetrievalHit] = []
     ddgs_backup_tasks: dict[str, asyncio.Task[list[dict[str, str]]]] = {}
     ddgs_backup_started = False
+    secondary_tasks_started = False
     loop = asyncio.get_running_loop()
     ddgs_backup_deadline = loop.time() + _DDGS_BACKUP_HEADSTART_SECONDS
+    secondary_tasks_deadline = loop.time() + _SECONDARY_DISCOVERY_HEADSTART_SECONDS
     pending_tasks: set[asyncio.Task[object]] = {
         web_task,
         news_task,
-        *focused_web_tasks.values(),
-        *bing_rss_backup_tasks.values(),
     }
     if _uses_cjk_text(query):
         ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
         ddgs_backup_started = True
         pending_tasks.update(ddgs_backup_tasks.values())
+
+    def _start_secondary_tasks() -> None:
+        nonlocal secondary_tasks_started, focused_web_tasks, bing_rss_backup_tasks, pending_tasks
+        if secondary_tasks_started:
+            return
+        focused_web_tasks = {
+            focused_query: asyncio.create_task(
+                search_multi_engine(
+                    query=focused_query,
+                    engines=_non_rss_engines(config),
+                    max_results=5,
+                    stop_after_first_success=True,
+                )
+            )
+            for focused_query in focused_queries
+        }
+        bing_rss_backup_tasks = {
+            backup_query: asyncio.create_task(
+                search_multi_engine(
+                    query=backup_query,
+                    engines=("bing_rss",),
+                    max_results=5,
+                )
+            )
+            for backup_query in bing_rss_backup_queries
+        }
+        secondary_tasks_started = True
+        pending_tasks.update(focused_web_tasks.values())
+        pending_tasks.update(bing_rss_backup_tasks.values())
 
     async def _merge_and_rank_payloads(
         new_payloads: list[dict[str, str]],
@@ -1603,14 +1655,24 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
     try:
         while pending_tasks and not ranked_hits:
             wait_timeout: float | None = None
+            deadline_candidates: list[float] = []
             if not ddgs_backup_started:
-                wait_timeout = max(0.0, ddgs_backup_deadline - loop.time())
+                deadline_candidates.append(max(0.0, ddgs_backup_deadline - loop.time()))
+            if not secondary_tasks_started:
+                deadline_candidates.append(
+                    max(0.0, secondary_tasks_deadline - loop.time())
+                )
+            if deadline_candidates:
+                wait_timeout = min(deadline_candidates)
             done, pending_tasks = await asyncio.wait(
                 pending_tasks,
                 timeout=wait_timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if not done:
+                if not secondary_tasks_started:
+                    _start_secondary_tasks()
+                    continue
                 if not ddgs_backup_started:
                     ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
                     ddgs_backup_started = True
@@ -1688,6 +1750,11 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                     if ranked_hits:
                         break
                     continue
+
+            if not secondary_tasks_started and not ranked_hits:
+                primary_task_completed = web_task in done or news_task in done
+                if primary_task_completed:
+                    _start_secondary_tasks()
 
             html_pending = any(
                 task in pending_tasks
@@ -1780,7 +1847,7 @@ async def search_news_rss_live(query: str) -> list[RetrievalHit]:
         news_candidates = await search_multi_engine(
             query=query,
             engines=("google_news_rss",),
-            max_results=3,
+            max_results=_GOOGLE_NEWS_FALLBACK_CANDIDATE_LIMIT,
         )
     except Exception:
         news_candidates = []
@@ -1982,7 +2049,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
         search_multi_engine(
             query=query,
             engines=("google_news_rss",),
-            max_results=3,
+            max_results=_GOOGLE_NEWS_DISCOVERY_CANDIDATE_LIMIT,
         )
     )
     official_query_tasks = [

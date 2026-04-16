@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
@@ -26,6 +27,37 @@ class SearchCandidate:
     url: str
     snippet: str
     source_url: str = ""
+    google_news_grounding_strategy: str = ""
+
+
+def _google_news_rss_params(query: str) -> dict[str, str]:
+    if re.search(r"[\u3040-\u30ff]", query):
+        return {
+            "q": query,
+            "hl": "ja",
+            "gl": "JP",
+            "ceid": "JP:ja",
+        }
+    if re.search(r"[\uac00-\ud7af]", query):
+        return {
+            "q": query,
+            "hl": "ko",
+            "gl": "KR",
+            "ceid": "KR:ko",
+        }
+    if re.search(r"[\u3400-\u4dbf\u4e00-\u9fff]", query):
+        return {
+            "q": query,
+            "hl": "zh-CN",
+            "gl": "CN",
+            "ceid": "CN:zh-Hans",
+        }
+    return {
+        "q": query,
+        "hl": "en-US",
+        "gl": "US",
+        "ceid": "US:en",
+    }
 
 
 _ENGINE_CONFIG = {
@@ -61,12 +93,7 @@ _ENGINE_CONFIG = {
     },
     "google_news_rss": {
         "url": "https://news.google.com/rss/search",
-        "params": lambda query: {
-            "q": query,
-            "hl": "en-US",
-            "gl": "US",
-            "ceid": "US:en",
-        },
+        "params": _google_news_rss_params,
         "parser": parse_google_news_rss,
         "timeout": 3.0,
         "max_chars": 120_000,

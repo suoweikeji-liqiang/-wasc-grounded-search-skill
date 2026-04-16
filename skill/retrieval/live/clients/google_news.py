@@ -22,12 +22,12 @@ _GARTURLRES_ESCAPED_RE = re.compile(r'garturlres\\",\\"(?P<url>https?://[^\\"]+)
 _GARTURLRES_PLAIN_RE = re.compile(r'\["garturlres","(?P<url>https?://[^"]+)')
 _LEGACY_PREFIX = b"\x08\x13\x22"
 _LEGACY_SUFFIX = b"\xd2\x01\x00"
-_ARTICLE_PAGE_TIMEOUT_SECONDS = 2.0
+_ARTICLE_PAGE_TIMEOUT_SECONDS = 3.0
 _BATCHEXECUTE_TIMEOUT_SECONDS = 3.0
-_ARTICLE_PAGE_MAX_CHARS = 180_000
+_ARTICLE_PAGE_MAX_CHARS = 650_000
 _BATCHEXECUTE_HEADERS = {
     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    "Referrer": "https://news.google.com/",
+    "Referer": "https://www.google.com/",
 }
 
 
@@ -94,8 +94,8 @@ def _extract_decoder_inputs(article_page_html: str) -> tuple[str, str] | None:
 
 def _article_page_urls(article_id: str) -> tuple[str, ...]:
     return (
-        f"https://news.google.com/articles/{article_id}",
         f"https://news.google.com/rss/articles/{article_id}",
+        f"https://news.google.com/articles/{article_id}",
     )
 
 

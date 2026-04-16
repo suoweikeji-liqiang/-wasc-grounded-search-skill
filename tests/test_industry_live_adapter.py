@@ -433,6 +433,269 @@ def test_industry_news_rss_live_uses_publisher_title_search_when_google_news_onl
     assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
 
 
+def test_normalize_google_news_title_for_search_preserves_cjk_terms() -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    normalized = adapter._normalize_google_news_title_for_search(
+        "\u9502\u79bb\u5b50\u7535\u6c60\u56de\u6536\u5e02\u573a\u89c4\u6a21\u3001"
+        "\u4efd\u989d\u53ca\u9884\u6d4b [2034] - Fortune Business Insights"
+    )
+
+    assert (
+        normalized
+        == "\u9502\u79bb\u5b50\u7535\u6c60\u56de\u6536\u5e02\u573a\u89c4\u6a21 \u4efd\u989d\u53ca\u9884\u6d4b 2034"
+    )
+
+
+def test_industry_news_rss_live_uses_publisher_title_search_for_cjk_titles(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_queries: list[str] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        observed_queries.append(query)
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title=(
+                        "\u9502\u79bb\u5b50\u7535\u6c60\u56de\u6536\u5e02\u573a\u89c4\u6a21\u3001"
+                        "\u4efd\u989d\u53ca\u9884\u6d4b [2034] - Fortune Business Insights"
+                    ),
+                    url="https://news.google.com/rss/articles/example-fbi",
+                    snippet="Fortune Business Insights | Fri, 12 Apr 2026 08:00:00 GMT",
+                    source_url="https://www.fortunebusinessinsights.com",
+                )
+            ]
+        if (
+            query
+            == 'site:fortunebusinessinsights.com "\u9502\u79bb\u5b50\u7535\u6c60\u56de\u6536\u5e02\u573a\u89c4\u6a21 '
+            '\u4efd\u989d\u53ca\u9884\u6d4b 2034"'
+        ):
+            return [
+                SearchCandidate(
+                    engine="duckduckgo",
+                    title="Lithium-ion Battery Recycling Market Size, Share and Forecast [2034]",
+                    url=(
+                        "https://www.fortunebusinessinsights.com/"
+                        "lithium-ion-battery-recycling-market-106123"
+                    ),
+                    snippet=(
+                        "Fortune Business Insights projects strong lithium-ion battery "
+                        "recycling demand through 2034."
+                    ),
+                )
+            ]
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return None
+
+    async def _article_page_text(*, url: str, **_: object) -> str:
+        assert url.endswith("/lithium-ion-battery-recycling-market-106123")
+        return (
+            "Fortune Business Insights projects strong lithium-ion battery recycling "
+            "demand through 2034, with market share gains led by large-scale "
+            "processors."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _article_page_text)
+
+    hits = asyncio.run(adapter.search_news_rss_live("\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b"))
+
+    assert any(
+        query
+        == 'site:fortunebusinessinsights.com "\u9502\u79bb\u5b50\u7535\u6c60\u56de\u6536\u5e02\u573a\u89c4\u6a21 '
+        '\u4efd\u989d\u53ca\u9884\u6d4b 2034"'
+        for query in observed_queries
+    )
+    assert len(hits) == 1
+    assert hits[0].url.endswith("/lithium-ion-battery-recycling-market-106123")
+    assert "market share gains led by large-scale processors" in hits[0].snippet.lower()
+
+
+def test_industry_news_rss_live_uses_query_aligned_fetch_for_resolved_original_urls(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        engines = tuple(kwargs["engines"])
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="Battery Recycling Market Share Forecast 2026 - Example Research",
+                    url="https://news.google.com/rss/articles/example-research",
+                    snippet="Example Research | Wed, 15 Apr 2026 08:00:00 GMT",
+                    source_url="https://www.example-research.com",
+                )
+            ]
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return "https://www.example-research.com/reports/battery-recycling-market-share-2026"
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("plain page fetch should not run for resolved google news articles")
+
+    async def _fake_query_aligned_page_text(
+        *,
+        url: str,
+        **_: object,
+    ) -> str:
+        assert url.endswith("/battery-recycling-market-share-2026")
+        return (
+            "Battery recycling market share forecast for 2026 points to higher EV "
+            "battery recovery volumes and tighter regional competition."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _fake_query_aligned_page_text,
+    )
+
+    hits = asyncio.run(adapter.search_news_rss_live("battery recycling market share forecast 2026"))
+
+    assert len(hits) == 1
+    assert hits[0].url.endswith("/battery-recycling-market-share-2026")
+    assert "higher ev battery recovery volumes" in hits[0].snippet.lower()
+
+
+def test_industry_news_rss_live_limits_google_news_candidates_to_top_two(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_max_results: list[int] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        if tuple(kwargs["engines"]) == ("google_news_rss",):
+            observed_max_results.append(int(kwargs["max_results"]))
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_news_rss_live("battery recycling market share forecast 2026"))
+
+    assert hits == []
+    assert observed_max_results == [2]
+
+
+def test_industry_web_discovery_live_limits_google_news_parallel_recall_to_top_one(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_max_results: list[int] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        if tuple(kwargs["engines"]) == ("google_news_rss",):
+            observed_max_results.append(int(kwargs["max_results"]))
+        return []
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+
+    hits = asyncio.run(adapter.search_web_discovery_live("battery recycling market share forecast 2026"))
+
+    assert hits == []
+    assert observed_max_results == [1]
+
+
+def test_industry_web_discovery_live_gives_primary_web_and_news_a_headstart_before_secondary_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    secondary_allowed = False
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        nonlocal secondary_allowed
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        if engines == ("duckduckgo", "bing", "google") and query.startswith(
+            "semiconductor advanced packaging"
+        ):
+            await asyncio.sleep(0.01)
+            secondary_allowed = True
+            return []
+        if engines == ("google_news_rss",):
+            await asyncio.sleep(0.01)
+            secondary_allowed = True
+            return []
+        if not secondary_allowed:
+            raise AssertionError("secondary discovery queries should start after the primary headstart")
+        return []
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter,
+        "_official_search_queries",
+        lambda _query: ("SEMI advanced packaging capacity outlook 2026",),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_bing_rss_backup_queries",
+        lambda _query: ("CoWoS capacity 2026",),
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "_SECONDARY_DISCOVERY_HEADSTART_SECONDS", 0.02)
+
+    hits = asyncio.run(adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"))
+
+    assert hits == []
+
+
+def test_industry_web_discovery_live_skips_non_rss_html_search_for_pure_cjk_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_engines: list[tuple[str, ...]] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        observed_engines.append(tuple(str(engine) for engine in kwargs["engines"]))
+        return []
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+
+    hits = asyncio.run(adapter.search_web_discovery_live("\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b"))
+
+    assert hits == []
+    assert observed_engines == [("google_news_rss",)]
+
+
 def test_ddgs_backup_query_adds_semiconductor_focus_for_packaging_capacity_queries() -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
 
@@ -791,6 +1054,7 @@ def test_industry_web_discovery_live_uses_bing_rss_parallel_backup_for_packaging
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _ddgs_backup_should_not_run)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_SECONDARY_DISCOVERY_HEADSTART_SECONDS", 0.01)
 
     hits = asyncio.run(
         asyncio.wait_for(

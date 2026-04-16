@@ -264,7 +264,7 @@ def test_industry_news_rss_resolves_article_url_when_source_url_is_only_homepage
         assert url == "https://news.google.com/rss/articles/abc123"
         return "https://www.iata.org/en/pressroom/2025-releases/cargo-demand-outlook/"
 
-    async def _article_page_text(*, url: str, **_: object) -> str:
+    async def _query_aligned_page_text(*, url: str, **_: object) -> str:
         observed_urls.append(url)
         return (
             "IATA said 2025 cargo demand, measured in CTKs, is expected to grow by "
@@ -277,7 +277,11 @@ def test_industry_news_rss_resolves_article_url_when_source_url_is_only_homepage
         "resolve_google_news_article_url",
         _fake_resolve_google_news_article_url,
     )
-    monkeypatch.setattr(adapter, "fetch_page_text", _article_page_text)
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _query_aligned_page_text,
+    )
 
     hits = asyncio.run(
         adapter.search_news_rss_live("IATA 2025 cargo demand forecast CTK growth official")

@@ -292,6 +292,54 @@ def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None
     assert all(candidate.engine == "google_news_rss" for candidate in candidates)
 
 
+def test_search_candidates_google_news_rss_uses_zh_cn_locale_for_cjk_queries(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    observed_params: dict[str, object] = {}
+
+    async def _fake_fetch_text_limited(**kwargs: object) -> str:
+        observed_params.update(dict(kwargs.get("params", {})))
+        return _GOOGLE_NEWS_RSS
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    asyncio.run(
+        search_candidates(
+            query="\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b",
+            engine="google_news_rss",
+        )
+    )
+
+    assert observed_params["hl"] == "zh-CN"
+    assert observed_params["gl"] == "CN"
+    assert observed_params["ceid"] == "CN:zh-Hans"
+
+
+def test_search_candidates_google_news_rss_keeps_us_locale_for_ascii_queries(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    observed_params: dict[str, object] = {}
+
+    async def _fake_fetch_text_limited(**kwargs: object) -> str:
+        observed_params.update(dict(kwargs.get("params", {})))
+        return _GOOGLE_NEWS_RSS
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    asyncio.run(
+        search_candidates(
+            query="battery recycling market share 2025",
+            engine="google_news_rss",
+        )
+    )
+
+    assert observed_params["hl"] == "en-US"
+    assert observed_params["gl"] == "US"
+    assert observed_params["ceid"] == "US:en"
+
+
 def test_search_candidates_bing_rss_returns_direct_urls_and_snippets(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
