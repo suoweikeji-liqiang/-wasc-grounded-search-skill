@@ -45,6 +45,25 @@ _ACADEMIC_SHORTCUT_GENERIC_TERMS = frozenset(
 )
 
 
+def academic_upstream_query(query: str) -> str:
+    normalized = normalize_query_text(query).strip()
+    if not normalized:
+        return query.strip()
+    if query.isascii():
+        return normalized
+
+    ascii_tokens = tuple(
+        dict.fromkeys(
+            token
+            for token in query_tokens(normalized)
+            if token.isascii()
+        )
+    )
+    if ascii_tokens:
+        return " ".join(ascii_tokens)
+    return normalized
+
+
 def _coerce_year(value: object) -> int | None:
     if isinstance(value, int):
         return value

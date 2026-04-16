@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from skill.retrieval.adapters.academic_live_common import (
+    academic_upstream_query,
     academic_fixture_shortcut_allowed,
     rank_live_academic_records,
 )
@@ -20,8 +21,8 @@ from skill.retrieval.priority import score_query_alignment
 _SOURCE_ID = "academic_semantic_scholar"
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _MIN_FIXTURE_SCORE = 6
-_PRIMARY_API_TIMEOUT_SECONDS = 0.15
-_OPENALEX_TIMEOUT_SECONDS = 0.1
+_PRIMARY_API_TIMEOUT_SECONDS = 1.4
+_OPENALEX_TIMEOUT_SECONDS = 1.5
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
         "title": "RAG Chunking Survey: Recent Papers and Benchmarks",
@@ -118,6 +119,7 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
 async def search_live(query: str) -> list[RetrievalHit]:
     """Return live scholarly results from Semantic Scholar."""
     config = LiveRetrievalConfig.from_env()
+    upstream_query = academic_upstream_query(query)
     if config.fixture_shortcuts_enabled:
         fixture_hits = [
             hit
@@ -135,7 +137,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     try:
         records = await asyncio.wait_for(
-            academic_api.search_semantic_scholar(query=query, max_results=5),
+            academic_api.search_semantic_scholar(query=upstream_query, max_results=5),
             timeout=_PRIMARY_API_TIMEOUT_SECONDS,
         )
     except Exception:
@@ -164,7 +166,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     try:
         openalex_records = await asyncio.wait_for(
-            academic_api.search_openalex(query=query, max_results=5),
+            academic_api.search_openalex(query=upstream_query, max_results=5),
             timeout=_OPENALEX_TIMEOUT_SECONDS,
         )
     except Exception:
@@ -193,7 +195,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     try:
         candidates = await search_multi_engine(
-            query=f"{query} site:doi.org",
+            query=f"{upstream_query} site:doi.org",
             engines=config.search_engines,
             max_results=5,
         )

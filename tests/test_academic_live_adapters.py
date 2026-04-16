@@ -410,14 +410,17 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_t
     import skill.retrieval.adapters.academic_semantic_scholar as adapter
     from skill.retrieval.live.clients import academic_api
 
+    observed_calls: list[str] = []
+
     async def _hung_semantic_scholar(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
+        observed_calls.append("semantic_scholar")
         assert query == "grounded search evidence packing paper"
         assert max_results == 5
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.2)
         return []
 
     async def _fast_openalex(
@@ -425,6 +428,7 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_t
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
+        observed_calls.append("openalex")
         assert query == "grounded search evidence packing paper"
         assert max_results == 5
         return [
@@ -445,6 +449,8 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_t
         _hung_semantic_scholar,
     )
     monkeypatch.setattr(academic_api, "search_openalex", _fast_openalex)
+    monkeypatch.setattr(adapter, "_PRIMARY_API_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(adapter, "_OPENALEX_TIMEOUT_SECONDS", 0.1)
 
     hits = asyncio.run(
         asyncio.wait_for(
@@ -453,8 +459,91 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_t
         )
     )
 
+    assert observed_calls == ["semantic_scholar", "openalex"]
     assert len(hits) == 1
     assert hits[0].doi == "10.5555/evidence.2026.10"
+
+
+def test_semantic_scholar_live_adapter_normalizes_mixed_language_query_for_upstreams(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    observed_queries: list[str] = []
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(query)
+        return []
+
+    async def _empty_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(query)
+        return []
+
+    async def _empty_search_multi_engine(**kwargs: object):
+        observed_queries.append(str(kwargs["query"]))
+        return []
+
+    monkeypatch.setattr(academic_api, "search_semantic_scholar", _empty_semantic_scholar)
+    monkeypatch.setattr(academic_api, "search_openalex", _empty_openalex)
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_live("多源 evidence ranking benchmark 论文"))
+
+    assert hits == []
+    assert observed_queries == [
+        "evidence ranking benchmark",
+        "evidence ranking benchmark",
+        "evidence ranking benchmark site:doi.org",
+    ]
+
+
+def test_semantic_scholar_live_adapter_accepts_slightly_slow_openalex_metadata(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def _slow_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        await asyncio.sleep(0.2)
+        return [
+            {
+                "title": "Evidence Ranking Benchmark",
+                "url": "https://doi.org/10.5555/evidence-ranking.2026.10",
+                "snippet": "Peer-reviewed benchmark paper on evidence ranking.",
+                "doi": "10.5555/evidence-ranking.2026.10",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_semantic_scholar", _empty_semantic_scholar)
+    monkeypatch.setattr(academic_api, "search_openalex", _slow_openalex)
+
+    hits = asyncio.run(adapter.search_live("evidence ranking benchmark"))
+
+    assert len(hits) == 1
+    assert hits[0].doi == "10.5555/evidence-ranking.2026.10"
 
 
 def test_semantic_scholar_live_adapter_rejects_generic_fixture_shortcuts_when_live_match_is_more_specific(
@@ -594,14 +683,17 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
     import skill.retrieval.adapters.academic_arxiv as adapter
     from skill.retrieval.live.clients import academic_api
 
+    observed_calls: list[str] = []
+
     async def _hung_search_arxiv(
         *,
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
+        observed_calls.append("arxiv")
         assert query == "synthetic bone graft review paper"
         assert max_results == 5
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.2)
         return []
 
     async def _fast_search_europe_pmc(
@@ -609,6 +701,7 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
         query: str,
         max_results: int = 5,
     ) -> list[dict[str, object]]:
+        observed_calls.append("europe_pmc")
         assert query == "synthetic bone graft review paper"
         assert max_results == 5
         return [
@@ -625,6 +718,8 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
 
     monkeypatch.setattr(academic_api, "search_arxiv", _hung_search_arxiv)
     monkeypatch.setattr(academic_api, "search_europe_pmc", _fast_search_europe_pmc)
+    monkeypatch.setattr(adapter, "_PRIMARY_API_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(adapter, "_FALLBACK_EUROPE_PMC_TIMEOUT_SECONDS", 0.1)
 
     hits = asyncio.run(
         asyncio.wait_for(
@@ -633,8 +728,83 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
         )
     )
 
+    assert observed_calls == ["arxiv", "europe_pmc"]
     assert len(hits) == 1
     assert hits[0].doi == "10.3390/bioengineering13030262"
+
+
+def test_arxiv_live_adapter_normalizes_mixed_language_query_for_upstreams(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    observed_queries: list[str] = []
+
+    async def _empty_arxiv(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(query)
+        return []
+
+    async def _empty_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(query)
+        return []
+
+    async def _empty_search_multi_engine(**kwargs: object):
+        observed_queries.append(str(kwargs["query"]))
+        return []
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _empty_arxiv)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _empty_europe_pmc)
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_live("多源 evidence ranking benchmark 论文"))
+
+    assert hits == []
+    assert observed_queries == [
+        "evidence ranking benchmark",
+        "evidence ranking benchmark",
+        "evidence ranking benchmark site:arxiv.org",
+    ]
+
+
+def test_arxiv_live_adapter_accepts_slightly_slow_primary_metadata(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _slow_arxiv(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        await asyncio.sleep(0.2)
+        return [
+            {
+                "title": "Evidence Ranking Benchmark Preprint",
+                "url": "https://arxiv.org/abs/2604.12345",
+                "snippet": "Preprint benchmark paper on evidence ranking.",
+                "arxiv_id": "2604.12345",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "preprint",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _slow_arxiv)
+
+    hits = asyncio.run(adapter.search_live("evidence ranking benchmark"))
+
+    assert len(hits) == 1
+    assert hits[0].arxiv_id == "2604.12345"
 
 
 def test_arxiv_live_adapter_prefers_europe_pmc_for_explicit_repository_hint_when_match_is_stronger(
