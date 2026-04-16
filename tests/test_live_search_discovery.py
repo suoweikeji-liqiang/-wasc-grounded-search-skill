@@ -20,6 +20,19 @@ _DDG_HTML = """
 </html>
 """
 
+_DDG_REDIRECT_HTML = """
+<html>
+  <body>
+    <div class="result">
+      <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.deloitte.com%2Fus%2Fen%2Finsights%2Findustry%2Ftechnology%2Ftechnology-media-telecom-outlooks%2Fsemiconductor-industry-outlook.html">
+        2026 Semiconductor Industry Outlook | Deloitte Insights
+      </a>
+      <a class="result__snippet">Deloitte expects AI-driven semiconductor demand to remain strong in 2026.</a>
+    </div>
+  </body>
+</html>
+"""
+
 _BING_HTML = """
 <html>
   <body>
@@ -120,6 +133,27 @@ def test_search_candidates_duckduckgo_returns_normalized_candidates(monkeypatch)
     assert [candidate.title for candidate in candidates] == ["Alpha Result", "Beta Result"]
     assert candidates[0].snippet == "Alpha snippet from DuckDuckGo."
     assert all(candidate.engine == "duckduckgo" for candidate in candidates)
+
+
+def test_search_candidates_duckduckgo_decodes_redirect_candidates(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    async def _fake_fetch_text_limited(**_: object) -> str:
+        return _DDG_REDIRECT_HTML
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    candidates = asyncio.run(
+        search_candidates(query="semiconductor outlook", engine="duckduckgo")
+    )
+
+    assert len(candidates) == 1
+    assert (
+        candidates[0].url
+        == "https://www.deloitte.com/us/en/insights/industry/technology/"
+        "technology-media-telecom-outlooks/semiconductor-industry-outlook.html"
+    )
 
 
 def test_search_candidates_bing_returns_normalized_candidates(monkeypatch) -> None:

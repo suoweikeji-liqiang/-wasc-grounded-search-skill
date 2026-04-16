@@ -660,6 +660,79 @@ def _cancel_search_tasks_detached(tasks: list[asyncio.Task[object]]) -> None:
         _detach_task(task)
 
 
+def _normalized_source_host(url: str) -> str:
+    host = (urlsplit(url).hostname or "").lower()
+    return host.removeprefix("www.")
+
+
+def _is_homepage_url(url: str) -> bool:
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return False
+    return (parts.path or "/").rstrip("/") in {"", "/"}
+
+
+def _normalize_google_news_title_for_search(title: str) -> str:
+    parts = [part.strip() for part in title.split(" - ") if part.strip()]
+    if len(parts) > 1:
+        title = " - ".join(parts[:-1])
+    title = re.sub(r"^20\d{2}\s+", "", title).strip()
+    title = re.sub(r"[^A-Za-z0-9]+", " ", title).strip()
+    words = title.split()
+    if len(words) > 10:
+        words = words[:10]
+    return " ".join(words)
+
+
+def _publisher_search_query_for_google_news_candidate(
+    candidate: SearchCandidate,
+) -> str | None:
+    source_host = _normalized_source_host(candidate.source_url)
+    cleaned_title = _normalize_google_news_title_for_search(candidate.title)
+    if not source_host or not cleaned_title:
+        return None
+    return f'site:{source_host} "{cleaned_title}"'
+
+
+def _article_like_source_candidate(candidate: SearchCandidate) -> SearchCandidate | None:
+    if candidate.engine != "google_news_rss":
+        return candidate
+    if not candidate.source_url or _is_homepage_url(candidate.source_url):
+        return None
+    return SearchCandidate(
+        engine=candidate.engine,
+        title=candidate.title,
+        url=candidate.source_url,
+        snippet=candidate.snippet,
+        source_url=candidate.source_url,
+    )
+
+
+def _google_news_candidate_score(
+    query: str,
+    candidate: SearchCandidate,
+) -> int:
+    return _score(
+        query,
+        {
+            "title": candidate.title,
+            "url": candidate.url,
+            "snippet": candidate.snippet,
+        },
+    )
+
+
+def _matches_google_news_source_host(
+    candidate: SearchCandidate,
+    publisher_candidate: SearchCandidate,
+) -> bool:
+    source_host = _normalized_source_host(candidate.source_url)
+    result_host = _normalized_source_host(publisher_candidate.url)
+    if not source_host or not result_host:
+        return False
+    return result_host == source_host or result_host.endswith(f".{source_host}")
+
+
 async def _resolve_google_news_candidates(
     candidates: list[SearchCandidate],
 ) -> list[SearchCandidate]:
@@ -707,6 +780,99 @@ async def _resolve_google_news_candidates(
             )
         )
     return resolved_candidates
+
+
+async def _search_google_news_publisher_candidates(
+    *,
+    query: str,
+    candidates: list[SearchCandidate],
+    config: LiveRetrievalConfig,
+) -> list[SearchCandidate]:
+    ranked_candidates = sorted(
+        candidates,
+        key=lambda candidate: (
+            _google_news_candidate_score(query, candidate),
+            candidate.title,
+        ),
+        reverse=True,
+    )[:2]
+    search_tasks: list[asyncio.Task[list[SearchCandidate]]] = []
+    task_candidates: list[SearchCandidate] = []
+    for candidate in ranked_candidates:
+        publisher_query = _publisher_search_query_for_google_news_candidate(candidate)
+        if publisher_query is None:
+            continue
+        search_tasks.append(
+            asyncio.create_task(
+                search_multi_engine(
+                    query=publisher_query,
+                    engines=_non_rss_engines(config),
+                    max_results=2,
+                    stop_after_first_success=True,
+                )
+            )
+        )
+        task_candidates.append(candidate)
+
+    if not search_tasks:
+        return []
+
+    try:
+        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        await _cancel_search_tasks(search_tasks)
+        raise
+
+    recovered_candidates: list[SearchCandidate] = []
+    for candidate, result in zip(task_candidates, search_results, strict=False):
+        if isinstance(result, Exception):
+            continue
+        for publisher_candidate in result:
+            if (
+                not _matches_google_news_source_host(candidate, publisher_candidate)
+                or _is_homepage_url(publisher_candidate.url)
+            ):
+                continue
+            recovered_candidates.append(
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title=publisher_candidate.title or candidate.title,
+                    url=publisher_candidate.url,
+                    snippet=publisher_candidate.snippet or candidate.snippet,
+                    source_url=publisher_candidate.url,
+                )
+            )
+            break
+    return recovered_candidates
+
+
+async def _resolve_google_news_article_candidates(
+    *,
+    query: str,
+    candidates: list[SearchCandidate],
+    config: LiveRetrievalConfig,
+) -> list[SearchCandidate]:
+    resolved_candidates = await _resolve_google_news_candidates(candidates)
+    article_candidates: list[SearchCandidate] = []
+    unresolved_candidates: list[SearchCandidate] = []
+
+    for candidate in resolved_candidates:
+        article_candidate = _article_like_source_candidate(candidate)
+        if article_candidate is not None:
+            article_candidates.append(article_candidate)
+            continue
+        if candidate.engine == "google_news_rss":
+            unresolved_candidates.append(candidate)
+
+    if unresolved_candidates:
+        article_candidates.extend(
+            await _search_google_news_publisher_candidates(
+                query=query,
+                candidates=unresolved_candidates,
+                config=config,
+            )
+        )
+    return article_candidates
 
 
 def _detect_known_company_ir_target(query: str) -> dict[str, object] | None:
@@ -1366,6 +1532,13 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
             stop_after_first_success=True,
         )
     )
+    news_task = asyncio.create_task(
+        search_multi_engine(
+            query=query,
+            engines=("google_news_rss",),
+            max_results=3,
+        )
+    )
     focused_web_tasks = {
         focused_query: asyncio.create_task(
             search_multi_engine(
@@ -1394,6 +1567,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
     ddgs_backup_deadline = loop.time() + _DDGS_BACKUP_HEADSTART_SECONDS
     pending_tasks: set[asyncio.Task[object]] = {
         web_task,
+        news_task,
         *focused_web_tasks.values(),
         *bing_rss_backup_tasks.values(),
     }
@@ -1437,6 +1611,27 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                         candidate_payloads = focused_payloads
                         break
                     continue
+                if done_task is news_task:
+                    try:
+                        news_candidates = done_task.result()
+                    except Exception:
+                        news_candidates = []
+                    resolved_news_candidates = await _resolve_google_news_article_candidates(
+                        query=query,
+                        candidates=list(news_candidates),
+                        config=config,
+                    )
+                    news_payloads = _dedupe_candidate_payloads(
+                        _candidate_payloads_from_search_results(
+                            list(resolved_news_candidates)
+                        )
+                    )
+                    for payload in news_payloads:
+                        payload["_force_fetch"] = "1"
+                    if news_payloads:
+                        candidate_payloads = news_payloads
+                        break
+                    continue
                 if done_task in bing_rss_backup_tasks.values():
                     try:
                         bing_rss_candidates = done_task.result()
@@ -1465,10 +1660,12 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                         candidate_payloads = ddgs_backup_payloads
                         break
                     continue
+
             html_pending = any(
                 task in pending_tasks
                 for task in (
                     web_task,
+                    news_task,
                     *focused_web_tasks.values(),
                 )
             )
@@ -1496,6 +1693,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
         detached_tasks = list(ddgs_backup_tasks.values())
         awaited_tasks = [
             web_task,
+            news_task,
             *focused_web_tasks.values(),
             *bing_rss_backup_tasks.values(),
         ]
@@ -1556,7 +1754,11 @@ async def search_news_rss_live(query: str) -> list[RetrievalHit]:
     except Exception:
         news_candidates = []
     else:
-        news_candidates = await _resolve_google_news_candidates(list(news_candidates))
+        news_candidates = await _resolve_google_news_article_candidates(
+            query=query,
+            candidates=list(news_candidates),
+            config=config,
+        )
 
     candidate_payloads = _candidate_payloads_from_search_results(list(news_candidates))
     for payload in candidate_payloads:

@@ -32,6 +32,19 @@ def _decode_bing_redirect(url: str) -> str:
     return decoded or url
 
 
+def _decode_duckduckgo_redirect(url: str) -> str:
+    normalized_url = "https:" + url if url.startswith("//") else url
+    parts = urlsplit(normalized_url)
+    if "duckduckgo.com" not in parts.netloc or not parts.path.startswith("/l/"):
+        return normalized_url
+    params = parse_qs(parts.query)
+    encoded = params.get("uddg", [None])[0]
+    if not encoded:
+        return normalized_url
+    decoded = unquote(encoded).strip()
+    return decoded or normalized_url
+
+
 def parse_duckduckgo_html(html: str) -> list[dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     results: list[dict[str, str]] = []
@@ -43,7 +56,7 @@ def parse_duckduckgo_html(html: str) -> list[dict[str, str]]:
         results.append(
             {
                 "title": _clean_text(link.get_text(" ", strip=True)),
-                "url": str(link["href"]),
+                "url": _decode_duckduckgo_redirect(str(link["href"])),
                 "snippet": _clean_text(snippet.get_text(" ", strip=True)) if snippet else "",
             }
         )

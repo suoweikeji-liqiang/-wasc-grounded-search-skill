@@ -182,7 +182,7 @@ def test_industry_news_rss_fetches_article_body_and_emits_grounded_hit(
                 title="IATA cargo demand outlook 2025",
                 url="https://news.google.com/rss/articles/abc123",
                 snippet="IATA. Tue, 15 Apr 2025 12:00:00 GMT",
-                source_url="https://www.iata.org",
+                source_url="https://www.iata.org/en/pressroom/2025-releases/cargo-demand-outlook/",
             )
         ]
 

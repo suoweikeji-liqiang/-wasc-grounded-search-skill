@@ -322,6 +322,73 @@ def test_industry_web_discovery_live_does_not_start_ddgs_backup_when_html_engine
     assert backup_called is False
 
 
+def test_industry_news_rss_live_uses_publisher_title_search_when_google_news_only_has_homepage(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_queries: list[str] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        observed_queries.append(query)
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="2026 Global Semiconductor Industry Outlook - Deloitte",
+                    url="https://news.google.com/rss/articles/example-deloitte",
+                    snippet="Deloitte | Thu, 05 Feb 2026 08:00:00 GMT",
+                    source_url="https://www.deloitte.com",
+                )
+            ]
+        if query == 'site:deloitte.com "Global Semiconductor Industry Outlook"':
+            return [
+                SearchCandidate(
+                    engine="duckduckgo",
+                    title="2026 Semiconductor Industry Outlook | Deloitte Insights",
+                    url=(
+                        "https://www.deloitte.com/us/en/insights/industry/technology/"
+                        "technology-media-telecom-outlooks/semiconductor-industry-outlook.html"
+                    ),
+                    snippet=(
+                        "Deloitte expects AI-driven semiconductor demand to remain strong in 2026."
+                    ),
+                )
+            ]
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return None
+
+    async def _article_page_text(*, url: str, **_: object) -> str:
+        assert url.endswith("/semiconductor-industry-outlook.html")
+        return (
+            "Deloitte expects AI-driven semiconductor demand to remain strong in 2026, "
+            "with advanced packaging capacity staying tight."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _article_page_text)
+
+    hits = asyncio.run(adapter.search_news_rss_live("advanced packaging capacity outlook 2026"))
+
+    assert any(
+        query == 'site:deloitte.com "Global Semiconductor Industry Outlook"'
+        for query in observed_queries
+    )
+    assert len(hits) == 1
+    assert hits[0].url.endswith("/semiconductor-industry-outlook.html")
+    assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
+
+
 def test_ddgs_backup_query_adds_semiconductor_focus_for_packaging_capacity_queries() -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
 
@@ -397,6 +464,87 @@ def test_industry_web_discovery_live_uses_broader_outlook_backup_when_packaging_
     ]
     assert len(hits) == 1
     assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
+
+
+def test_industry_web_discovery_live_uses_google_news_parallel_recall_when_html_search_is_empty(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_queries: list[str] = []
+    backup_called = False
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        observed_queries.append(query)
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="2026 Global Semiconductor Industry Outlook - Deloitte",
+                    url="https://news.google.com/rss/articles/example-deloitte",
+                    snippet="Deloitte | Thu, 05 Feb 2026 08:00:00 GMT",
+                    source_url="https://www.deloitte.com",
+                )
+            ]
+        if query == 'site:deloitte.com "Global Semiconductor Industry Outlook"':
+            return [
+                SearchCandidate(
+                    engine="duckduckgo",
+                    title="2026 Semiconductor Industry Outlook | Deloitte Insights",
+                    url=(
+                        "https://www.deloitte.com/us/en/insights/industry/technology/"
+                        "technology-media-telecom-outlooks/semiconductor-industry-outlook.html"
+                    ),
+                    snippet=(
+                        "Deloitte expects AI-driven semiconductor demand to remain strong in 2026."
+                    ),
+                )
+            ]
+        await asyncio.sleep(0.02)
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return None
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        nonlocal backup_called
+        backup_called = True
+        raise AssertionError("ddgs backup should not run when google news recall succeeds early")
+
+    async def _article_page_text(*, url: str, **_: object) -> str:
+        assert url.endswith("/semiconductor-industry-outlook.html")
+        return (
+            "Deloitte expects AI-driven semiconductor demand to remain strong in 2026, "
+            "with advanced packaging capacity staying tight."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _article_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.2,
+        )
+    )
+
+    assert any(
+        query == 'site:deloitte.com "Global Semiconductor Industry Outlook"'
+        for query in observed_queries
+    )
+    assert backup_called is False
+    assert len(hits) == 1
+    assert hits[0].url.endswith("/semiconductor-industry-outlook.html")
+    assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
 
 
 def test_industry_web_discovery_live_runs_packaging_capacity_backups_in_parallel(
@@ -630,8 +778,8 @@ def test_industry_web_discovery_live_starts_ddgs_backup_before_slow_html_finishe
     monkeypatch.setattr(adapter, "search_multi_engine", _slow_search_multi_engine)
     monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_ddgs_news_backup)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
-    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
 
+    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
     hits = asyncio.run(
         asyncio.wait_for(
             adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
@@ -679,8 +827,8 @@ def test_industry_web_discovery_live_starts_ddgs_backup_before_slow_generic_html
     monkeypatch.setattr(adapter, "search_multi_engine", _slow_search_multi_engine)
     monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_ddgs_news_backup)
     monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
-    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
 
+    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
     hits = asyncio.run(
         asyncio.wait_for(
             adapter.search_web_discovery_live("battery recycling market share forecast"),
