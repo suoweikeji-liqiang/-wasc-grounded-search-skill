@@ -76,3 +76,37 @@ def test_prioritize_hits_industry_prefers_chinese_year_and_trend_overlap() -> No
         "\u0032\u0030\u0032\u0036\u5e74\u4e2d\u56fd\u667a\u80fd\u624b\u673a\u51fa\u8d27\u91cf\u8d8b\u52bf\u9884\u6d4b",
         "Company official handset launch update",
     ]
+
+
+def test_prioritize_hits_industry_prefers_cjk_gloss_semantic_match_over_generic_impact_overlap() -> None:
+    ordered = prioritize_hits(
+        domain="industry",
+        hits=[
+            RetrievalHit(
+                source_id="industry_ddgs",
+                title="AI Act 对开源模型产业落地影响评估",
+                url="https://www.bloomberg.com/news/articles/2026-04-08/ai-act-open-source-model-deployment-impact",
+                snippet="行业分析认为 AI Act 将改变开源模型商业化、企业部署和产业落地节奏。",
+                credibility_tier="trusted_news",
+            ),
+            RetrievalHit(
+                source_id="industry_ddgs",
+                title="BYD autonomous driving supplier investment update",
+                url="https://www.byd.com/news/autonomous-driving-supplier-investment-2026",
+                snippet="Company update says autonomous driving programs are increasing supplier investment across the vehicle industry in 2026.",
+                credibility_tier="company_official",
+            ),
+            RetrievalHit(
+                source_id="industry_ddgs",
+                title="Vision Pro XR 市场销量展望",
+                url="https://www.counterpointresearch.com/insights/vision-pro-sales-outlook-2026",
+                snippet="机构预测 Vision Pro 销量与后续出货节奏将影响高端 XR 市场走势。",
+                credibility_tier="trusted_news",
+            ),
+        ],
+        primary_route="policy",
+        supplemental_route="industry",
+        query="自动驾驶试点监管变化对产业投资影响",
+    )
+
+    assert ordered[0].title == "BYD autonomous driving supplier investment update"

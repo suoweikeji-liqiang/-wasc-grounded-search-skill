@@ -13,6 +13,24 @@ def _disable_fixture_shortcuts(monkeypatch) -> None:
     monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "0")
 
 
+def test_industry_fixture_prefers_gloss_aligned_market_result_for_hidden_style_cjk_query() -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    hits = asyncio.run(adapter.search_fixture("动力电池回收市场份额预测"))
+
+    assert hits
+    assert hits[0].title == "Reuters battery recycling market share outlook 2025"
+
+
+def test_industry_fixture_prefers_gloss_aligned_mixed_impact_result_for_hidden_style_cjk_query() -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    hits = asyncio.run(adapter.search_fixture("自动驾驶试点监管变化对产业投资影响"))
+
+    assert hits
+    assert hits[0].title == "BYD autonomous driving supplier investment update"
+
+
 def test_industry_live_adapter_aggregates_candidates_and_assigns_tiers(monkeypatch) -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
     from skill.retrieval.live.clients.search_discovery import SearchCandidate

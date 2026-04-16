@@ -32,6 +32,7 @@ _INDUSTRY_FORECAST_MARKERS: tuple[str, ...] = (
 )
 _INDUSTRY_CJK_GLOSSARY: tuple[tuple[str, str], ...] = (
     ("\u5148\u8fdb\u5c01\u88c5", "advanced packaging"),
+    ("\u81ea\u52a8\u9a7e\u9a76", "autonomous driving"),
     ("\u52a8\u529b\u7535\u6c60", "ev battery"),
     ("\u65b0\u80fd\u6e90\u6c7d\u8f66", "ev"),
     ("\u5e02\u573a\u4efd\u989d", "market share"),
@@ -40,7 +41,13 @@ _INDUSTRY_CJK_GLOSSARY: tuple[tuple[str, str], ...] = (
     ("\u51fa\u8d27\u91cf", "shipments"),
     ("\u534a\u5bfc\u4f53", "semiconductor"),
     ("\u667a\u80fd\u624b\u673a", "smartphone"),
+    ("\u670d\u52a1\u5668", "server"),
     ("\u4ea7\u80fd", "capacity"),
+    ("\u76d1\u7ba1", "regulation"),
+    ("\u8bd5\u70b9", "pilot"),
+    ("\u4ea7\u4e1a", "industry"),
+    ("\u6295\u8d44", "investment"),
+    ("\u5f71\u54cd", "impact"),
     ("\u56de\u6536", "recycling"),
     ("\u7535\u6c60", "battery"),
     ("\u5c01\u88c5", "packaging"),

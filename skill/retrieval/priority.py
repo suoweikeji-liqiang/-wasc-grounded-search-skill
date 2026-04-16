@@ -9,6 +9,7 @@ from typing import Literal
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.orchestrator.query_traits import derive_query_traits
 from skill.retrieval.models import RetrievalHit
+from skill.retrieval.query_variants import _build_industry_cjk_gloss_query
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
 ConcreteRoute = Literal["policy", "industry", "academic"]
@@ -140,7 +141,7 @@ def _normalized_record_text(
     return normalize_query_text(" ".join(part for part in parts if part))
 
 
-def score_query_alignment(
+def _score_query_alignment_once(
     query: str,
     *,
     route: ConcreteRoute,
@@ -217,6 +218,53 @@ def score_query_alignment(
         route_bonus += 2
 
     return token_score + route_bonus
+
+
+def score_query_alignment(
+    query: str,
+    *,
+    route: ConcreteRoute,
+    title: str,
+    snippet: str,
+    url: str,
+    authority: str | None = None,
+    publication_date: str | None = None,
+    effective_date: str | None = None,
+    version: str | None = None,
+    year: int | None = None,
+) -> int:
+    base_score = _score_query_alignment_once(
+        query,
+        route=route,
+        title=title,
+        snippet=snippet,
+        url=url,
+        authority=authority,
+        publication_date=publication_date,
+        effective_date=effective_date,
+        version=version,
+        year=year,
+    )
+    if route != "industry":
+        return base_score
+
+    gloss_query = _build_industry_cjk_gloss_query(query)
+    if gloss_query is None:
+        return base_score
+
+    gloss_score = _score_query_alignment_once(
+        gloss_query,
+        route=route,
+        title=title,
+        snippet=snippet,
+        url=url,
+        authority=authority,
+        publication_date=publication_date,
+        effective_date=effective_date,
+        version=version,
+        year=year,
+    )
+    return base_score + (gloss_score * 2)
 
 
 def _query_match_key(query: str, hit: RetrievalHit, *, route: ConcreteRoute) -> int:

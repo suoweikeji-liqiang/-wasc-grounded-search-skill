@@ -1305,7 +1305,9 @@ async def search_fixture(query: str) -> list[RetrievalHit]:
         reverse=True,
     )
     positive = [item for item in ranked if int(item["_score"]) > 0]
-    selected = positive[:3] if positive else ranked[:3]
+    if not positive:
+        return []
+    selected = positive[:3]
 
     if not any(item["_tier"] == "company_official" for item in selected):
         best_company_official = next(
