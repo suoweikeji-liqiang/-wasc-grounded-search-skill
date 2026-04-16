@@ -1,5 +1,289 @@
 # Handoff (2026-04-14)
 
+## Update (2026-04-16)
+
+### Continuation (2026-04-16, handoff after routing simplification discussion)
+- User challenged two assumptions:
+  - whether forcing benchmark queries into fixed intent classes hurts generalization
+  - whether the tokenizer/normalizer has value if marker enumeration is not maintainable
+- Current answer:
+  - `normalize_query_text()` and `query_tokens()` are still valuable infrastructure for normalization, cache keys, query variants, dedupe, and evidence overlap
+  - business-term marker sprawl is not a retained strategy
+  - `mixed` should not be treated as a heavier first-hop class right now
+- Work intentionally **not retained**:
+  - trainable four-class first-hop router dataset builder draft
+  - structural first-hop `mixed` promotion for `impact/effect` fragments
+  - one-source mixed supplemental first-wave experiment
+- Why not retained:
+  - `benchmark-results/generated-hidden-like-mixed-r1-v3/benchmark-summary.json` stayed `0 / 10`
+  - it also regressed the earlier `mixed-r1-v1` cases that had at least returned `insufficient_evidence`
+- Current retained direction:
+  - keep primary route stable
+  - preserve partial facts when primary evidence succeeds
+  - only explore cheap supplemental evidence after primary evidence exists and budget remains
+- Handoff files updated:
+  - `.planning/.continue-here.md`
+  - `.planning/HANDOFF.json`
+
+### Continuation (2026-04-16, mixed-first-hop simplification experiment)
+- User challenged the assumption that `mixed` should be a hard first-hop route.
+- I tested the hypothesis instead of continuing to add marker lists:
+  - temporary structural classifier experiment:
+    - detect `impact on` / `effect on` left/right fragments
+    - promote policy-effect-on-low-signal-target queries to `mixed(policy + industry)`
+  - temporary retrieval-plan experiment:
+    - reduce mixed supplemental industry first wave from three sources to one strongest source
+    - rely on fallback chain for the remaining industry sources
+- Fresh-process mixed-only run:
+  - `benchmark-results/generated-hidden-like-mixed-r1-v3/benchmark-summary.json`
+  - result: `0 / 10` grounded success
+  - all 10 ended as `retrieval_failure`
+- Comparison:
+  - `mixed-r1-v1`: `0 / 10`, but 3 cases were `insufficient_evidence` with successful policy-only retrieval
+  - `mixed-r1-v2`: `0 / 10`, all `retrieval_failure`
+  - `mixed-r1-v3`: `0 / 10`, all `retrieval_failure`
+- Conclusion:
+  - forcing more hidden-like impact queries into first-hop `mixed` is not a retained improvement
+  - it worsens stability by adding industry pressure and still leaves policy/fallback timeouts unresolved
+  - this supports the user's simpler framing: the competition goal is not prettier intent taxonomy; it is stable evidence acquisition
+- Action taken:
+  - reverted the temporary classifier / retrieval-plan experiment
+  - removed the abandoned trainable-four-class-router dataset-builder draft files
+  - retained only previously validated changes:
+    - academic Semantic Scholar/OpenAlex overlap
+    - academic upstream-query dedupe
+    - conservative partial mixed local fast-path when dual-route citations already exist
+- Verification after cleanup:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_route_contracts.py tests/test_intent_task2.py tests/test_industry_source_split.py tests/test_answer_runtime_budget.py tests/test_academic_live_adapters.py tests/test_retrieval_query_variants.py --import-mode=importlib`
+  - `159 passed`
+
+### Recommended next move after this experiment
+- Do not pursue `mixed` as a heavier first-hop route right now.
+- Next likely high-ROI direction is evidence acquisition simplification:
+  - keep primary route stable
+  - avoid heavy supplemental fan-out on the critical path
+  - consider cheap post-retrieval or answer-time supplemental probes only when primary evidence succeeds and budget remains
+- Another viable direction is policy/industry timeout reduction, because mixed hidden-like failures are still dominated by source timeouts rather than final answer synthesis.
+
+### Continuation (2026-04-16, fresh-process benchmark readout after loading `.env`)
+- Confirmed live synthesis credentials were available from local `.env`.
+  - `MINIMAX_KEY` present in the shell after env load
+  - `MINIMAX_API_KEY` absent, but not needed because the code accepts `MINIMAX_KEY`
+
+### Fresh-process smoke gate
+- Command shape used:
+  - load `.env`
+  - `WASC_RETRIEVAL_MODE=live`
+  - `WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED=0`
+  - unique `WASC_LIVE_CACHE_DIR`
+  - `python scripts/run_benchmark.py --smoke-gate --output-dir benchmark-results/smoke-gate-2026-04-16-round28`
+- Artifact:
+  - `benchmark-results/smoke-gate-2026-04-16-round28/benchmark-summary.json`
+- Result:
+  - `3 / 8` grounded success (`0.375`)
+  - `latency_p50_ms = 6039`
+  - `latency_p95_ms = 60000`
+  - `retrieval_failure = 3`
+  - `insufficient_evidence = 2`
+- Key readout from `benchmark-runs.jsonl`:
+  - the two academic CJK smoke cases no longer fail on first-wave timeout
+  - they currently look like:
+    - `academic_semantic_scholar`: `parse_empty`
+    - `academic_arxiv`: `parse_empty`
+    - `academic_asta_mcp`: late `timeout`
+  - this suggests those smoke cases are now dominated by real upstream irrelevance / no strong scholarly match, not by the earlier duplicate-variant waste alone
+
+### Direct upstream probe for the CJK academic smoke queries
+- Probed:
+  - `grounded search evidence packing`
+  - `evidence ranking benchmark`
+  - with `Semantic Scholar`, `OpenAlex`, `arXiv`, and `Europe PMC`
+- Observation:
+  - all four upstreams returned records, but they were mostly unrelated packing / ranking / survey noise
+  - our ranking layer was correctly rejecting them instead of hallucinating grounded academic evidence
+- Interpretation:
+  - current smoke-gate academic misses are not explained purely by transport latency anymore
+  - they are closer to a "live upstream relevance gap on synthetic benchmark phrases" issue
+
+### Full hidden-like generalization rerun
+- Command shape used:
+  - load `.env`
+  - `WASC_RETRIEVAL_MODE=live`
+  - `WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED=0`
+  - unique `WASC_LIVE_CACHE_DIR`
+  - `python scripts/run_benchmark.py --cases tests/fixtures/benchmark_generated_hidden_like_cases_2026-04-15_generalization.json --runs 1 --output-dir benchmark-results/generated-hidden-like-r1-v48-generalization`
+- Artifact:
+  - `benchmark-results/generated-hidden-like-r1-v48-generalization/benchmark-summary.json`
+- Result:
+  - `17 / 50` grounded success (`0.34`)
+  - `latency_p50_ms = 6011`
+  - `latency_p95_ms = 9653`
+  - `retrieval_failure = 27`
+  - `insufficient_evidence = 6`
+  - `timeout` failures = `29`
+- Comparison vs retained baseline `v47`:
+  - `v47`: `26 / 50`
+  - `v48`: `17 / 50`
+- Important caution:
+  - the regression was broad and not localized to academic alone
+  - `policy_official_registry`, `industry_web_discovery`, `industry_news_rss`, and `industry_official_or_filings` all showed materially more timeout-heavy behavior in this run
+  - this makes `v48` a noisy cross-route cold-run snapshot, not clean evidence that the academic code change regressed the system
+
+### Academic-only slice to isolate the Task 4 change
+- Built a temporary 10-case slice from:
+  - `gen2-academic-01 .. gen2-academic-10`
+- Ran:
+  - `python scripts/run_benchmark.py --cases <temp academic slice> --runs 1 --output-dir benchmark-results/generated-hidden-like-academic-r1-v1`
+- Artifact:
+  - `benchmark-results/generated-hidden-like-academic-r1-v1/benchmark-summary.json`
+- Result:
+  - `9 / 10` grounded success (`0.9`)
+  - `latency_p50_ms = 3380`
+  - `latency_p95_ms = 5153`
+  - `latency_budget_pass_rate = 0.9`
+- Comparison vs `v47` academic subset:
+  - previous `v47` academic bucket: `7 / 10`
+  - current isolated academic slice: `9 / 10`
+  - explicit academic improvements:
+    - `gen2-academic-09`: `insufficient_evidence -> grounded_success`
+    - `gen2-academic-10`: `retrieval_failure -> grounded_success`
+- Interpretation:
+  - the Semantic Scholar/OpenAlex overlap plus upstream-query dedupe is a retained academic improvement
+  - the poor `v48` full-run number is being driven by cross-route timeout variance elsewhere, not by this academic fix alone
+
+### Current best reading
+- Task 4 academic latency work is now good enough to stop being the top blocker.
+- Mixed is still the clearest next product gap:
+  - `v48` mixed bucket stayed at `0 grounded_success`
+  - current failures are still mostly `retrieval_failure` or conservative `insufficient_evidence`
+- Industry / policy timeout volatility remains large in cold full-run validation, but that was not the target of this continuation and should be treated separately from the retained academic win.
+
+### Recommended next move
+1. Keep the current academic changes.
+2. Move to Task 5 mixed grounded uplift next, using the improved academic path as the supporting lane.
+3. Do not treat `v48` as evidence to revert the academic work.
+4. If full-score confidence is needed after mixed changes, rerun another fresh-process full generalization pass and compare against both `v47` and `v48` rather than against one noisy cold run alone.
+
+### Continuation (2026-04-16, academic metadata overlap + upstream dedupe)
+- Continued Task 4 from `.planning/.continue-here.md` instead of reopening industry work.
+- Landed two narrow academic-path changes:
+  - `skill/retrieval/adapters/academic_semantic_scholar.py`
+    - start the OpenAlex request while Semantic Scholar is still in flight
+    - if Semantic Scholar returns strong hits first, cancel the OpenAlex task
+    - if Semantic Scholar times out or misses, reuse the already-running OpenAlex task instead of starting it late
+  - `skill/retrieval/engine.py`
+    - dedupe academic query variants by `academic_upstream_query(...)` before adapter calls
+    - this prevents repeated upstream requests for mixed-language smoke cases where multiple variants normalize to the same ASCII scholarly query
+- Added / updated regression coverage:
+  - `tests/test_academic_live_adapters.py`
+    - new contract: OpenAlex is prewarmed before the primary Semantic Scholar timeout elapses
+  - `tests/test_retrieval_query_variants.py`
+    - academic mixed-language variants now collapse duplicate upstream queries before execution
+
+### Verification
+- Separate-process academic checks all passed:
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_academic_live_adapters.py --import-mode=importlib`
+  - `25 passed`
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_retrieval_query_variants.py --import-mode=importlib`
+  - `24 passed`
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_retrieval_fallback.py -k "academic" --import-mode=importlib`
+  - `6 passed`
+  - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_retrieval_concurrency.py -k "academic" --import-mode=importlib`
+  - `3 passed`
+- Important test note:
+  - a single combined pytest invocation across `test_academic_live_adapters.py` and `test_retrieval_fallback.py` can still be flaky under `--import-mode=importlib`
+  - root cause appears to be test-side module reloading in the adapter tests (`sys.modules` purge / re-import), not the academic runtime change itself
+
+### Live probe
+- Manual live adapter spot check on:
+  - `2025 retrieval token pruning ColBERT late interaction efficiency paper`
+- Observed before this continuation:
+  - `academic_semantic_scholar.search_live(...)` took about `2.936s` and returned `0 hits`
+- Observed after this continuation:
+  - same call took about `1.227s` and returned `4 hits`
+- Top returned title in the latest probe:
+  - `The Evolution of Search Engines: From Keyword Matching to AI-Powered Understandin`
+
+### Reading of the result
+- This is a real Task 4 latency improvement, but not the end state.
+- We reduced wasted serial wait inside the Semantic Scholar adapter and removed one duplicated upstream-query failure mode in smoke-style mixed-language academic cases.
+- We did **not** yet rerun a fresh-process hidden-style smoke gate or full `/answer` benchmark in this continuation.
+  - current shell still has no `MINIMAX_API_KEY` / `MINIMAX_KEY`
+  - so the next honest step remains a fresh-process live smoke / retrieval-trace pass before making a bigger academic or mixed change
+
+### Worktree merge: academic-fallback-narrowing
+- Merged worktree `academic-fallback-narrowing` into master via fast-forward at `fd30857`.
+- Worktree cleaned up, branch deleted.
+- What it did:
+  - Removed slow `search_multi_engine` web discovery fallback from both `academic_arxiv.py` and `academic_semantic_scholar.py`.
+  - When primary API + secondary API (Europe PMC / OpenAlex) both miss, adapters now return `[]` instead of launching expensive site-scoped web searches.
+  - Deleted ~90 lines of fallback code, cleaned unused imports (`re`, `urlsplit`, `search_multi_engine`).
+  - Tests updated: new "does not fallback to search_discovery" contract tests added, old discovery-expecting tests rewritten.
+- Benchmark effect (round27=master vs round28=worktree, 8-case smoke):
+  - success_rate: 0.375 → 0.375 (flat)
+  - timeout count: 3 → 2 (improved)
+  - P95 latency: 60,000ms → 10,827ms (massive improvement)
+  - retrieval_failure: 2 → 1 (improved)
+  - insufficient_evidence: 3 → 4 (+1, expected trade-off)
+- All 24 academic adapter tests pass.
+
+### Current honest score estimate (2026-04-16)
+
+**Best-case retained benchmarks:**
+- Local hidden-like (v43): 44/50 (88%) — optimistic, tuned题集
+- Generalization set 1 (v43): 29/50 (58%)
+- Generalization set 2 (v43): 30/50 (60%)
+- Latest generalization (v47): 26/50 (52%)
+- Smoke gate (round27, 8题): 3/8 (37.5%)
+
+**Fair competition estimate: 50-60 分 / 100。**
+- 强项: token成本 (~8/10), 可运行性 (~7-8/10), 易用性 (~7-8/10), 结构化输出成熟
+- 弱项: 准确度 (~5-6/10), 稳定性 (~4-5/10), 延迟 (~4-5/10)
+- 最大拖累: timeout 率 — 泛化集 50 题中 13-15 个 timeout
+
+**By category (generalization sets):**
+- policy: 4-7/10 (variance high)
+- academic: 8-9/10 (strongest)
+- industry: 7-9/10 (improved after SEC generic)
+- mixed: 0-5/10 (weakest, biggest gap)
+- hard: 4-7/10 (inconsistent)
+
+### Landed improvement points
+| Improvement | Status | Effect |
+|-------------|--------|--------|
+| Query routing (policy/industry/academic/mixed) | Done | Working, mixed classification still drifts |
+| Source routing + trust layering | Done | Official-first, academic API-first |
+| Concurrent retrieval + deadline control | Done | Deadline-driven orchestration |
+| Dedup + BM25/RRF reranking | Done | Working |
+| Top-K context budget control | Done | token_budget_pass_rate=100% |
+| Structured output + citation binding | Done | conclusion/key_points/sources/gaps |
+| Fallback FSM | Done | Multi-level fallback |
+| Retrieval trace observability | Done | Per-source timing/error/cancel |
+| Provenance-aware mixed evidence assembly | Done | +4-5 on generalization |
+| Structural presearch query variants | Done | Cross-domain fragments, doc focus |
+| Generic SEC company resolution | Done | No more hand-maintained aliases |
+| Academic fallback narrowing | Done (just merged) | P95 60s→11s |
+| Google News RSS resilience | Done | CJK locale + publisher resolve |
+| Mixed pooled shortlist | Tried & disabled | Insufficient effect, off by default |
+
+### Remaining high-ROI work (priority order)
+1. **Academic tail latency** (Task 4 from .continue-here.md): Biggest hidden-like scoring drag. Files: `retrieval_plan.py`, `academic_api.py`, `academic_semantic_scholar.py`, `academic_arxiv.py`, `academic_asta_mcp.py`.
+2. **Mixed grounded uplift** (Task 5): When both sides have ≥1 credible citation, promote to grounded instead of insufficient_evidence. Files: `retrieval/orchestrate.py`, `synthesis/orchestrate.py`.
+3. **smoke-industry-01 cold-start stability** (Task 6): Intermittent retrieval_failure on fresh workers. Favor query-shape ordering and trusted-domain discovery.
+4. **Timeout reduction across the board**: 13-15/50 timeouts on generalization sets. If halved, success rate jumps from ~55% to ~70%.
+
+### Git state after this session
+- Branch: `master` @ `fd30857`
+- Remote: pushed, up to date with `origin/master`
+- No active worktrees
+- No uncommitted code changes (only untracked caches/benchmarks/.env)
+
+### How to continue
+1. Read `.planning/.continue-here.md` for blocking constraints and anti-patterns.
+2. Start with Task 4 (academic tail latency). The academic-fallback-narrowing merge already removed the slow web discovery tail; next step is tightening the primary API + secondary API path itself.
+3. Always validate with fresh-process smoke gate: `WASC_RETRIEVAL_MODE=live`, `WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED=0`, unique `WASC_LIVE_CACHE_DIR`.
+4. Do not chase local-only improvements. Gate on generalization sets and smoke.
+
 ## Update (2026-04-15)
 
 ### Continuation (2026-04-15, retrieval trace observability)
@@ -1323,3 +1607,92 @@ python scripts/run_benchmark.py --cases tests/fixtures/benchmark_generated_hidde
 - `.env` is local only; do not commit.
 - `benchmark-results/` contains many local run artifacts and is intentionally not committed.
 - `submission-package/` remains untouched.
+
+## Update (2026-04-16)
+
+### Continuation (2026-04-16, Google News live retrieval resilience and honest next-step baseline)
+- Latest retained local commit:
+  - `9ee81cc` `Improve Google News live retrieval resilience`
+- Main changes in this round:
+  - query-aware Google News RSS locale selection
+  - preserved CJK Google News titles instead of collapsing them into junk tokens
+  - decoder now prefers `rss/articles/{id}` before `articles/{id}`
+  - larger Google News article-page scan window and corrected `Referer` header
+  - discovery candidates now carry a grounding strategy so only resolved original Google News URLs force query-aligned fetch
+  - primary web plus news start first, with focused backups slightly delayed
+  - pure CJK industry queries skip first-wave non-RSS HTML web search
+- Main files changed:
+  - `skill/retrieval/adapters/industry_ddgs.py`
+  - `skill/retrieval/live/clients/google_news.py`
+  - `skill/retrieval/live/clients/search_discovery.py`
+  - `tests/test_google_news_live_client.py`
+  - `tests/test_industry_live_adapter.py`
+  - `tests/test_industry_source_split.py`
+  - `tests/test_live_search_discovery.py`
+
+### Verification
+- Focused retrieval-oriented suite:
+  - `python -m pytest tests/test_live_search_discovery.py tests/test_industry_live_adapter.py tests/test_google_news_live_client.py tests/test_retrieval_query_variants.py tests/test_retrieval_fallback.py tests/test_retrieval_concurrency.py tests/test_industry_source_split.py -q`
+  - `134 passed`
+
+### Honest Readout
+- Latest artifact-backed hidden-like generalization baseline:
+  - `benchmark-results/generated-hidden-like-r1-v47-generalization/benchmark-summary.json`
+  - `26 / 50` grounded success
+  - `latency_p50_ms = 6014`
+  - `latency_p95_ms = 9247`
+- Latest complete stored hidden-style smoke artifact:
+  - `benchmark-results/smoke-gate-2026-04-16-round25/benchmark-summary.json`
+  - `2 / 8` grounded success
+  - `4` `insufficient_evidence`
+  - `2` `retrieval_failure`
+- Important nuance:
+  - `round25` predates the last Google News resilience fixes and is likely too pessimistic for `smoke-industry-02`
+  - a later manual "estimate-round1" note existed in session memory, but `benchmark-results/smoke-gate-2026-04-16-estimate-round1/` is empty, so it is not artifact-backed and should not be treated as the baseline
+
+### What Improved
+- `smoke-industry-02` root cause is now understood and partially fixed:
+  - fixed-locale Google News RSS recall was weak for CJK
+  - decoder tokens were previously truncated out of the page window
+  - CJK titles were getting normalized too aggressively
+  - naive resolved-URL fetch was too weak without the grounding strategy split
+- Later manual fresh-worker probes showed `smoke-industry-02` can now ground, although cold-state variance still exists.
+
+### Current Bottlenecks
+- `academic` is now the clearest next scoring drag.
+  - Hidden-like failures are still heavily driven by `academic_semantic_scholar` / `academic_arxiv` timeout or weak-hit behavior.
+- `mixed` still depends on academic.
+  - The earlier empty-answer problem was addressed, but hidden-style mixed cases still often stop at conservative `insufficient_evidence`.
+- `smoke-industry-01` remains unstable on cold fresh-worker runs.
+  - English industry discovery still needs more reliable ordering / grounding.
+
+### Important Clarifications
+- Provider token usage is already persisted.
+  - `skill/synthesis/generator.py` records MiniMax `usage`
+  - runtime traces and benchmark artifacts already carry `provider_prompt_tokens`, `provider_completion_tokens`, and `provider_total_tokens`
+- Shared TTL cache already exists.
+  - `skill/retrieval/live/clients/http.py` already provides memory plus disk TTL caches for `search`, `page`, and `academic` scopes
+  - `skill/retrieval/live/clients/academic_api.py` already uses `cache_scope="academic"`
+- So the next work is not "implement caching or provider usage from scratch"; it is to make sure the academic path benefits from the existing mechanisms and returns useful evidence under live deadlines.
+
+### Recommended Next Move
+1. Start from a clean fresh-process live smoke gate:
+   - `WASC_RETRIEVAL_MODE=live`
+   - `WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED=0`
+   - unique `WASC_LIVE_CACHE_DIR`
+   - `python scripts/run_benchmark.py --smoke-gate --output-dir benchmark-results/smoke-gate-2026-04-16-roundNN`
+2. Fix academic tail latency before touching industry again.
+   - Primary files:
+     - `skill/orchestrator/retrieval_plan.py`
+     - `skill/retrieval/live/clients/academic_api.py`
+     - `skill/retrieval/adapters/academic_semantic_scholar.py`
+     - `skill/retrieval/adapters/academic_arxiv.py`
+     - `skill/retrieval/adapters/academic_asta_mcp.py`
+3. After academic improves, revisit mixed to convert partial dual-route evidence into grounded mixed answers.
+4. Only then come back to `smoke-industry-01`.
+
+### Constraints For The Next Session
+- Do not trust same-process warm runs as a stability signal.
+- Do not let thin RSS snippets become final evidence.
+- Do not overfit to local smoke or single sample strings.
+- Do not touch `.env`, `.wasc-live-cache-*`, `benchmark-results/*`, or `submission-package/` unless explicitly asked.

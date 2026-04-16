@@ -92,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-12T18:56:50+08:00
-Stopped at: v1.0 archived; next step is `/gsd-new-milestone`
-Resume file: None
+Last session: 2026-04-16T13:43:49.114Z
+Stopped at: Handoff written after routing simplification discussion; retained academic overlap/dedupe and partial mixed fast-path, rejected heavier mixed first-hop routing and four-class router framing.
+Resume file: .planning/.continue-here.md

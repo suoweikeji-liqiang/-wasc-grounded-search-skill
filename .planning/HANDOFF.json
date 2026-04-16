@@ -1,0 +1,113 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-04-16T13:43:49.114Z",
+  "context": "research",
+  "phase": "post-phase5",
+  "phase_name": "post-phase5 retrieval stabilization",
+  "phase_dir": ".planning",
+  "plan": 1,
+  "task": 5,
+  "total_tasks": 6,
+  "status": "paused",
+  "branch": "master",
+  "head_commit": "fd30857",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Stabilize industry Google News discovery and publisher resolution",
+      "status": "done",
+      "commit": "9ee81cc"
+    },
+    {
+      "id": 2,
+      "name": "Refresh industry live regression coverage and source-split contracts",
+      "status": "done",
+      "commit": "9ee81cc"
+    },
+    {
+      "id": 3,
+      "name": "Re-establish honest fresh-process smoke and benchmark baselines",
+      "status": "done",
+      "progress": "Artifact-backed smoke/generalization baselines now exist and are being used instead of same-process estimates."
+    },
+    {
+      "id": 4,
+      "name": "Reduce academic tail latency in live hidden-style runs",
+      "status": "done",
+      "progress": "Retained via Semantic Scholar/OpenAlex overlap and academic upstream-query dedupe; isolated academic slice reached 9/10 grounded_success."
+    },
+    {
+      "id": 5,
+      "name": "Mixed grounded uplift without heavy mixed first-hop routing",
+      "status": "in_progress",
+      "progress": "Retained partial mixed local fast-path landed, but heavier mixed first-hop experiments (mixed-v2/v3) failed and were reverted."
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 6,
+      "name": "Revisit smoke-industry-01 English industry stability",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Mixed hidden-like failures are still dominated by policy/industry source timeouts before dual-route evidence exists.",
+      "type": "technical",
+      "workaround": "Keep primary route stable; avoid heavier mixed first-hop fan-out."
+    },
+    {
+      "description": "The mixed-first-hop structural experiment stayed 0/10 and regressed cases that previously at least returned insufficient_evidence.",
+      "type": "technical",
+      "workaround": "Do not reintroduce first-hop mixed inflation without new artifact-backed evidence."
+    },
+    {
+      "description": "gen2-mixed-04, gen2-mixed-05, and gen2-mixed-10 repeatedly return one policy hit with no supplemental evidence path.",
+      "type": "technical",
+      "workaround": "Investigate a cheap post-primary supplemental probe rather than first-hop mixed routing."
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Load .env before any live /answer benchmark rerun",
+      "context": "The local shell needs MINIMAX_KEY for fresh-process live benchmark runs.",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Keep normalize/tokenize utilities as generic infrastructure but stop expanding business-term marker lists for intent routing.",
+      "rationale": "Normalization and tokenization are useful features; business vocabulary enumeration is not maintainable and did not generalize.",
+      "phase": "post-phase5"
+    },
+    {
+      "decision": "Do not pursue a trainable four-class first-hop router right now.",
+      "rationale": "The useful abstraction is stable primary-route evidence, not a heavier taxonomy that promotes more queries into mixed first-hop retrieval.",
+      "phase": "post-phase5"
+    },
+    {
+      "decision": "Do not pursue heavier first-hop mixed routing right now.",
+      "rationale": "Fresh-process mixed-v2/v3 stayed 0/10 and increased retrieval_failure without improving grounded success.",
+      "phase": "post-phase5"
+    },
+    {
+      "decision": "Retain only the structural changes that already survived validation.",
+      "rationale": "Semantic Scholar/OpenAlex overlap, academic upstream-query dedupe, and partial mixed local fast-path have artifact-backed or regression-backed value.",
+      "phase": "post-phase5"
+    }
+  ],
+  "uncommitted_files": [
+    ".planning/STATE.md",
+    "HANDOFF.md",
+    ".planning/.continue-here.md",
+    ".planning/HANDOFF.json",
+    "skill/retrieval/adapters/academic_semantic_scholar.py",
+    "skill/retrieval/engine.py",
+    "skill/synthesis/orchestrate.py",
+    "tests/test_academic_live_adapters.py",
+    "tests/test_answer_runtime_budget.py",
+    "tests/test_retrieval_query_variants.py"
+  ],
+  "next_action": "Inspect gen2-mixed-04, gen2-mixed-05, and gen2-mixed-10 from v47/v48 and design a cheap post-primary supplemental probe that only runs after primary policy evidence succeeds and budget remains.",
+  "context_notes": "The biggest insight from this session is that the competition has probably been over-modeled as a four-class routing problem. Mixed is not paying its way as a heavier first-hop route. Keep primary route stable, preserve partial facts, and move complexity later in the pipeline where evidence and budget can justify it."
+}
