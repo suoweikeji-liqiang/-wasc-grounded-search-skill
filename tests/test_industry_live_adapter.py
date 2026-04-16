@@ -644,6 +644,55 @@ def test_industry_web_discovery_live_starts_ddgs_backup_before_slow_html_finishe
     assert "advanced packaging capacity outlook 2026" in observed_backup_queries
 
 
+def test_industry_web_discovery_live_starts_ddgs_backup_before_slow_generic_html_finishes(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_backup_queries: list[str] = []
+
+    async def _slow_search_multi_engine(**kwargs: object) -> list[object]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        if engines == ("duckduckgo", "bing", "google"):
+            await asyncio.sleep(1.0)
+            return []
+        return []
+
+    async def _fast_ddgs_news_backup(*, query: str, **_: object) -> list[dict[str, str]]:
+        observed_backup_queries.append(query)
+        await asyncio.sleep(0.01)
+        if query != "battery recycling market share forecast":
+            return []
+        return [
+            {
+                "title": "Battery recycling market share outlook 2026",
+                "url": "https://www.reuters.com/markets/battery-recycling-share-2026",
+                "snippet": "Trusted news estimate of battery recycling market-share shifts in 2026.",
+                "_tier": "trusted_news",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _slow_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("battery recycling market share forecast"),
+            timeout=0.2,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "Battery recycling market share outlook 2026"
+    assert observed_backup_queries == ["battery recycling market share forecast"]
+
+
 def test_industry_live_adapter_uses_google_news_rss_when_open_web_discovery_is_empty(
     monkeypatch,
 ) -> None:

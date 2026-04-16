@@ -319,6 +319,45 @@ def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
     ]
 
 
+def test_search_multi_engine_can_stop_after_first_success(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_multi_engine
+
+    started_urls: list[str] = []
+    cancelled_urls: list[str] = []
+
+    async def _fake_fetch_text_limited(*, url: str, **_: object) -> str:
+        if "duckduckgo" in url:
+            await asyncio.sleep(0.01)
+            return _DDG_HTML
+        started_urls.append(url)
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled_urls.append(url)
+            raise
+        return _BING_HTML if "bing" in url else _GOOGLE_HTML
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    candidates = asyncio.run(
+        asyncio.wait_for(
+            search_multi_engine(
+                query="battery recycling",
+                engines=("duckduckgo", "bing", "google"),
+                max_results=5,
+                stop_after_first_success=True,
+            ),
+            timeout=0.2,
+        )
+    )
+
+    assert candidates
+    assert all(candidate.engine == "duckduckgo" for candidate in candidates)
+    assert len(started_urls) == 2
+    assert sorted(cancelled_urls) == sorted(started_urls)
+
+
 def test_search_candidates_uses_limited_fetch_for_live_serp_pages(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates

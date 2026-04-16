@@ -1363,6 +1363,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
             query=discovery_query,
             engines=_non_rss_engines(config),
             max_results=8,
+            stop_after_first_success=True,
         )
     )
     focused_web_tasks = {
@@ -1371,6 +1372,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                 query=focused_query,
                 engines=_non_rss_engines(config),
                 max_results=5,
+                stop_after_first_success=True,
             )
         )
         for focused_query in focused_queries
@@ -1388,137 +1390,118 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
     candidate_payloads: list[dict[str, str]] = []
     ddgs_backup_tasks: dict[str, asyncio.Task[list[dict[str, str]]]] = {}
     ddgs_backup_started = False
-    if broader_outlook_query is not None:
-        loop = asyncio.get_running_loop()
-        ddgs_backup_deadline = loop.time() + _DDGS_BACKUP_HEADSTART_SECONDS
-        pending_tasks: set[asyncio.Task[object]] = {
+    loop = asyncio.get_running_loop()
+    ddgs_backup_deadline = loop.time() + _DDGS_BACKUP_HEADSTART_SECONDS
+    pending_tasks: set[asyncio.Task[object]] = {
+        web_task,
+        *focused_web_tasks.values(),
+        *bing_rss_backup_tasks.values(),
+    }
+    try:
+        while pending_tasks and not candidate_payloads:
+            wait_timeout: float | None = None
+            if not ddgs_backup_started:
+                wait_timeout = max(0.0, ddgs_backup_deadline - loop.time())
+            done, pending_tasks = await asyncio.wait(
+                pending_tasks,
+                timeout=wait_timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                if not ddgs_backup_started:
+                    ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
+                    ddgs_backup_started = True
+                    pending_tasks.update(ddgs_backup_tasks.values())
+                continue
+            for done_task in done:
+                if done_task is web_task:
+                    try:
+                        web_candidates = done_task.result()
+                    except Exception:
+                        web_candidates = []
+                    candidate_payloads = _dedupe_candidate_payloads(
+                        _candidate_payloads_from_search_results(list(web_candidates))
+                    )
+                    if candidate_payloads:
+                        break
+                    continue
+                if done_task in focused_web_tasks.values():
+                    try:
+                        focused_candidates = done_task.result()
+                    except Exception:
+                        focused_candidates = []
+                    focused_payloads = _dedupe_candidate_payloads(
+                        _candidate_payloads_from_search_results(list(focused_candidates))
+                    )
+                    if focused_payloads:
+                        candidate_payloads = focused_payloads
+                        break
+                    continue
+                if done_task in bing_rss_backup_tasks.values():
+                    try:
+                        bing_rss_candidates = done_task.result()
+                    except Exception:
+                        bing_rss_candidates = []
+                    bing_rss_payloads = [
+                        payload
+                        for payload in _dedupe_candidate_payloads(
+                            _candidate_payloads_from_search_results(
+                                list(bing_rss_candidates)
+                            )
+                        )
+                        if not _is_low_value_bing_rss_payload(payload)
+                    ]
+                    if bing_rss_payloads:
+                        candidate_payloads = bing_rss_payloads
+                        break
+                    continue
+                if done_task in ddgs_backup_tasks.values():
+                    try:
+                        ddgs_backup_payloads = done_task.result()
+                    except Exception:
+                        ddgs_backup_payloads = []
+                    ddgs_backup_payloads = _dedupe_candidate_payloads(ddgs_backup_payloads)
+                    if ddgs_backup_payloads:
+                        candidate_payloads = ddgs_backup_payloads
+                        break
+                    continue
+            html_pending = any(
+                task in pending_tasks
+                for task in (
+                    web_task,
+                    *focused_web_tasks.values(),
+                )
+            )
+            bing_rss_pending = any(task in pending_tasks for task in bing_rss_backup_tasks.values())
+            ddgs_pending = any(task in pending_tasks for task in ddgs_backup_tasks.values())
+            if not html_pending:
+                if not ddgs_backup_started and not candidate_payloads:
+                    ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
+                    ddgs_backup_started = True
+                    pending_tasks.update(ddgs_backup_tasks.values())
+                    continue
+                if not ddgs_pending and not bing_rss_pending:
+                    break
+
+        if pending_tasks:
+            detached_pending = [
+                task for task in pending_tasks if task in ddgs_backup_tasks.values()
+            ]
+            awaited_pending = [
+                task for task in pending_tasks if task not in ddgs_backup_tasks.values()
+            ]
+            _cancel_search_tasks_detached(detached_pending)
+            await _cancel_search_tasks(awaited_pending)
+    except asyncio.CancelledError:
+        detached_tasks = list(ddgs_backup_tasks.values())
+        awaited_tasks = [
             web_task,
             *focused_web_tasks.values(),
             *bing_rss_backup_tasks.values(),
-        }
-        try:
-            while pending_tasks and not candidate_payloads:
-                wait_timeout: float | None = None
-                if not ddgs_backup_started:
-                    wait_timeout = max(0.0, ddgs_backup_deadline - loop.time())
-                done, pending_tasks = await asyncio.wait(
-                    pending_tasks,
-                    timeout=wait_timeout,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if not done:
-                    if not ddgs_backup_started:
-                        ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
-                        ddgs_backup_started = True
-                        pending_tasks.update(ddgs_backup_tasks.values())
-                    continue
-                for done_task in done:
-                    if done_task is web_task:
-                        try:
-                            web_candidates = done_task.result()
-                        except Exception:
-                            web_candidates = []
-                        candidate_payloads = _dedupe_candidate_payloads(
-                            _candidate_payloads_from_search_results(list(web_candidates))
-                        )
-                        if candidate_payloads:
-                            break
-                        continue
-                    if done_task in focused_web_tasks.values():
-                        try:
-                            focused_candidates = done_task.result()
-                        except Exception:
-                            focused_candidates = []
-                        focused_payloads = _dedupe_candidate_payloads(
-                            _candidate_payloads_from_search_results(list(focused_candidates))
-                        )
-                        if focused_payloads:
-                            candidate_payloads = focused_payloads
-                            break
-                        continue
-                    if done_task in bing_rss_backup_tasks.values():
-                        try:
-                            bing_rss_candidates = done_task.result()
-                        except Exception:
-                            bing_rss_candidates = []
-                        bing_rss_payloads = [
-                            payload
-                            for payload in _dedupe_candidate_payloads(
-                                _candidate_payloads_from_search_results(
-                                    list(bing_rss_candidates)
-                                )
-                            )
-                            if not _is_low_value_bing_rss_payload(payload)
-                        ]
-                        if bing_rss_payloads:
-                            candidate_payloads = bing_rss_payloads
-                            break
-                        continue
-                    if done_task in ddgs_backup_tasks.values():
-                        try:
-                            ddgs_backup_payloads = done_task.result()
-                        except Exception:
-                            ddgs_backup_payloads = []
-                        ddgs_backup_payloads = _dedupe_candidate_payloads(ddgs_backup_payloads)
-                        if ddgs_backup_payloads:
-                            candidate_payloads = ddgs_backup_payloads
-                            break
-                        continue
-                html_pending = any(
-                    task in pending_tasks
-                    for task in (
-                        web_task,
-                        *focused_web_tasks.values(),
-                    )
-                )
-                bing_rss_pending = any(task in pending_tasks for task in bing_rss_backup_tasks.values())
-                ddgs_pending = any(task in pending_tasks for task in ddgs_backup_tasks.values())
-                if not html_pending:
-                    if not ddgs_backup_started and not candidate_payloads:
-                        ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
-                        ddgs_backup_started = True
-                        pending_tasks.update(ddgs_backup_tasks.values())
-                        continue
-                    if not ddgs_pending and not bing_rss_pending:
-                        break
-
-            if pending_tasks:
-                detached_pending = [
-                    task for task in pending_tasks if task in ddgs_backup_tasks.values()
-                ]
-                awaited_pending = [
-                    task for task in pending_tasks if task not in ddgs_backup_tasks.values()
-                ]
-                _cancel_search_tasks_detached(detached_pending)
-                await _cancel_search_tasks(awaited_pending)
-        except asyncio.CancelledError:
-            detached_tasks = list(ddgs_backup_tasks.values())
-            awaited_tasks = [
-                web_task,
-                *focused_web_tasks.values(),
-                *bing_rss_backup_tasks.values(),
-            ]
-            _cancel_search_tasks_detached(detached_tasks)
-            await _cancel_search_tasks(awaited_tasks)
-            raise
-    else:
-        try:
-            web_candidates = await web_task
-        except Exception:
-            web_candidates = []
-        except asyncio.CancelledError:
-            await _cancel_search_tasks(
-                [web_task, *focused_web_tasks.values(), *bing_rss_backup_tasks.values()]
-            )
-            raise
-
-        candidate_payloads = _dedupe_candidate_payloads(
-            _candidate_payloads_from_search_results(list(web_candidates))
-        )
-        if focused_web_tasks or bing_rss_backup_tasks:
-            await _cancel_search_tasks(
-                [*focused_web_tasks.values(), *bing_rss_backup_tasks.values()]
-            )
+        ]
+        _cancel_search_tasks_detached(detached_tasks)
+        await _cancel_search_tasks(awaited_tasks)
+        raise
 
     if not candidate_payloads and not ddgs_backup_started:
         ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)

@@ -137,6 +137,7 @@ async def search_multi_engine(
     query: str,
     engines: tuple[str, ...],
     max_results: int = 10,
+    stop_after_first_success: bool = False,
 ) -> list[SearchCandidate]:
     deduped: list[SearchCandidate] = []
     seen: set[str] = set()
@@ -150,6 +151,44 @@ async def search_multi_engine(
         )
         for engine in engines
     }
+    if stop_after_first_success:
+        pending = {tasks[engine] for engine in engines}
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for engine in engines:
+                    task = tasks[engine]
+                    if task not in done:
+                        continue
+                    try:
+                        candidates = task.result()
+                    except Exception:
+                        continue
+                    for candidate in candidates:
+                        canonical = _canonical_url(candidate.url)
+                        if canonical in seen:
+                            continue
+                        seen.add(canonical)
+                        deduped.append(candidate)
+                        if len(deduped) >= max_results:
+                            break
+                    if deduped:
+                        for pending_task in pending:
+                            if not pending_task.done():
+                                pending_task.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return deduped
+            return deduped
+        except asyncio.CancelledError:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+                _detach_task(task)
+            raise
     try:
         results = await asyncio.gather(
             *(tasks[engine] for engine in engines),
