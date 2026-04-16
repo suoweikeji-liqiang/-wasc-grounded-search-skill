@@ -559,7 +559,7 @@ def test_run_retrieval_primary_academic_caps_asta_fallback_timeout(
     assert not outcome.results
 
 
-def test_run_retrieval_primary_academic_skips_asta_after_metadata_timeouts() -> None:
+def test_run_retrieval_primary_academic_uses_asta_after_metadata_timeouts() -> None:
     classification = ClassificationResult(
         route_label="academic",
         primary_route="academic",
@@ -608,10 +608,10 @@ def test_run_retrieval_primary_academic_skips_asta_after_metadata_timeouts() -> 
 
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
-    assert "asta:start" not in events
-    assert outcome.status == "failure_gaps"
-    assert outcome.failure_reason == "timeout"
-    assert not outcome.results
+    assert "asta:start" in events
+    assert "asta:end:success" in events
+    assert outcome.status == "partial"
+    assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
 
 
 def test_run_retrieval_primary_industry_stops_first_wave_early_after_web_discovery_hit() -> None:

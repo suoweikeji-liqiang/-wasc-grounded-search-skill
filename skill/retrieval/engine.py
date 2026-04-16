@@ -456,17 +456,16 @@ def _skip_academic_asta_fallback(
     if plan.route_label != "academic" or plan.primary_route != "academic":
         return False
 
-    metadata_results = tuple(
-        first_wave_results.get(source_id)
-        for source_id in ("academic_semantic_scholar", "academic_arxiv")
+    other_metadata_results = tuple(
+        result
+        for source_id, result in first_wave_results.items()
+        if source_id != current_source
+        and source_id in {"academic_semantic_scholar", "academic_arxiv"}
     )
-    if metadata_results and all(
-        result is not None
-        and result.status != "success"
-        and result.failure_reason == "timeout"
-        for result in metadata_results
-    ):
-        return True
+    return any(
+        result.status == "success" and bool(result.hits)
+        for result in other_metadata_results
+    )
 
     for source_id in ("academic_semantic_scholar", "academic_arxiv"):
         if source_id == current_source:
