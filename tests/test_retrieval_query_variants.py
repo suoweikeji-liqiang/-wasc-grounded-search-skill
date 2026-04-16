@@ -463,6 +463,70 @@ def test_run_retrieval_prioritizes_condensed_academic_variants_when_timeout_limi
     assert outcome.results[0].title == "moe-load-balancing"
 
 
+def test_run_retrieval_stops_academic_source_after_first_successful_variant() -> None:
+    query = (
+        "2025 paper mixture-of-experts routing stability load balancing "
+        "auxiliary loss collapse mitigation"
+    )
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            reason_code="academic_keywords",
+            scores={"policy": 0, "academic": 5, "industry": 0},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.3,
+        overall_deadline_seconds=0.4,
+        global_concurrency_cap=1,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+    )
+    topic_focus_query = next(
+        item.query for item in variants if item.reason_code == "academic_topic_focus"
+    )
+    observed_queries: list[str] = []
+
+    async def _academic_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == topic_focus_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="moe-load-balancing",
+                    url="https://example.com/moe-load-balancing",
+                    snippet="Mixture-of-experts routing stability and load balancing paper.",
+                )
+            ]
+        await asyncio.sleep(0.01)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _academic_adapter},
+        )
+    )
+
+    assert observed_queries == [topic_focus_query]
+    assert outcome.status == "success"
+    assert len(outcome.results) == 1
+    assert outcome.results[0].title == "moe-load-balancing"
+
+
 def test_run_retrieval_prioritizes_source_and_phrase_locked_academic_variants_before_original() -> None:
     query = (
         "2025 2026 arXiv test-time scaling large language models "

@@ -496,6 +496,69 @@ def test_run_retrieval_primary_academic_falls_back_to_asta_only_after_metadata_s
     assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
 
 
+def test_run_retrieval_primary_academic_caps_asta_fallback_timeout(
+    monkeypatch,
+) -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.3,
+        overall_deadline_seconds=0.6,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:no_hits")
+        return []
+
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append("arxiv:start")
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:no_hits")
+        return []
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:start")
+        await asyncio.sleep(0.3)
+        events.append("asta:end:late-success")
+        return [_mk_hit("academic_asta_mcp")]
+
+    import skill.retrieval.engine as engine
+
+    monkeypatch.setattr(engine, "_ACADEMIC_ASTA_FALLBACK_TIMEOUT_SECONDS", 0.05)
+
+    outcome = asyncio.run(
+        asyncio.wait_for(
+            run_retrieval(
+                plan=plan,
+                query="multi-source evidence ranking benchmark paper",
+                adapter_registry={
+                    "academic_semantic_scholar": _semantic_scholar,
+                    "academic_arxiv": _arxiv,
+                    "academic_asta_mcp": _asta,
+                },
+            ),
+            timeout=0.2,
+        )
+    )
+
+    assert "asta:start" in events
+    assert "asta:end:late-success" not in events
+    assert outcome.status == "failure_gaps"
+    assert outcome.failure_reason == "timeout"
+    assert not outcome.results
+
+
 def test_run_retrieval_primary_academic_skips_asta_after_metadata_timeouts() -> None:
     classification = ClassificationResult(
         route_label="academic",

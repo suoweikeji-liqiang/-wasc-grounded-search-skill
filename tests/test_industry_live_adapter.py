@@ -594,6 +594,56 @@ def test_industry_web_discovery_live_does_not_wait_for_slow_bing_rss_before_ddgs
     assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
 
 
+def test_industry_web_discovery_live_starts_ddgs_backup_before_slow_html_finishes(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_backup_queries: list[str] = []
+
+    async def _slow_search_multi_engine(**kwargs: object) -> list[object]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        if engines == ("bing_rss",):
+            await asyncio.sleep(1.0)
+            return []
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fast_ddgs_news_backup(*, query: str, **_: object) -> list[dict[str, str]]:
+        observed_backup_queries.append(query)
+        await asyncio.sleep(0.01)
+        if query != "advanced packaging capacity outlook 2026":
+            return []
+        return [
+            {
+                "title": "2026 Semiconductor Industry Outlook | Deloitte Insights",
+                "url": "https://www.deloitte.com/us/en/insights/industry/technology/technology-media-telecom-outlooks/semiconductor-industry-outlook.html",
+                "snippet": "Deloitte expects AI-driven semiconductor demand to remain strong in 2026.",
+                "_tier": "general_web",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _slow_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.05)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.2,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
+    assert "advanced packaging capacity outlook 2026" in observed_backup_queries
+
+
 def test_industry_live_adapter_uses_google_news_rss_when_open_web_discovery_is_empty(
     monkeypatch,
 ) -> None:

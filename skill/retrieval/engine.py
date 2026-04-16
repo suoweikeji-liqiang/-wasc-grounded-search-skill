@@ -40,6 +40,7 @@ _ACADEMIC_VARIANT_PRIORITY: dict[str, int] = {
     "academic_focus": 7,
 }
 _ACADEMIC_QUALITY_GATE_SOURCE_ID = "academic_semantic_scholar"
+_ACADEMIC_ASTA_FALLBACK_TIMEOUT_SECONDS = 1.0
 _ACADEMIC_MIN_STRONG_TITLE_FOCUS_OVERLAP = 2
 _ACADEMIC_MIN_STRONG_ALIGNMENT_SCORE = 12
 _ACADEMIC_FOCUS_STOPWORDS: frozenset[str] = frozenset(
@@ -482,6 +483,9 @@ def _stop_after_first_success(
     plan: RetrievalPlan,
     query: str,
 ) -> bool:
+    if step.source.route == "academic":
+        return True
+
     normalized_query = normalize_query_text(query)
     return (
         plan.route_label == "industry"
@@ -513,6 +517,18 @@ def _stop_after_first_no_hits(
         }
         and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
     )
+
+
+def _fallback_timeout_seconds(
+    *,
+    fallback_step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    remaining: float,
+) -> float:
+    timeout_seconds = min(plan.per_source_timeout_seconds, remaining)
+    if fallback_step.source.source_id == "academic_asta_mcp":
+        return min(timeout_seconds, _ACADEMIC_ASTA_FALLBACK_TIMEOUT_SECONDS)
+    return timeout_seconds
 
 
 def _should_stop_first_wave_early(
@@ -1163,7 +1179,11 @@ async def _run_standard_retrieval_path(
                 plan=plan,
                 query=query,
                 adapter_registry=adapter_registry,
-                timeout_seconds=min(plan.per_source_timeout_seconds, remaining),
+                timeout_seconds=_fallback_timeout_seconds(
+                    fallback_step=fallback_step,
+                    plan=plan,
+                    remaining=remaining,
+                ),
                 retrieval_started_at=retrieval_started_at,
             )
             all_attempt_results.append(fallback_result)
