@@ -145,5 +145,6 @@ async def answer_query(payload: AnswerRequest) -> AnswerResponse:
     )
     if isinstance(result, AnswerExecutionResult):
         app.state.last_runtime_trace = result.runtime_trace
+        app.state.last_answer_artifacts = result.artifacts
         return result.response
     return result

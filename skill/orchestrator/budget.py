@@ -91,3 +91,4 @@ class RuntimeTrace:
 class AnswerExecutionResult:
     response: AnswerResponse
     runtime_trace: RuntimeTrace
+    artifacts: dict[str, object] | None = None

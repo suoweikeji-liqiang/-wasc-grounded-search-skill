@@ -30,6 +30,7 @@ from skill.retrieval.orchestrate import (
     Adapter,
     DEFAULT_EVIDENCE_TOP_K,
     DEFAULT_SUPPLEMENTAL_MIN_ITEMS,
+    _shape_canonical_evidence,
     consume_last_retrieval_trace,
     execute_retrieval_pipeline,
 )
@@ -2549,6 +2550,69 @@ def _maybe_cache_response(
     )
 
 
+def _build_answer_artifacts(
+    *,
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> dict[str, object]:
+    return {
+        "retrieve": {
+            "status": retrieval_response.status,
+            "failure_reason": retrieval_response.failure_reason,
+            "gaps": list(retrieval_response.gaps),
+            "canonical_evidence": [
+                item.model_dump()
+                for item in _shape_canonical_evidence(canonical_evidence)
+            ],
+            "evidence_clipped": retrieval_response.evidence_clipped,
+            "evidence_pruned": retrieval_response.evidence_pruned,
+        }
+    }
+
+
+def _build_answer_execution_result(
+    *,
+    request_id: str,
+    response: AnswerResponse,
+    retrieval_response: RetrieveResponse | None,
+    canonical_evidence: tuple[CanonicalEvidence, ...] | None,
+    retrieval_elapsed_seconds: float,
+    synthesis_elapsed_seconds: float,
+    evidence_token_estimate: int,
+    answer_token_estimate: int | None,
+    runtime_budget: RuntimeBudget,
+    budget_exhausted_phase: str | None,
+    retrieval_trace: tuple[dict[str, object], ...],
+    provider_prompt_tokens: int | None = None,
+    provider_completion_tokens: int | None = None,
+    provider_total_tokens: int | None = None,
+) -> AnswerExecutionResult:
+    artifacts: dict[str, object] | None = None
+    if retrieval_response is not None and canonical_evidence is not None:
+        artifacts = _build_answer_artifacts(
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+        )
+    return AnswerExecutionResult(
+        response=response,
+        runtime_trace=_build_runtime_trace(
+            request_id=request_id,
+            response=response,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=runtime_budget,
+            budget_exhausted_phase=budget_exhausted_phase,
+            provider_prompt_tokens=provider_prompt_tokens,
+            provider_completion_tokens=provider_completion_tokens,
+            provider_total_tokens=provider_total_tokens,
+            retrieval_trace=retrieval_trace,
+        ),
+        artifacts=artifacts,
+    )
+
+
 async def execute_answer_pipeline_with_trace(
     plan,
     query: str,
@@ -2587,19 +2651,18 @@ async def execute_answer_pipeline_with_trace(
         runtime_budget=budget,
     ):
         response = cached_entry.response
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=0.0,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=cached_entry.evidence_token_estimate,
-                answer_token_estimate=cached_entry.answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                retrieval_trace=cached_entry.retrieval_trace,
-            ),
+            retrieval_response=None,
+            canonical_evidence=None,
+            retrieval_elapsed_seconds=0.0,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=cached_entry.evidence_token_estimate,
+            answer_token_estimate=cached_entry.answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=cached_entry.retrieval_trace,
         )
     retrieval_response = await execute_retrieval_pipeline(
         plan=retrieval_plan,
@@ -2624,19 +2687,18 @@ async def execute_answer_pipeline_with_trace(
             canonical_evidence,
         )
         answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=retrieval_trace,
         )
 
     if (
@@ -2673,19 +2735,18 @@ async def execute_answer_pipeline_with_trace(
                 answer_token_estimate=answer_token_estimate,
                 retrieval_trace=retrieval_trace,
             )
-            return AnswerExecutionResult(
+            return _build_answer_execution_result(
+                request_id=request_id,
                 response=response,
-                runtime_trace=_build_runtime_trace(
-                    request_id=request_id,
-                    response=response,
-                    retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                    synthesis_elapsed_seconds=0.0,
-                    evidence_token_estimate=evidence_token_estimate,
-                    answer_token_estimate=answer_token_estimate,
-                    runtime_budget=budget,
-                    budget_exhausted_phase=None,
-                    retrieval_trace=retrieval_trace,
-                ),
+                retrieval_response=retrieval_response,
+                canonical_evidence=canonical_evidence,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             )
 
     local_fast_path_response = _build_local_answer_candidate(
@@ -2716,19 +2777,18 @@ async def execute_answer_pipeline_with_trace(
         if coverage_frontier_response is not None:
             response = coverage_frontier_response
             answer_token_estimate = _estimate_response_tokens(response)
-            return AnswerExecutionResult(
+            return _build_answer_execution_result(
+                request_id=request_id,
                 response=response,
-                runtime_trace=_build_runtime_trace(
-                    request_id=request_id,
-                    response=response,
-                    retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                    synthesis_elapsed_seconds=0.0,
-                    evidence_token_estimate=evidence_token_estimate,
-                    answer_token_estimate=answer_token_estimate,
-                    runtime_budget=budget,
-                    budget_exhausted_phase=None,
-                    retrieval_trace=retrieval_trace,
-                ),
+                retrieval_response=retrieval_response,
+                canonical_evidence=canonical_evidence,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
             )
         local_fast_path_response = _build_local_answer_candidate(
             retrieval_response,
@@ -2747,19 +2807,18 @@ async def execute_answer_pipeline_with_trace(
             answer_token_estimate=answer_token_estimate,
             retrieval_trace=retrieval_trace,
         )
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=retrieval_trace,
         )
 
     local_guardrail_candidate = _build_local_answer_candidate(
@@ -2780,19 +2839,18 @@ async def execute_answer_pipeline_with_trace(
             query=query,
         )
         answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=retrieval_trace,
         )
 
     remaining_synthesis_seconds = budget.remaining_synthesis_seconds(
@@ -2806,19 +2864,18 @@ async def execute_answer_pipeline_with_trace(
             reason="no synthesis time remained within the request budget.",
         )
         answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase="synthesis",
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase="synthesis",
+            retrieval_trace=retrieval_trace,
         )
 
     prompt = build_grounded_answer_prompt(
@@ -2855,22 +2912,21 @@ async def execute_answer_pipeline_with_trace(
         )
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
         answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=synthesis_elapsed_seconds,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=budget_exhausted_phase,
-                provider_prompt_tokens=provider_prompt_tokens,
-                provider_completion_tokens=provider_completion_tokens,
-                provider_total_tokens=provider_total_tokens,
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=budget_exhausted_phase,
+            provider_prompt_tokens=provider_prompt_tokens,
+            provider_completion_tokens=provider_completion_tokens,
+            provider_total_tokens=provider_total_tokens,
+            retrieval_trace=retrieval_trace,
         )
     except ModelBackendError as exc:
         (
@@ -2886,22 +2942,21 @@ async def execute_answer_pipeline_with_trace(
         )
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
         answer_token_estimate = _estimate_response_tokens(response)
-        return AnswerExecutionResult(
+        return _build_answer_execution_result(
+            request_id=request_id,
             response=response,
-            runtime_trace=_build_runtime_trace(
-                request_id=request_id,
-                response=response,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=synthesis_elapsed_seconds,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                provider_prompt_tokens=provider_prompt_tokens,
-                provider_completion_tokens=provider_completion_tokens,
-                provider_total_tokens=provider_total_tokens,
-                retrieval_trace=retrieval_trace,
-            ),
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            provider_prompt_tokens=provider_prompt_tokens,
+            provider_completion_tokens=provider_completion_tokens,
+            provider_total_tokens=provider_total_tokens,
+            retrieval_trace=retrieval_trace,
         )
 
     response = _build_answer_response(
@@ -2937,22 +2992,21 @@ async def execute_answer_pipeline_with_trace(
             retrieval_trace=retrieval_trace,
         )
 
-    return AnswerExecutionResult(
+    return _build_answer_execution_result(
+        request_id=request_id,
         response=response,
-        runtime_trace=_build_runtime_trace(
-            request_id=request_id,
-            response=response,
-            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-            synthesis_elapsed_seconds=synthesis_elapsed_seconds,
-            evidence_token_estimate=evidence_token_estimate,
-            answer_token_estimate=answer_token_estimate,
-            runtime_budget=budget,
-            budget_exhausted_phase=budget_exhausted_phase,
-            provider_prompt_tokens=provider_prompt_tokens,
-            provider_completion_tokens=provider_completion_tokens,
-            provider_total_tokens=provider_total_tokens,
-            retrieval_trace=retrieval_trace,
-        ),
+        retrieval_response=retrieval_response,
+        canonical_evidence=canonical_evidence,
+        retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+        synthesis_elapsed_seconds=synthesis_elapsed_seconds,
+        evidence_token_estimate=evidence_token_estimate,
+        answer_token_estimate=answer_token_estimate,
+        runtime_budget=budget,
+        budget_exhausted_phase=budget_exhausted_phase,
+        provider_prompt_tokens=provider_prompt_tokens,
+        provider_completion_tokens=provider_completion_tokens,
+        provider_total_tokens=provider_total_tokens,
+        retrieval_trace=retrieval_trace,
     )
 
 
