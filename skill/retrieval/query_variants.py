@@ -30,6 +30,27 @@ _INDUSTRY_FORECAST_MARKERS: tuple[str, ...] = (
     "forecast",
     "outlook",
 )
+_INDUSTRY_CJK_GLOSSARY: tuple[tuple[str, str], ...] = (
+    ("\u5148\u8fdb\u5c01\u88c5", "advanced packaging"),
+    ("\u52a8\u529b\u7535\u6c60", "ev battery"),
+    ("\u65b0\u80fd\u6e90\u6c7d\u8f66", "ev"),
+    ("\u5e02\u573a\u4efd\u989d", "market share"),
+    ("\u5e02\u5360\u7387", "market share"),
+    ("\u5e02\u573a\u89c4\u6a21", "market size"),
+    ("\u51fa\u8d27\u91cf", "shipments"),
+    ("\u534a\u5bfc\u4f53", "semiconductor"),
+    ("\u667a\u80fd\u624b\u673a", "smartphone"),
+    ("\u4ea7\u80fd", "capacity"),
+    ("\u56de\u6536", "recycling"),
+    ("\u7535\u6c60", "battery"),
+    ("\u5c01\u88c5", "packaging"),
+    ("\u82af\u7247", "chip"),
+    ("\u5e02\u573a", "market"),
+    ("\u4efd\u989d", "share"),
+    ("\u9884\u6d4b", "forecast"),
+    ("\u8d8b\u52bf", "trend"),
+    ("\u5c55\u671b", "outlook"),
+)
 _ACADEMIC_REMOVABLE_MARKERS: tuple[str, ...] = (
     "paper",
     "papers",
@@ -220,6 +241,19 @@ def _build_core_focus_query(query: str) -> str | None:
     normalized_original = normalize_query_text(query)
     if not compacted or compacted == normalized_original:
         return None
+    compacted_words = _split_query_words(compacted)
+    original_ascii_words = [
+        word
+        for word in _content_words(query)
+        if word.isascii() and any(char.isalnum() for char in word)
+    ]
+    if (
+        _uses_cjk(query)
+        and not original_ascii_words
+        and compacted_words
+        and all(len(word) == 1 and _uses_cjk(word) for word in compacted_words)
+    ):
+        return None
     return compacted
 
 
@@ -400,6 +434,30 @@ def _build_academic_phrase_locked_query(query: str) -> str | None:
     return _compact_query_text(locked_query)
 
 
+def _build_industry_cjk_gloss_query(query: str) -> str | None:
+    if not _uses_cjk(query):
+        return None
+
+    normalized = normalize_query_text(query)
+    expanded = normalized
+    for source_text, english_text in _INDUSTRY_CJK_GLOSSARY:
+        expanded = expanded.replace(source_text, f" {english_text} ")
+
+    ascii_words = [
+        word
+        for word in _split_query_words(_compact_query_text(expanded))
+        if word.isascii() and any(char.isalnum() for char in word)
+    ]
+    deduped_words = list(dict.fromkeys(ascii_words))
+    if len(deduped_words) < 3:
+        return None
+
+    gloss_query = _compact_query_text(" ".join(deduped_words))
+    if not gloss_query or gloss_query == normalized:
+        return None
+    return gloss_query
+
+
 def _build_academic_evidence_type_focus_query(query: str) -> str | None:
     condensed = _condense_academic_query(
         query,
@@ -488,6 +546,15 @@ def _industry_candidates(
     normalized_query = normalize_query_text(query)
     has_share_language = _contains_any_marker(normalized_query, _INDUSTRY_SHARE_MARKERS)
     has_forecast_language = _contains_any_marker(normalized_query, _INDUSTRY_FORECAST_MARKERS)
+    cjk_gloss_query = _build_industry_cjk_gloss_query(query)
+
+    if cjk_gloss_query is not None:
+        candidates.append(
+            QueryVariant(
+                query=cjk_gloss_query,
+                reason_code="industry_cjk_gloss",
+            )
+        )
 
     if route_label == "mixed":
         focus_terms = ("\u4ea7\u4e1a", "\u5e02\u573a") if use_cjk else ("industry", "market")

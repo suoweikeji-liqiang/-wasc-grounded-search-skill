@@ -280,6 +280,50 @@ def test_industry_web_discovery_live_uses_ddgs_backup_when_html_engines_return_n
     assert "advanced packaging revenue" in hits[0].snippet.lower()
 
 
+def test_industry_web_discovery_live_starts_ddgs_backup_immediately_for_cjk_queries(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_backup_queries: list[str] = []
+    query = "\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b"
+
+    async def _slow_search_multi_engine(**_: object) -> list[object]:
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fake_ddgs_news_backup(*, query: str, **_: object) -> list[dict[str, str]]:
+        observed_backup_queries.append(query)
+        await asyncio.sleep(0.01)
+        return [
+            {
+                "title": "2025年中国动力电池回收行业市场前景预测研究报告（简版）",
+                "url": "https://cj.sina.com.cn/articles/view/7962326780/1da9776fc001016ksu",
+                "snippet": "中国动力电池回收行业市场前景预测研究报告（简版）。",
+                "_tier": "general_web",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _slow_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live(query),
+            timeout=0.2,
+        )
+    )
+
+    assert observed_backup_queries == [query]
+    assert len(hits) == 1
+    assert hits[0].url == "https://cj.sina.com.cn/articles/view/7962326780/1da9776fc001016ksu"
+
+
 def test_industry_web_discovery_live_does_not_start_ddgs_backup_when_html_engines_succeed(
     monkeypatch,
 ) -> None:
@@ -545,6 +589,69 @@ def test_industry_web_discovery_live_uses_google_news_parallel_recall_when_html_
     assert len(hits) == 1
     assert hits[0].url.endswith("/semiconductor-industry-outlook.html")
     assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
+
+
+def test_industry_web_discovery_live_keeps_waiting_when_early_rss_candidate_cannot_be_grounded(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        if engines == ("google_news_rss",):
+            await asyncio.sleep(0.01)
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="Battery recycling market outlook 2026",
+                    url="https://news.google.com/rss/articles/example-reuters",
+                    snippet="Thin RSS snippet only.",
+                    source_url="https://publisher.example.com/articles/battery-recycling-market-outlook-2026",
+                )
+            ]
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return None
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(0.01)
+        return [
+            {
+                "title": "Battery recycling market share outlook 2026",
+                "url": "https://www.reuters.com/markets/battery-recycling-share-2026",
+                "snippet": "Trusted news estimate of battery recycling market-share shifts in 2026.",
+                "_tier": "trusted_news",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(*, url: str, **_: object) -> str:
+        assert "publisher.example.com" in url
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+    monkeypatch.setattr(adapter, "_DDGS_BACKUP_HEADSTART_SECONDS", 0.02)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("battery recycling market share forecast"),
+            timeout=0.3,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://www.reuters.com/markets/battery-recycling-share-2026"
+    assert "market-share shifts in 2026" in hits[0].snippet.lower()
 
 
 def test_industry_web_discovery_live_runs_packaging_capacity_backups_in_parallel(

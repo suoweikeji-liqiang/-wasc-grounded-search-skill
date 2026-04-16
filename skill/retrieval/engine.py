@@ -40,6 +40,16 @@ _ACADEMIC_VARIANT_PRIORITY: dict[str, int] = {
     "academic_benchmark": 7,
     "academic_focus": 8,
 }
+_INDUSTRY_VARIANT_PRIORITY: dict[str, int] = {
+    "original": 0,
+    "industry_cjk_gloss": 1,
+    "document_focus": 2,
+    "document_concept_focus": 3,
+    "core_focus": 4,
+    "industry_focus": 5,
+    "industry_trend": 6,
+    "industry_share": 7,
+}
 _ACADEMIC_QUALITY_GATE_SOURCE_ID = "academic_semantic_scholar"
 _ACADEMIC_ASTA_FALLBACK_TIMEOUT_SECONDS = 1.0
 _ACADEMIC_MIN_STRONG_TITLE_FOCUS_OVERLAP = 2
@@ -73,6 +83,7 @@ _INDUSTRY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "semiconductor packaging",
     "cowos",
 )
+_INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO = 0.5
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "cross_domain_fragment_focus": 6,
     "document_focus": 4,
@@ -701,6 +712,8 @@ async def _run_source_variants(
     )
     if step.source.route == "academic":
         variants = _prioritize_academic_variants(variants)
+    elif step.source.route == "industry":
+        variants = _prioritize_industry_variants(variants)
 
     loop = asyncio.get_running_loop()
     source_started_at = loop.time()
@@ -717,7 +730,13 @@ async def _run_source_variants(
             source_id=source_id,
             query=variant.query,
             adapter_registry=adapter_registry,
-            timeout_seconds=remaining,
+            timeout_seconds=_variant_timeout_seconds(
+                step=step,
+                plan=plan,
+                variant=variant,
+                variants=variants,
+                remaining=remaining,
+            ),
         )
         if attempt.status == "success":
             merged_hits.extend(
@@ -753,6 +772,17 @@ async def _run_source_variants(
                 query=query,
             ):
                 break
+            continue
+        last_failure_reason = failure_reason
+        last_error_class = attempt.error_class
+        if _should_continue_after_variant_failure(
+            step=step,
+            plan=plan,
+            variant=variant,
+            variants=variants,
+            failure_reason=failure_reason,
+            remaining=deadline_at - loop.time(),
+        ):
             continue
 
         if merged_hits:
@@ -837,6 +867,71 @@ def _prioritize_academic_variants(
         )
     )
     return tuple(variant for _, variant in indexed_variants)
+
+
+def _prioritize_industry_variants(
+    variants: tuple[QueryVariant, ...],
+) -> tuple[QueryVariant, ...]:
+    if len(variants) <= 1:
+        return variants
+    if not any(
+        variant.reason_code == "industry_cjk_gloss"
+        for variant in variants
+    ):
+        return variants
+    indexed_variants = list(enumerate(variants))
+    indexed_variants.sort(
+        key=lambda pair: (
+            _INDUSTRY_VARIANT_PRIORITY.get(pair[1].reason_code, 99),
+            pair[0],
+        )
+    )
+    return tuple(variant for _, variant in indexed_variants)
+
+
+def _variant_timeout_seconds(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    variant: QueryVariant,
+    variants: tuple[QueryVariant, ...],
+    remaining: float,
+) -> float:
+    timeout_seconds = remaining
+    if (
+        len(variants) > 1
+        and plan.route_label == "industry"
+        and plan.primary_route == "industry"
+        and step.source.route == "industry"
+        and not step.source.is_supplemental
+        and variant.reason_code == "industry_cjk_gloss"
+    ):
+        timeout_seconds = min(
+            timeout_seconds,
+            max(0.0, plan.per_source_timeout_seconds * _INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO),
+        )
+    return timeout_seconds
+
+
+def _should_continue_after_variant_failure(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    variant: QueryVariant,
+    variants: tuple[QueryVariant, ...],
+    failure_reason: RetrievalFailureReason,
+    remaining: float,
+) -> bool:
+    return (
+        remaining > 0
+        and len(variants) > 1
+        and failure_reason == "timeout"
+        and plan.route_label == "industry"
+        and plan.primary_route == "industry"
+        and step.source.route == "industry"
+        and not step.source.is_supplemental
+        and variant.reason_code == "industry_cjk_gloss"
+    )
 
 
 async def _run_source_step(

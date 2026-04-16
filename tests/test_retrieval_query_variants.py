@@ -109,6 +109,24 @@ def test_build_query_variants_adds_ascii_core_for_placeholder_noisy_academic_que
     )
 
 
+def test_build_query_variants_adds_cjk_gloss_for_industry_market_queries() -> None:
+    variants = build_query_variants(
+        query="动力电池回收市场份额预测",
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "industry_cjk_gloss"
+        and item.query == "ev battery recycling market share forecast"
+        for item in variants
+    )
+    assert all(item.reason_code != "core_focus" for item in variants)
+
+
 def test_build_query_variants_adds_phrase_locked_academic_variant_for_strong_technical_phrases() -> None:
     query = (
         "2025 2026 arXiv test-time scaling large language models "
@@ -698,6 +716,153 @@ def test_run_retrieval_prioritizes_ascii_core_academic_variant_before_original()
     assert observed_queries[0] == ascii_core_query
     assert outcome.status == "success"
     assert outcome.results[0].title == "grounded-search-evidence-packing"
+
+
+def test_run_retrieval_keeps_original_industry_query_before_cjk_gloss_fallback() -> None:
+    query = "动力电池回收市场份额预测"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.06,
+        overall_deadline_seconds=0.08,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+    gloss_query = next(
+        (item.query for item in variants if item.reason_code == "industry_cjk_gloss"),
+        None,
+    )
+
+    assert gloss_query == "ev battery recycling market share forecast"
+
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            return []
+        if candidate_query == gloss_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="battery-recycling-market-share-forecast",
+                    url="https://example.com/battery-recycling-market-share-forecast",
+                    snippet="Battery recycling market-share outlook.",
+                    credibility_tier="trusted_news",
+                )
+            ]
+        raise TimeoutError
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert observed_queries[:2] == [query, gloss_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "battery-recycling-market-share-forecast"
+
+
+def test_run_retrieval_falls_through_after_cjk_gloss_timeout_to_later_industry_variant() -> None:
+    query = "\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a2026"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.08,
+        overall_deadline_seconds=0.12,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+    gloss_query = next(
+        (item.query for item in variants if item.reason_code == "industry_cjk_gloss"),
+        None,
+    )
+    fallback_query = next(
+        (
+            item.query
+            for item in variants
+            if item.reason_code not in {"original", "industry_cjk_gloss"}
+        ),
+        None,
+    )
+
+    assert gloss_query == "ev battery recycling market 2026"
+    assert fallback_query is not None
+
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            return []
+        if candidate_query == gloss_query:
+            await asyncio.sleep(0.2)
+            return []
+        if candidate_query == fallback_query:
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="battery-recycling-trend-query",
+                    url="https://example.com/battery-recycling-trend-query",
+                    snippet="Trend fallback query recovered a grounded hit.",
+                    credibility_tier="trusted_news",
+                )
+            ]
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert observed_queries[:3] == [query, gloss_query, fallback_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "battery-recycling-trend-query"
 
 
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:

@@ -8,6 +8,8 @@ import re
 from urllib.parse import quote
 from urllib.parse import urlsplit
 
+from bs4 import BeautifulSoup
+
 from skill.retrieval.live.clients import http as http_client
 
 _ARTICLE_PATH_MARKERS: frozenset[str] = frozenset({"articles", "read"})
@@ -72,12 +74,29 @@ def _decode_legacy_article_id(article_id: str) -> str | None:
 def _extract_decoder_inputs(article_page_html: str) -> tuple[str, str] | None:
     match = _ARTICLE_ATTR_PATTERN.search(article_page_html)
     if match is None:
-        return None
+        soup = BeautifulSoup(article_page_html, "html.parser")
+        candidate_node = soup.select_one("c-wiz > div[jscontroller]")
+        if candidate_node is None:
+            candidate_node = soup.find(attrs={"data-n-a-sg": True, "data-n-a-ts": True})
+        if candidate_node is None:
+            return None
+        timestamp = str(candidate_node.get("data-n-a-ts") or "").strip()
+        signature = str(candidate_node.get("data-n-a-sg") or "").strip()
+        if not timestamp or not signature:
+            return None
+        return timestamp, signature
     timestamp = match.group("timestamp") or match.group("timestamp_alt")
     signature = match.group("signature") or match.group("signature_alt")
     if not timestamp or not signature:
         return None
     return timestamp, signature
+
+
+def _article_page_urls(article_id: str) -> tuple[str, ...]:
+    return (
+        f"https://news.google.com/articles/{article_id}",
+        f"https://news.google.com/rss/articles/{article_id}",
+    )
 
 
 def _decode_batchexecute_response(response_text: str) -> str | None:
@@ -140,18 +159,21 @@ async def resolve_google_news_article_url(url: str) -> str | None:
     if legacy_url is not None and not legacy_url.startswith("AU_yqL"):
         return legacy_url
 
-    try:
-        article_page_html = await http_client.fetch_text_limited(
-            url=url.split("?", 1)[0],
-            timeout=_ARTICLE_PAGE_TIMEOUT_SECONDS,
-            max_chars=_ARTICLE_PAGE_MAX_CHARS,
-            cache_scope="page",
-            cache_key=url.split("?", 1)[0],
-        )
-    except Exception:
-        return None
-
-    decoder_inputs = _extract_decoder_inputs(article_page_html)
+    decoder_inputs: tuple[str, str] | None = None
+    for article_page_url in _article_page_urls(article_id):
+        try:
+            article_page_html = await http_client.fetch_text_limited(
+                url=article_page_url,
+                timeout=_ARTICLE_PAGE_TIMEOUT_SECONDS,
+                max_chars=_ARTICLE_PAGE_MAX_CHARS,
+                cache_scope="page",
+                cache_key=article_page_url,
+            )
+        except Exception:
+            continue
+        decoder_inputs = _extract_decoder_inputs(article_page_html)
+        if decoder_inputs is not None:
+            break
     if decoder_inputs is None:
         return None
     timestamp, signature = decoder_inputs

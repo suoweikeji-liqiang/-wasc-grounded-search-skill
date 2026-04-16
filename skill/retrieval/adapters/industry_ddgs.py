@@ -275,6 +275,10 @@ def _content_tokens(text: str) -> tuple[str, ...]:
     )
 
 
+def _uses_cjk_text(text: str) -> bool:
+    return re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text) is not None
+
+
 def _query_overlap_count(query: str, *, title: str, snippet: str) -> int:
     record_tokens = set(_content_tokens(f"{title} {snippet}"))
     return sum(1 for token in _content_tokens(query) if token in record_tokens)
@@ -1561,6 +1565,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
         for backup_query in bing_rss_backup_queries
     }
     candidate_payloads: list[dict[str, str]] = []
+    ranked_hits: list[RetrievalHit] = []
     ddgs_backup_tasks: dict[str, asyncio.Task[list[dict[str, str]]]] = {}
     ddgs_backup_started = False
     loop = asyncio.get_running_loop()
@@ -1571,8 +1576,32 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
         *focused_web_tasks.values(),
         *bing_rss_backup_tasks.values(),
     }
+    if _uses_cjk_text(query):
+        ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
+        ddgs_backup_started = True
+        pending_tasks.update(ddgs_backup_tasks.values())
+
+    async def _merge_and_rank_payloads(
+        new_payloads: list[dict[str, str]],
+    ) -> list[RetrievalHit]:
+        nonlocal candidate_payloads
+        if not new_payloads:
+            return []
+        candidate_payloads = _dedupe_candidate_payloads(
+            [*candidate_payloads, *new_payloads]
+        )
+        if not candidate_payloads:
+            return []
+        return await _rank_payloads_to_hits(
+            query=query,
+            candidate_payloads=candidate_payloads,
+            sec_records=[],
+            config=config,
+            source_id=SOURCE_ID_WEB_DISCOVERY,
+        )
+
     try:
-        while pending_tasks and not candidate_payloads:
+        while pending_tasks and not ranked_hits:
             wait_timeout: float | None = None
             if not ddgs_backup_started:
                 wait_timeout = max(0.0, ddgs_backup_deadline - loop.time())
@@ -1593,10 +1622,10 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                         web_candidates = done_task.result()
                     except Exception:
                         web_candidates = []
-                    candidate_payloads = _dedupe_candidate_payloads(
+                    ranked_hits = await _merge_and_rank_payloads(
                         _candidate_payloads_from_search_results(list(web_candidates))
                     )
-                    if candidate_payloads:
+                    if ranked_hits:
                         break
                     continue
                 if done_task in focused_web_tasks.values():
@@ -1604,11 +1633,10 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                         focused_candidates = done_task.result()
                     except Exception:
                         focused_candidates = []
-                    focused_payloads = _dedupe_candidate_payloads(
+                    ranked_hits = await _merge_and_rank_payloads(
                         _candidate_payloads_from_search_results(list(focused_candidates))
                     )
-                    if focused_payloads:
-                        candidate_payloads = focused_payloads
+                    if ranked_hits:
                         break
                     continue
                 if done_task is news_task:
@@ -1628,8 +1656,8 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                     )
                     for payload in news_payloads:
                         payload["_force_fetch"] = "1"
-                    if news_payloads:
-                        candidate_payloads = news_payloads
+                    ranked_hits = await _merge_and_rank_payloads(news_payloads)
+                    if ranked_hits:
                         break
                     continue
                 if done_task in bing_rss_backup_tasks.values():
@@ -1646,8 +1674,8 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                         )
                         if not _is_low_value_bing_rss_payload(payload)
                     ]
-                    if bing_rss_payloads:
-                        candidate_payloads = bing_rss_payloads
+                    ranked_hits = await _merge_and_rank_payloads(bing_rss_payloads)
+                    if ranked_hits:
                         break
                     continue
                 if done_task in ddgs_backup_tasks.values():
@@ -1656,8 +1684,8 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
                     except Exception:
                         ddgs_backup_payloads = []
                     ddgs_backup_payloads = _dedupe_candidate_payloads(ddgs_backup_payloads)
-                    if ddgs_backup_payloads:
-                        candidate_payloads = ddgs_backup_payloads
+                    ranked_hits = await _merge_and_rank_payloads(ddgs_backup_payloads)
+                    if ranked_hits:
                         break
                     continue
 
@@ -1672,7 +1700,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
             bing_rss_pending = any(task in pending_tasks for task in bing_rss_backup_tasks.values())
             ddgs_pending = any(task in pending_tasks for task in ddgs_backup_tasks.values())
             if not html_pending:
-                if not ddgs_backup_started and not candidate_payloads:
+                if not ddgs_backup_started and not ranked_hits:
                     ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
                     ddgs_backup_started = True
                     pending_tasks.update(ddgs_backup_tasks.values())
@@ -1701,7 +1729,10 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
         await _cancel_search_tasks(awaited_tasks)
         raise
 
-    if not candidate_payloads and not ddgs_backup_started:
+    if ranked_hits:
+        return ranked_hits
+
+    if not ddgs_backup_started:
         ddgs_backup_tasks = _start_ddgs_backup_tasks(backup_queries)
         backup_payloads: list[dict[str, str]] = []
         try:
@@ -1716,7 +1747,7 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
             if isinstance(result, Exception):
                 continue
             backup_payloads.extend(result)
-        candidate_payloads = _dedupe_candidate_payloads(backup_payloads)
+        candidate_payloads = _dedupe_candidate_payloads([*candidate_payloads, *backup_payloads])
     return await _rank_payloads_to_hits(
         query=query,
         candidate_payloads=candidate_payloads,

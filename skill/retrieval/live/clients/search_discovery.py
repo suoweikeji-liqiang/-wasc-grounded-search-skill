@@ -50,7 +50,7 @@ _ENGINE_CONFIG = {
         "parser": parse_bing_rss,
         "timeout": 3.0,
         "max_chars": 120_000,
-        "retry_attempts": 3,
+        "retry_attempts": 1,
     },
     "google": {
         "url": "https://www.google.com/search",

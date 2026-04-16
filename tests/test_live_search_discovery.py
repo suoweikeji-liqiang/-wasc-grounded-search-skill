@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
+import pytest
+
 
 _DDG_HTML = """
 <html>
@@ -242,6 +245,25 @@ def test_search_candidates_bing_unwraps_redirect_urls(monkeypatch) -> None:
     assert candidates[0].url.startswith("https://eur-lex.europa.eu/")
 
 
+def test_search_candidates_bing_rss_does_not_retry_timeout_backups(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    call_count = 0
+
+    async def _fake_fetch_text_limited(**_: object) -> str:
+        nonlocal call_count
+        call_count += 1
+        raise httpx.TimeoutException("bing rss timed out")
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    with pytest.raises(httpx.TimeoutException):
+        asyncio.run(search_candidates(query="CoWoS capacity 2026", engine="bing_rss"))
+
+    assert call_count == 1
+
+
 def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
     from skill.retrieval.live.clients.search_discovery import search_candidates
@@ -289,7 +311,7 @@ def test_search_candidates_bing_rss_returns_direct_urls_and_snippets(monkeypatch
     assert "advanced packaging supply remains tight" in candidates[0].snippet
 
 
-def test_search_candidates_retries_bing_rss_connect_errors(monkeypatch) -> None:
+def test_search_candidates_retries_bing_connect_errors(monkeypatch) -> None:
     import httpx
 
     from skill.retrieval.live.clients import http as http_client
@@ -300,17 +322,17 @@ def test_search_candidates_retries_bing_rss_connect_errors(monkeypatch) -> None:
     async def _flaky_fetch_text_limited(**_: object) -> str:
         nonlocal attempts
         attempts += 1
-        if attempts < 3:
+        if attempts < 2:
             raise httpx.ConnectError("connect failed")
-        return _BING_RSS
+        return _BING_HTML
 
     monkeypatch.setattr(http_client, "fetch_text_limited", _flaky_fetch_text_limited)
 
-    candidates = asyncio.run(search_candidates(query="CoWoS capacity 2026", engine="bing_rss"))
+    candidates = asyncio.run(search_candidates(query="battery recycling", engine="bing"))
 
-    assert attempts == 3
-    assert len(candidates) == 1
-    assert candidates[0].title == "TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27"
+    assert attempts == 2
+    assert len(candidates) == 2
+    assert candidates[0].title == "Beta Result"
 
 
 def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:
