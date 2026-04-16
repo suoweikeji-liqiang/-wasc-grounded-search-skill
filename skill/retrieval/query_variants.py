@@ -37,6 +37,21 @@ _ACADEMIC_REMOVABLE_MARKERS: tuple[str, ...] = (
     "study",
     "studies",
 )
+_ACADEMIC_ASCII_CORE_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "for",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+    }
+)
+_ACADEMIC_ASCII_NOISE_RE = re.compile(r"[^a-z0-9\s-]")
 _ACADEMIC_SOURCE_HINTS: tuple[str, ...] = (
     "arxiv",
     "europe pmc",
@@ -204,6 +219,35 @@ def _build_core_focus_query(query: str) -> str | None:
     )
     normalized_original = normalize_query_text(query)
     if not compacted or compacted == normalized_original:
+        return None
+    return compacted
+
+
+def _build_academic_ascii_core_query(query: str) -> str | None:
+    normalized = normalize_query_text(query)
+    ascii_words = [
+        word
+        for word in _content_words(query)
+        if (
+            word.isascii()
+            and any(char.isalnum() for char in word)
+            and not _YEAR_RE.fullmatch(word)
+            and word not in _ACADEMIC_ASCII_CORE_STOPWORDS
+        )
+    ]
+    deduped_words = list(dict.fromkeys(ascii_words))
+    if len(deduped_words) < 3:
+        return None
+
+    compacted = _compact_query_text(" ".join(deduped_words))
+    if not compacted:
+        return None
+    if compacted == normalized:
+        return None
+    if not (
+        _uses_cjk(query)
+        or _ACADEMIC_ASCII_NOISE_RE.search(normalized) is not None
+    ):
         return None
     return compacted
 
@@ -489,10 +533,19 @@ def _academic_candidates(
     source_hint = _academic_source_hint(normalized_query)
     phrase_locked_query = _build_academic_phrase_locked_query(query)
     evidence_type_focus_query = _build_academic_evidence_type_focus_query(query)
+    ascii_core_query = _build_academic_ascii_core_query(query)
     topic_focus_query = _condense_academic_query(
         query,
         keep_source_hint=False,
     )
+
+    if ascii_core_query is not None:
+        candidates.append(
+            QueryVariant(
+                query=ascii_core_query,
+                reason_code="academic_ascii_core",
+            )
+        )
 
     if source_hint is not None:
         source_hint_query = _condense_academic_query(

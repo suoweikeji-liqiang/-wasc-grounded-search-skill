@@ -12,6 +12,24 @@ def _disable_fixture_shortcuts(monkeypatch) -> None:
     monkeypatch.setenv("WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED", "0")
 
 
+def test_academic_upstream_query_extracts_ascii_core_from_cjk_query() -> None:
+    from skill.retrieval.adapters.academic_live_common import academic_upstream_query
+
+    assert (
+        academic_upstream_query("有哪些 grounded search evidence packing 论文")
+        == "grounded search evidence packing"
+    )
+
+
+def test_academic_upstream_query_strips_placeholder_noise_around_ascii_terms() -> None:
+    from skill.retrieval.adapters.academic_live_common import academic_upstream_query
+
+    assert (
+        academic_upstream_query("??? grounded search evidence packing ??")
+        == "grounded search evidence packing"
+    )
+
+
 def test_asta_mcp_live_adapter_preserves_scholarly_metadata(monkeypatch) -> None:
     import skill.retrieval.adapters.academic_asta_mcp as adapter
     from skill.retrieval.live.clients import asta_mcp

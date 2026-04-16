@@ -31,13 +31,14 @@ _LEGACY_INDUSTRY_ADAPTER_FALLBACKS: frozenset[str] = frozenset(
 )
 _ACADEMIC_VARIANT_PRIORITY: dict[str, int] = {
     "academic_source_hint": 0,
-    "academic_topic_focus": 1,
-    "academic_phrase_locked": 2,
-    "original": 3,
-    "academic_evidence_type_focus": 4,
-    "academic_lookup": 5,
-    "academic_benchmark": 6,
-    "academic_focus": 7,
+    "academic_ascii_core": 1,
+    "academic_topic_focus": 2,
+    "academic_phrase_locked": 3,
+    "original": 4,
+    "academic_evidence_type_focus": 5,
+    "academic_lookup": 6,
+    "academic_benchmark": 7,
+    "academic_focus": 8,
 }
 _ACADEMIC_QUALITY_GATE_SOURCE_ID = "academic_semantic_scholar"
 _ACADEMIC_ASTA_FALLBACK_TIMEOUT_SECONDS = 1.0
@@ -820,6 +821,7 @@ def _prioritize_academic_variants(
         variant.reason_code
         in {
             "academic_source_hint",
+            "academic_ascii_core",
             "academic_phrase_locked",
             "academic_evidence_type_focus",
             "academic_topic_focus",

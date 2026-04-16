@@ -69,7 +69,7 @@ def test_policy_first_wave_excludes_policy_official_web_allowlist_fallback() -> 
     assert "policy_official_web_allowlist_fallback" not in DOMAIN_FIRST_WAVE_SOURCES["policy"]
 
 
-def test_primary_academic_plan_uses_parallel_metadata_first_sources_before_asta_fallback() -> None:
+def test_primary_academic_plan_uses_sequential_metadata_then_asta_fallback() -> None:
     classification = ClassificationResult(
         route_label="academic",
         primary_route="academic",
@@ -82,9 +82,9 @@ def test_primary_academic_plan_uses_parallel_metadata_first_sources_before_asta_
 
     assert [step.source.source_id for step in plan.first_wave_sources] == [
         "academic_semantic_scholar",
-        "academic_arxiv",
     ]
     assert [step.source.source_id for step in plan.fallback_sources] == [
+        "academic_arxiv",
         "academic_asta_mcp",
     ]
 
@@ -115,17 +115,17 @@ def test_primary_academic_plan_prefers_arxiv_ordering_only_for_explicit_europe_p
 
     assert [step.source.source_id for step in arxiv_plan.first_wave_sources] == [
         "academic_semantic_scholar",
-        "academic_arxiv",
     ]
     assert [step.source.source_id for step in arxiv_plan.fallback_sources] == [
+        "academic_arxiv",
         "academic_asta_mcp",
     ]
 
     assert [step.source.source_id for step in europe_pmc_plan.first_wave_sources] == [
         "academic_arxiv",
-        "academic_semantic_scholar",
     ]
     assert [step.source.source_id for step in europe_pmc_plan.fallback_sources] == [
+        "academic_semantic_scholar",
         "academic_asta_mcp",
     ]
 
@@ -156,6 +156,33 @@ def test_mixed_route_uses_full_primary_plus_split_industry_supplemental_sources(
         "industry_official_or_filings",
         "industry_web_discovery",
         "industry_news_rss",
+    ]
+
+
+def test_mixed_route_uses_academic_metadata_fallback_chain_for_supplemental_academic() -> None:
+    classification = ClassificationResult(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="academic",
+        reason_code="explicit_cross_domain",
+        scores={"policy": 5, "academic": 4, "industry": 0},
+    )
+
+    plan = build_retrieval_plan(classification)
+
+    supplemental_first_wave_ids = _source_ids_for(
+        plan, route="academic", supplemental_only=True
+    )
+    supplemental_fallback_ids = [
+        step.source.source_id
+        for step in plan.fallback_sources
+        if step.source.route == "academic" and step.source.is_supplemental
+    ]
+
+    assert supplemental_first_wave_ids == ["academic_semantic_scholar"]
+    assert supplemental_fallback_ids == [
+        "academic_arxiv",
+        "academic_asta_mcp",
     ]
 
 

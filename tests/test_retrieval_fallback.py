@@ -300,7 +300,7 @@ def test_run_retrieval_response_shaped_429_triggers_fallback_execution() -> None
     )
 
 
-def test_run_retrieval_primary_academic_parallel_first_wave_returns_arxiv_hit() -> None:
+def test_run_retrieval_primary_academic_falls_back_to_arxiv_hit_after_semantic_scholar_miss() -> None:
     classification = ClassificationResult(
         route_label="academic",
         primary_route="academic",
@@ -350,11 +350,11 @@ def test_run_retrieval_primary_academic_parallel_first_wave_returns_arxiv_hit() 
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
     assert "asta:start" not in events
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert any(hit.source_id == "academic_arxiv" for hit in outcome.results)
 
 
-def test_run_retrieval_primary_academic_parallel_first_wave_merges_semantic_and_arxiv_hits() -> None:
+def test_run_retrieval_primary_academic_merges_semantic_and_arxiv_hits_when_semantic_result_is_weak() -> None:
     classification = ClassificationResult(
         route_label="academic",
         primary_route="academic",
@@ -435,7 +435,7 @@ def test_run_retrieval_primary_academic_parallel_first_wave_merges_semantic_and_
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
     assert "asta:start" not in events
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert {hit.source_id for hit in outcome.results} == {
         "academic_semantic_scholar",
         "academic_arxiv",
@@ -492,7 +492,7 @@ def test_run_retrieval_primary_academic_falls_back_to_asta_only_after_metadata_s
     assert "semantic_scholar:start" in events
     assert "arxiv:start" in events
     assert "asta:start" in events
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
 
 
@@ -610,7 +610,7 @@ def test_run_retrieval_primary_academic_uses_asta_after_metadata_timeouts() -> N
     assert "arxiv:start" in events
     assert "asta:start" in events
     assert "asta:end:success" in events
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
 
 
@@ -809,6 +809,12 @@ def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_pri
         events.append("semantic_scholar:end:timeout")
         raise asyncio.TimeoutError
 
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append("arxiv:start")
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:success")
+        return [_mk_hit("academic_arxiv")]
+
     async def _asta(_: str) -> list[RetrievalHit]:
         events.append("asta:start")
         await asyncio.sleep(0.01)
@@ -822,6 +828,7 @@ def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_pri
             adapter_registry={
                 "policy_official_registry": _policy,
                 "academic_semantic_scholar": _semantic_scholar,
+                "academic_arxiv": _arxiv,
                 "academic_asta_mcp": _asta,
             },
         )
@@ -829,9 +836,11 @@ def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_pri
 
     assert "policy:start" in events
     assert "semantic_scholar:start" in events
+    assert "arxiv:start" in events
     assert "asta:start" not in events
-    assert outcome.status == "partial"
+    assert outcome.status == "success"
     assert any(hit.source_id == "policy_official_registry" for hit in outcome.results)
+    assert any(hit.source_id == "academic_arxiv" for hit in outcome.results)
 
 
 def test_run_retrieval_empty_fallback_sources_skips_fallback_execution() -> None:

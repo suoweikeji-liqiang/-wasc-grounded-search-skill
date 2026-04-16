@@ -75,6 +75,40 @@ def test_build_query_variants_adds_condensed_repository_hints_for_academic_queri
     )
 
 
+def test_build_query_variants_adds_ascii_core_for_cjk_academic_queries() -> None:
+    variants = build_query_variants(
+        query="有哪些 grounded search evidence packing 论文",
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "academic_ascii_core"
+        and item.query == "grounded search evidence packing"
+        for item in variants
+    )
+
+
+def test_build_query_variants_adds_ascii_core_for_placeholder_noisy_academic_queries() -> None:
+    variants = build_query_variants(
+        query="??? grounded search evidence packing ??",
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "academic_ascii_core"
+        and item.query == "grounded search evidence packing"
+        for item in variants
+    )
+
+
 def test_build_query_variants_adds_phrase_locked_academic_variant_for_strong_technical_phrases() -> None:
     query = (
         "2025 2026 arXiv test-time scaling large language models "
@@ -599,6 +633,71 @@ def test_run_retrieval_prioritizes_source_and_phrase_locked_academic_variants_be
     assert observed_queries[:2] == [source_hint_query, phrase_locked_query]
     assert outcome.status == "success"
     assert outcome.results[0].title == "test-time-scaling-reranking"
+
+
+def test_run_retrieval_prioritizes_ascii_core_academic_variant_before_original() -> None:
+    query = "有哪些 grounded search evidence packing 论文"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            reason_code="academic_keywords",
+            scores={"policy": 0, "academic": 5, "industry": 0},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.16,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=1,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        target_route="academic",
+        variant_limit=5,
+    )
+    ascii_core_query = next(
+        (item.query for item in variants if item.reason_code == "academic_ascii_core"),
+        None,
+    )
+
+    assert ascii_core_query == "grounded search evidence packing"
+
+    observed_queries: list[str] = []
+
+    async def _academic_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == ascii_core_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="grounded-search-evidence-packing",
+                    url="https://example.com/grounded-search-evidence-packing",
+                    snippet="Grounded search evidence packing paper.",
+                )
+            ]
+        await asyncio.sleep(0.08)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _academic_adapter},
+        )
+    )
+
+    assert observed_queries[0] == ascii_core_query
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "grounded-search-evidence-packing"
 
 
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:

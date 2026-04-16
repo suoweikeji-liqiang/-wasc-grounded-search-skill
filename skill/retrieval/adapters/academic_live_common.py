@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -43,14 +44,13 @@ _ACADEMIC_SHORTCUT_GENERIC_TERMS = frozenset(
         "systems",
     }
 )
+_ASCII_NOISE_RE = re.compile(r"[^a-z0-9\s-]")
 
 
 def academic_upstream_query(query: str) -> str:
     normalized = normalize_query_text(query).strip()
     if not normalized:
         return query.strip()
-    if query.isascii():
-        return normalized
 
     ascii_tokens = tuple(
         dict.fromkeys(
@@ -60,7 +60,14 @@ def academic_upstream_query(query: str) -> str:
         )
     )
     if ascii_tokens:
-        return " ".join(ascii_tokens)
+        ascii_query = " ".join(ascii_tokens)
+        if (
+            not query.isascii()
+            or _ASCII_NOISE_RE.search(normalized) is not None
+        ):
+            return ascii_query
+    if query.isascii():
+        return normalized
     return normalized
 
 

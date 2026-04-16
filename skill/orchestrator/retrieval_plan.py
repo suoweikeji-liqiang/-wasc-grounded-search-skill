@@ -183,29 +183,43 @@ def _build_supplemental_first_wave(
     ]
 
 
-def _build_primary_academic_parallel_plan(
+def _build_primary_academic_metadata_plan(
     *,
     query: str | None,
-) -> tuple[PlannedSourceStep, ...]:
-    ordered_source_ids = [
-        "academic_semantic_scholar",
-        "academic_arxiv",
-    ]
+) -> tuple[tuple[PlannedSourceStep, ...], tuple[PlannedSourceStep, ...]]:
+    first_source_id = "academic_semantic_scholar"
+    second_source_id = "academic_arxiv"
     if query is not None and _prefer_arxiv_first_for_academic_query(query):
-        ordered_source_ids = [
-            "academic_arxiv",
-            "academic_semantic_scholar",
-        ]
+        first_source_id = "academic_arxiv"
+        second_source_id = "academic_semantic_scholar"
 
-    return tuple(
+    first_wave = (
         PlannedSourceStep(
             source=RetrievalSource(
-                source_id=source_id,
+                source_id=first_source_id,
                 route="academic",
             )
-        )
-        for source_id in ordered_source_ids
+        ),
     )
+    fallback = (
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id=second_source_id,
+                route="academic",
+            ),
+            fallback_from_source_id=first_source_id,
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="academic_asta_mcp",
+                route="academic",
+            ),
+            fallback_from_source_id=second_source_id,
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+    )
+    return first_wave, fallback
 
 
 def _prefer_arxiv_first_for_academic_query(query: str) -> bool:
@@ -263,6 +277,29 @@ def _build_fallback_steps(first_wave_steps: tuple[PlannedSourceStep, ...]) -> tu
     return tuple(fallback_steps_by_key.values())
 
 
+def _build_mixed_supplemental_academic_fallback() -> tuple[PlannedSourceStep, ...]:
+    return (
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="academic_arxiv",
+                route="academic",
+                is_supplemental=True,
+            ),
+            fallback_from_source_id="academic_semantic_scholar",
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="academic_asta_mcp",
+                route="academic",
+                is_supplemental=True,
+            ),
+            fallback_from_source_id="academic_arxiv",
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+    )
+
+
 def build_retrieval_plan(
     classification: ClassificationResult,
     *,
@@ -272,7 +309,11 @@ def build_retrieval_plan(
     fallback: tuple[PlannedSourceStep, ...] | None = None
 
     if classification.route_label == "academic" and classification.primary_route == "academic":
-        first_wave_steps = list(_build_primary_academic_parallel_plan(query=query))
+        academic_first_wave, academic_fallback = _build_primary_academic_metadata_plan(
+            query=query
+        )
+        first_wave_steps = list(academic_first_wave)
+        fallback = academic_fallback
     else:
         first_wave_steps = _build_primary_first_wave(
             classification.primary_route,
@@ -294,6 +335,12 @@ def build_retrieval_plan(
     first_wave = tuple(first_wave_steps)
     if fallback is None:
         fallback = _build_fallback_steps(first_wave)
+    if classification.route_label == "mixed" and supplemental_route == "academic":
+        fallback = tuple(
+            step
+            for step in fallback
+            if not (step.source.route == "academic" and step.source.is_supplemental)
+        ) + _build_mixed_supplemental_academic_fallback()
     per_source_timeout_seconds = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds = OVERALL_RETRIEVAL_DEADLINE_SECONDS
     query_variant_budget = 3
