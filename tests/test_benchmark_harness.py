@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+import subprocess
 
 from fastapi import FastAPI
 
@@ -254,3 +255,38 @@ def test_run_benchmark_suite_fresh_process_runs_each_attempt_in_isolation(
         ("smoke-policy-02", 1, "skill.api.entry:app"),
         ("smoke-policy-02", 2, "skill.api.entry:app"),
     ]
+
+
+def test_run_case_fresh_process_returns_timeout_record_when_worker_hangs(
+    monkeypatch,
+) -> None:
+    import skill.benchmark.harness as harness
+
+    case = harness.BenchmarkCase(
+        case_id="smoke-industry-01",
+        query="advanced packaging capacity outlook 2026",
+        expected_route="industry",
+    )
+
+    def _timeout_subprocess_run(*args: object, **kwargs: object) -> object:
+        raise subprocess.TimeoutExpired(
+            cmd=["python", "-m", "skill.benchmark.worker"],
+            timeout=harness._FRESH_PROCESS_TIMEOUT_SECONDS,
+        )
+
+    monkeypatch.setattr(harness.subprocess, "run", _timeout_subprocess_run)
+
+    record = harness._run_case_fresh_process(
+        case=case,
+        run_index=1,
+        app_import_path="skill.api.entry:app",
+    )
+
+    assert record.case_id == "smoke-industry-01"
+    assert record.route_label == "industry"
+    assert record.answer_status == "retrieval_failure"
+    assert record.retrieval_status == "failure_gaps"
+    assert record.success is False
+    assert record.failure_reason == "timeout"
+    assert record.latency_budget_ok is False
+    assert record.elapsed_ms == int(harness._FRESH_PROCESS_TIMEOUT_SECONDS * 1000)

@@ -68,6 +68,35 @@ def parse_bing_html(html: str) -> list[dict[str, str]]:
     return results
 
 
+def parse_bing_rss(xml_text: str) -> list[dict[str, str]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+
+    results: list[dict[str, str]] = []
+    for item in root.findall(".//item"):
+        title = _clean_text(item.findtext("title") or "")
+        link = _clean_text(item.findtext("link") or "")
+        if link.startswith("http://"):
+            link = "https://" + link[len("http://") :]
+        if not title or not link:
+            continue
+
+        description_html = item.findtext("description") or ""
+        description_text = _clean_text(
+            BeautifulSoup(description_html, "html.parser").get_text(" ", strip=True)
+        )
+        results.append(
+            {
+                "title": title,
+                "url": link,
+                "snippet": description_text or title,
+            }
+        )
+    return results
+
+
 def parse_google_html(html: str) -> list[dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     results: list[dict[str, str]] = []

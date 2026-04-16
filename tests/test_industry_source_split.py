@@ -34,7 +34,7 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
         "industry_web_discovery",
         "industry_news_rss",
     ]
-    assert industry_plan.global_concurrency_cap == 2
+    assert industry_plan.global_concurrency_cap == 3
 
     general_industry_plan = build_retrieval_plan(
         ClassificationResult(
@@ -52,7 +52,7 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
         "industry_news_rss",
         "industry_official_or_filings",
     ]
-    assert general_industry_plan.global_concurrency_cap == 2
+    assert general_industry_plan.global_concurrency_cap == 3
 
     mixed_plan = build_retrieval_plan(
         ClassificationResult(

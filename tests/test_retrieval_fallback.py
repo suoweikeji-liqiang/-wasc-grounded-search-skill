@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -493,6 +494,232 @@ def test_run_retrieval_primary_academic_falls_back_to_asta_only_after_metadata_s
     assert "asta:start" in events
     assert outcome.status == "partial"
     assert any(hit.source_id == "academic_asta_mcp" for hit in outcome.results)
+
+
+def test_run_retrieval_primary_academic_skips_asta_after_metadata_timeouts() -> None:
+    classification = ClassificationResult(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        reason_code="academic_hit",
+        scores={"policy": 0, "academic": 5, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.05,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:timeout")
+        raise asyncio.TimeoutError
+
+    async def _arxiv(_: str) -> list[RetrievalHit]:
+        events.append("arxiv:start")
+        await asyncio.sleep(0.01)
+        events.append("arxiv:end:timeout")
+        raise asyncio.TimeoutError
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:start")
+        await asyncio.sleep(0.01)
+        events.append("asta:end:success")
+        return [_mk_hit("academic_asta_mcp")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="multi-source evidence ranking benchmark paper",
+            adapter_registry={
+                "academic_semantic_scholar": _semantic_scholar,
+                "academic_arxiv": _arxiv,
+                "academic_asta_mcp": _asta,
+            },
+        )
+    )
+
+    assert "semantic_scholar:start" in events
+    assert "arxiv:start" in events
+    assert "asta:start" not in events
+    assert outcome.status == "failure_gaps"
+    assert outcome.failure_reason == "timeout"
+    assert not outcome.results
+
+
+def test_run_retrieval_primary_industry_stops_first_wave_early_after_web_discovery_hit() -> None:
+    classification = ClassificationResult(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        reason_code="industry_hit",
+        scores={"policy": 0, "academic": 0, "industry": 5},
+    )
+    plan = replace(
+        build_retrieval_plan(classification, query="advanced packaging capacity outlook 2026"),
+        query_variant_budget=1,
+        per_source_timeout_seconds=1.0,
+        overall_deadline_seconds=0.8,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _web(_: str) -> list[RetrievalHit]:
+        events.append("web:start")
+        await asyncio.sleep(0.01)
+        events.append("web:end:success")
+        return [_mk_hit("industry_web_discovery")]
+
+    async def _news(_: str) -> list[RetrievalHit]:
+        events.append("news:start")
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            events.append("news:cancelled")
+            raise
+        events.append("news:end:unexpected")
+        return []
+
+    async def _official(_: str) -> list[RetrievalHit]:
+        events.append("official:start")
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            events.append("official:cancelled")
+            raise
+        events.append("official:end:unexpected")
+        return []
+
+    started_at = time.perf_counter()
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={
+                "industry_web_discovery": _web,
+                "industry_news_rss": _news,
+                "industry_official_or_filings": _official,
+            },
+        )
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert outcome.status == "partial"
+    assert any(hit.source_id == "industry_web_discovery" for hit in outcome.results)
+    assert "news:cancelled" in events
+    assert "official:cancelled" in events
+    assert elapsed < 0.2
+
+
+def test_run_retrieval_primary_industry_packaging_query_stops_after_first_no_hit_variant() -> None:
+    classification = ClassificationResult(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        reason_code="industry_hit",
+        scores={"policy": 0, "academic": 0, "industry": 5},
+    )
+    plan = replace(
+        build_retrieval_plan(classification, query="advanced packaging capacity outlook 2026"),
+        query_variant_budget=5,
+        per_source_timeout_seconds=1.0,
+        overall_deadline_seconds=0.5,
+        global_concurrency_cap=3,
+    )
+    observed_queries: dict[str, list[str]] = {
+        "industry_web_discovery": [],
+        "industry_news_rss": [],
+        "industry_official_or_filings": [],
+    }
+
+    async def _web(query: str) -> list[RetrievalHit]:
+        observed_queries["industry_web_discovery"].append(query)
+        return []
+
+    async def _news(query: str) -> list[RetrievalHit]:
+        observed_queries["industry_news_rss"].append(query)
+        return []
+
+    async def _official(query: str) -> list[RetrievalHit]:
+        observed_queries["industry_official_or_filings"].append(query)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={
+                "industry_web_discovery": _web,
+                "industry_news_rss": _news,
+                "industry_official_or_filings": _official,
+            },
+        )
+    )
+
+    assert outcome.status == "failure_gaps"
+    assert observed_queries == {
+        "industry_web_discovery": ["advanced packaging capacity outlook 2026"],
+        "industry_news_rss": ["advanced packaging capacity outlook 2026"],
+        "industry_official_or_filings": ["advanced packaging capacity outlook 2026"],
+    }
+
+
+def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_primary_success() -> None:
+    classification = ClassificationResult(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="academic",
+        reason_code="explicit_cross_domain",
+        scores={"policy": 5, "academic": 4, "industry": 0},
+    )
+    plan = replace(
+        build_retrieval_plan(classification),
+        query_variant_budget=1,
+        per_source_timeout_seconds=0.05,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _policy(_: str) -> list[RetrievalHit]:
+        events.append("policy:start")
+        await asyncio.sleep(0.01)
+        events.append("policy:end:success")
+        return [_mk_hit("policy_official_registry")]
+
+    async def _semantic_scholar(_: str) -> list[RetrievalHit]:
+        events.append("semantic_scholar:start")
+        await asyncio.sleep(0.01)
+        events.append("semantic_scholar:end:timeout")
+        raise asyncio.TimeoutError
+
+    async def _asta(_: str) -> list[RetrievalHit]:
+        events.append("asta:start")
+        await asyncio.sleep(0.01)
+        events.append("asta:end:success")
+        return [_mk_hit("academic_asta_mcp")]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="AI chip export controls effect on academic research",
+            adapter_registry={
+                "policy_official_registry": _policy,
+                "academic_semantic_scholar": _semantic_scholar,
+                "academic_asta_mcp": _asta,
+            },
+        )
+    )
+
+    assert "policy:start" in events
+    assert "semantic_scholar:start" in events
+    assert "asta:start" not in events
+    assert outcome.status == "partial"
+    assert any(hit.source_id == "policy_official_registry" for hit in outcome.results)
 
 
 def test_run_retrieval_empty_fallback_sources_skips_fallback_execution() -> None:

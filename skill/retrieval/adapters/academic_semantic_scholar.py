@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -19,6 +20,8 @@ from skill.retrieval.priority import score_query_alignment
 _SOURCE_ID = "academic_semantic_scholar"
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _MIN_FIXTURE_SCORE = 6
+_PRIMARY_API_TIMEOUT_SECONDS = 0.15
+_OPENALEX_TIMEOUT_SECONDS = 0.1
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
         "title": "RAG Chunking Survey: Recent Papers and Benchmarks",
@@ -131,7 +134,10 @@ async def search_live(query: str) -> list[RetrievalHit]:
             return fixture_hits[:3]
 
     try:
-        records = await academic_api.search_semantic_scholar(query=query, max_results=5)
+        records = await asyncio.wait_for(
+            academic_api.search_semantic_scholar(query=query, max_results=5),
+            timeout=_PRIMARY_API_TIMEOUT_SECONDS,
+        )
     except Exception:
         records = []
     ranked_records = rank_live_academic_records(
@@ -157,7 +163,10 @@ async def search_live(query: str) -> list[RetrievalHit]:
         return hits
 
     try:
-        openalex_records = await academic_api.search_openalex(query=query, max_results=5)
+        openalex_records = await asyncio.wait_for(
+            academic_api.search_openalex(query=query, max_results=5),
+            timeout=_OPENALEX_TIMEOUT_SECONDS,
+        )
     except Exception:
         openalex_records = []
     ranked_openalex_records = rank_live_academic_records(

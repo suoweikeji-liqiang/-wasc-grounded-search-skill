@@ -13,6 +13,7 @@ from skill.benchmark.models import BenchmarkCase, BenchmarkRunRecord
 from skill.orchestrator.budget import RuntimeTrace
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_FRESH_PROCESS_TIMEOUT_SECONDS = 60.0
 
 
 def load_benchmark_cases(path: Path) -> list[BenchmarkCase]:
@@ -87,13 +88,36 @@ def _run_case_fresh_process(
         "--run-index",
         str(run_index),
     ]
-    completed = subprocess.run(
-        command,
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=_FRESH_PROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        route_label = case.expected_route or "unknown"
+        return BenchmarkRunRecord(
+            case_id=case.case_id,
+            run_index=run_index,
+            query=case.query,
+            route_label=route_label,
+            answer_status="retrieval_failure",
+            retrieval_status="failure_gaps",
+            success=False,
+            elapsed_ms=int(_FRESH_PROCESS_TIMEOUT_SECONDS * 1000),
+            evidence_token_estimate=0,
+            answer_token_estimate=0,
+            latency_budget_ok=False,
+            token_budget_ok=True,
+            failure_reason="timeout",
+            provider_prompt_tokens=None,
+            provider_completion_tokens=None,
+            provider_total_tokens=None,
+            retrieval_trace=[],
+        )
     payload = completed.stdout.strip().splitlines()[-1]
     return BenchmarkRunRecord.model_validate_json(payload)
 

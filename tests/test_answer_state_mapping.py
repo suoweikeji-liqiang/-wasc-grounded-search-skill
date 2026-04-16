@@ -74,3 +74,15 @@ def test_missing_grounded_key_points_cannot_be_grounded_success() -> None:
     )
 
     assert status == "insufficient_evidence"
+
+
+def test_partial_retrieval_can_still_map_to_grounded_success_when_all_key_points_are_grounded() -> None:
+    status = determine_answer_status(
+        retrieval_status="partial",
+        failure_reason="timeout",
+        canonical_evidence_count=2,
+        grounded_key_point_count=2,
+        total_key_point_count=2,
+    )
+
+    assert status == "grounded_success"

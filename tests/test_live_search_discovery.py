@@ -92,6 +92,19 @@ _GOOGLE_NEWS_RSS = """
 </rss>
 """
 
+_BING_RSS = """
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27</title>
+      <link>http://www.digitimes.com/news/a20251210PD210/tsmc-cowos-capacity-2026.html</link>
+      <description>TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27 as advanced packaging supply remains tight.</description>
+      <pubDate>Wed, 10 Dec 2025 08:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
+"""
+
 
 def test_search_candidates_duckduckgo_returns_normalized_candidates(monkeypatch) -> None:
     from skill.retrieval.live.clients import http as http_client
@@ -221,6 +234,49 @@ def test_search_candidates_google_news_rss_uses_source_urls(monkeypatch) -> None
         " | Source: Yahoo Finance | Tue, 04 Feb 2025 08:00:00 GMT"
     )
     assert all(candidate.engine == "google_news_rss" for candidate in candidates)
+
+
+def test_search_candidates_bing_rss_returns_direct_urls_and_snippets(monkeypatch) -> None:
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    async def _fake_fetch_text_limited(**_: object) -> str:
+        return _BING_RSS
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _fake_fetch_text_limited)
+
+    candidates = asyncio.run(search_candidates(query="CoWoS capacity 2026", engine="bing_rss"))
+
+    assert len(candidates) == 1
+    assert candidates[0].engine == "bing_rss"
+    assert candidates[0].url == (
+        "https://www.digitimes.com/news/a20251210PD210/tsmc-cowos-capacity-2026.html"
+    )
+    assert "advanced packaging supply remains tight" in candidates[0].snippet
+
+
+def test_search_candidates_retries_bing_rss_connect_errors(monkeypatch) -> None:
+    import httpx
+
+    from skill.retrieval.live.clients import http as http_client
+    from skill.retrieval.live.clients.search_discovery import search_candidates
+
+    attempts = 0
+
+    async def _flaky_fetch_text_limited(**_: object) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise httpx.ConnectError("connect failed")
+        return _BING_RSS
+
+    monkeypatch.setattr(http_client, "fetch_text_limited", _flaky_fetch_text_limited)
+
+    candidates = asyncio.run(search_candidates(query="CoWoS capacity 2026", engine="bing_rss"))
+
+    assert attempts == 3
+    assert len(candidates) == 1
+    assert candidates[0].title == "TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27"
 
 
 def test_search_multi_engine_fetches_engines_concurrently(monkeypatch) -> None:

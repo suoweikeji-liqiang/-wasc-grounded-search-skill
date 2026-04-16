@@ -6,9 +6,12 @@ import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
+
 from skill.retrieval.live.clients import http as http_client
 from skill.orchestrator.normalize import normalize_query_text
 from skill.retrieval.live.parsers.serp import (
+    parse_bing_rss,
     parse_bing_html,
     parse_duckduckgo_html,
     parse_google_html,
@@ -39,6 +42,15 @@ _ENGINE_CONFIG = {
         "parser": parse_bing_html,
         "timeout": 2.0,
         "max_chars": 120_000,
+        "retry_attempts": 2,
+    },
+    "bing_rss": {
+        "url": "https://www.bing.com/search",
+        "params": lambda query: {"q": query, "format": "rss"},
+        "parser": parse_bing_rss,
+        "timeout": 3.0,
+        "max_chars": 120_000,
+        "retry_attempts": 3,
     },
     "google": {
         "url": "https://www.google.com/search",
@@ -86,16 +98,26 @@ async def search_candidates(
 ) -> list[SearchCandidate]:
     config = _ENGINE_CONFIG[engine]
     normalized_query = normalize_query_text(query)
-    html = await http_client.fetch_text_limited(
-        url=config["url"],
-        params=config["params"](query),
-        timeout=float(config.get("timeout", 2.0)),
-        max_chars=int(config.get("max_chars", 120_000)),
-        cache_scope="search",
-        cache_key=(
-            f"search:{engine}:{normalized_query}:chars={int(config.get('max_chars', 120_000))}"
-        ),
-    )
+    html = ""
+    retry_attempts = max(1, int(config.get("retry_attempts", 1)))
+    retryable_exceptions = (httpx.ConnectError, httpx.TimeoutException)
+    for attempt in range(retry_attempts):
+        try:
+            html = await http_client.fetch_text_limited(
+                url=config["url"],
+                params=config["params"](query),
+                timeout=float(config.get("timeout", 2.0)),
+                max_chars=int(config.get("max_chars", 120_000)),
+                cache_scope="search",
+                cache_key=(
+                    f"search:{engine}:{normalized_query}:chars={int(config.get('max_chars', 120_000))}"
+                ),
+            )
+            break
+        except retryable_exceptions:
+            if attempt + 1 >= retry_attempts:
+                raise
+            await asyncio.sleep(0.15 * (attempt + 1))
     parser = config["parser"]
     parsed = parser(html)
     return [

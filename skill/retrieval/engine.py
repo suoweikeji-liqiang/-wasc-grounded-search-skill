@@ -432,15 +432,40 @@ def _academic_success_requires_fallback(
 
 def _skip_academic_asta_fallback(
     *,
+    step: PlannedSourceStep,
     plan: RetrievalPlan,
     current_source: str,
     fallback_step: PlannedSourceStep,
     first_wave_results: Mapping[str, SourceExecutionResult],
 ) -> bool:
-    if plan.route_label != "academic" or plan.primary_route != "academic":
-        return False
     if fallback_step.source.source_id != "academic_asta_mcp":
         return False
+
+    if (
+        plan.route_label == "mixed"
+        and step.source.is_supplemental
+        and any(
+            result.status == "success" and result.hits
+            for source_id, result in first_wave_results.items()
+            if source_id != current_source
+        )
+    ):
+        return True
+
+    if plan.route_label != "academic" or plan.primary_route != "academic":
+        return False
+
+    metadata_results = tuple(
+        first_wave_results.get(source_id)
+        for source_id in ("academic_semantic_scholar", "academic_arxiv")
+    )
+    if metadata_results and all(
+        result is not None
+        and result.status != "success"
+        and result.failure_reason == "timeout"
+        for result in metadata_results
+    ):
+        return True
 
     for source_id in ("academic_semantic_scholar", "academic_arxiv"):
         if source_id == current_source:
@@ -465,6 +490,50 @@ def _stop_after_first_success(
         and step.source.route == "industry"
         and not step.source.is_supplemental
         and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+    )
+
+
+def _stop_after_first_no_hits(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+) -> bool:
+    normalized_query = normalize_query_text(query)
+    return (
+        plan.route_label == "industry"
+        and plan.primary_route == "industry"
+        and step.source.route == "industry"
+        and not step.source.is_supplemental
+        and step.source.source_id
+        in {
+            "industry_web_discovery",
+            "industry_news_rss",
+            "industry_official_or_filings",
+        }
+        and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+    )
+
+
+def _should_stop_first_wave_early(
+    *,
+    plan: RetrievalPlan,
+    query: str,
+    completed_results: Mapping[str, SourceExecutionResult],
+) -> bool:
+    normalized_query = normalize_query_text(query)
+    if (
+        plan.route_label != "industry"
+        or plan.primary_route != "industry"
+        or not any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+    ):
+        return False
+
+    web_discovery_result = completed_results.get("industry_web_discovery")
+    return (
+        web_discovery_result is not None
+        and web_discovery_result.status == "success"
+        and bool(web_discovery_result.hits)
     )
 
 
@@ -662,6 +731,12 @@ async def _run_source_variants(
         if failure_reason == "no_hits":
             last_failure_reason = failure_reason
             last_error_class = attempt.error_class
+            if _stop_after_first_no_hits(
+                step=step,
+                plan=plan,
+                query=query,
+            ):
+                break
             continue
 
         if merged_hits:
@@ -828,10 +903,12 @@ async def _run_first_wave(
 ) -> dict[str, SourceExecutionResult]:
     semaphore = asyncio.Semaphore(max(1, concurrency_cap))
     tasks: dict[asyncio.Task[SourceExecutionResult], tuple[str, float]] = {}
+    loop = asyncio.get_running_loop()
+    deadline_at = loop.time() + max(0.0, overall_timeout_seconds)
 
     for step in first_wave_steps:
         source_id = step.source.source_id
-        task_started_at = asyncio.get_running_loop().time()
+        task_started_at = loop.time()
         task = asyncio.create_task(
             _run_source_step(
                 step=step,
@@ -845,41 +922,59 @@ async def _run_first_wave(
         )
         tasks[task] = (source_id, task_started_at)
 
-    done, pending = await asyncio.wait(
-        tuple(tasks.keys()),
-        timeout=max(0.0, overall_timeout_seconds),
-    )
-
-    for pending_task in pending:
-        pending_task.cancel()
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
-
     by_source: dict[str, SourceExecutionResult] = {}
-    for done_task in done:
-        source_id, task_started_at = tasks[done_task]
-        try:
-            by_source[source_id] = done_task.result()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            by_source[source_id] = _with_source_telemetry(
-                SourceExecutionResult(
-                    source_id=source_id,
-                    status="failure_gaps",
-                    failure_reason=map_exception_to_failure_reason(exc),
-                    gaps=(source_id,),
-                    error_class=_error_class_from_exception(exc),
-                ),
-                stage="first_wave",
-                retrieval_started_at=retrieval_started_at,
-                source_started_at=task_started_at,
-                source_finished_at=asyncio.get_running_loop().time(),
-                error_class=_error_class_from_exception(exc),
-            )
+    stopped_early = False
 
-    for pending_task in pending:
-        source_id, task_started_at = tasks[pending_task]
+    while tasks:
+        remaining = deadline_at - loop.time()
+        if remaining <= 0:
+            break
+
+        done, _ = await asyncio.wait(
+            tuple(tasks.keys()),
+            timeout=remaining,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if not done:
+            break
+
+        for done_task in done:
+            source_id, task_started_at = tasks.pop(done_task)
+            try:
+                by_source[source_id] = done_task.result()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                by_source[source_id] = _with_source_telemetry(
+                    SourceExecutionResult(
+                        source_id=source_id,
+                        status="failure_gaps",
+                        failure_reason=map_exception_to_failure_reason(exc),
+                        gaps=(source_id,),
+                        error_class=_error_class_from_exception(exc),
+                    ),
+                    stage="first_wave",
+                    retrieval_started_at=retrieval_started_at,
+                    source_started_at=task_started_at,
+                    source_finished_at=loop.time(),
+                    error_class=_error_class_from_exception(exc),
+                )
+
+        if _should_stop_first_wave_early(
+            plan=plan,
+            query=query,
+            completed_results=by_source,
+        ):
+            stopped_early = True
+            break
+
+    if tasks:
+        for pending_task in tasks:
+            if not pending_task.done():
+                pending_task.cancel()
+        await asyncio.gather(*tasks.keys(), return_exceptions=True)
+
+    for pending_task, (source_id, task_started_at) in tasks.items():
         by_source[source_id] = _with_source_telemetry(
             SourceExecutionResult(
                 source_id=source_id,
@@ -891,9 +986,9 @@ async def _run_first_wave(
             stage="first_wave",
             retrieval_started_at=retrieval_started_at,
             source_started_at=task_started_at,
-            source_finished_at=asyncio.get_running_loop().time(),
+            source_finished_at=loop.time(),
             error_class="timeout",
-            was_cancelled_by_deadline=True,
+            was_cancelled_by_deadline=not stopped_early,
         )
 
     return by_source
@@ -1050,6 +1145,7 @@ async def _run_standard_retrieval_path(
             if fallback_step is None:
                 break
             if _skip_academic_asta_fallback(
+                step=step,
                 plan=plan,
                 current_source=current_source,
                 fallback_step=fallback_step,

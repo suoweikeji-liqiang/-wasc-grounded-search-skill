@@ -404,6 +404,59 @@ def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_m
     assert hits[0].year == 2026
 
 
+def test_semantic_scholar_live_adapter_falls_back_to_openalex_when_primary_api_times_out(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _hung_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fast_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing paper"
+        assert max_results == 5
+        return [
+            {
+                "title": "Grounded Search Evidence Packing",
+                "url": "https://doi.org/10.5555/evidence.2026.10",
+                "snippet": "OpenAlex metadata record for the paper.",
+                "doi": "10.5555/evidence.2026.10",
+                "first_author": "Lin",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _hung_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _fast_openalex)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live("grounded search evidence packing paper"),
+            timeout=0.25,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].doi == "10.5555/evidence.2026.10"
+
+
 def test_semantic_scholar_live_adapter_rejects_generic_fixture_shortcuts_when_live_match_is_more_specific(
     monkeypatch,
 ) -> None:
@@ -533,6 +586,55 @@ def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_misses(
     assert hits[0].first_author == "Wise"
     assert hits[0].year == 2026
     assert hits[0].evidence_level == "peer_reviewed"
+
+
+def test_arxiv_live_adapter_falls_back_to_europe_pmc_when_primary_api_times_out(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _hung_search_arxiv(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "synthetic bone graft review paper"
+        assert max_results == 5
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fast_search_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "synthetic bone graft review paper"
+        assert max_results == 5
+        return [
+            {
+                "title": "A Review of Synthetic Bone Grafts in Lumbar Interbody Fusion.",
+                "url": "https://europepmc.org/article/MED/41899792",
+                "snippet": "Review article indexed by Europe PMC.",
+                "doi": "10.3390/bioengineering13030262",
+                "first_author": "Wise",
+                "year": 2026,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _hung_search_arxiv)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _fast_search_europe_pmc)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live("synthetic bone graft review paper"),
+            timeout=0.25,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].doi == "10.3390/bioengineering13030262"
 
 
 def test_arxiv_live_adapter_prefers_europe_pmc_for_explicit_repository_hint_when_match_is_stronger(

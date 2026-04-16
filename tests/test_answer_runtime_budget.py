@@ -408,6 +408,53 @@ def _industry_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _industry_partial_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="partial",
+        failure_reason="timeout",
+        gaps=["industry_news_rss", "industry_official_or_filings"],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-partial-1",
+                "domain": "industry",
+                "canonical_title": "SEMI outlook for semiconductor packaging capacity",
+                "canonical_url": "https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Industry-association forecast says advanced packaging capacity remains tight into 2026.",
+                        "source_record_id": "industry-partial-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-partial-2",
+                "domain": "industry",
+                "canonical_title": "Semiconductor industry outlook 2026",
+                "canonical_url": "https://www2.deloitte.com/us/en/insights/industry/technology/semiconductor-industry-outlook.html",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Packaging investment remains a major capacity constraint for advanced-node AI systems.",
+                        "source_record_id": "industry-partial-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _industry_filing_fast_path_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="industry",
@@ -1226,6 +1273,48 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
         "title": "Battery recycling market share outlook 2025",
         "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
     }
+    assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_path(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_partial_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry partial lookup should use local fast path instead of grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert "Confirmed from retained evidence:" in result.response.conclusion
+    assert "SEMI outlook for semiconductor packaging capacity" in result.response.conclusion
+    assert result.response.key_points
+    assert result.response.sources
     assert result.runtime_trace.latency_budget_ok is True
 
 

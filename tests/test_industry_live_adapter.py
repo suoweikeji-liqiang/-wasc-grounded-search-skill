@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -279,13 +280,13 @@ def test_industry_web_discovery_live_uses_ddgs_backup_when_html_engines_return_n
     assert "advanced packaging revenue" in hits[0].snippet.lower()
 
 
-def test_industry_web_discovery_live_cancels_ddgs_backup_when_html_engines_succeed(
+def test_industry_web_discovery_live_does_not_start_ddgs_backup_when_html_engines_succeed(
     monkeypatch,
 ) -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
     from skill.retrieval.live.clients.search_discovery import SearchCandidate
 
-    backup_cancelled = asyncio.Event()
+    backup_called = False
 
     async def _html_search_multi_engine(**_: object) -> list[SearchCandidate]:
         await asyncio.sleep(0.01)
@@ -299,12 +300,9 @@ def test_industry_web_discovery_live_cancels_ddgs_backup_when_html_engines_succe
         ]
 
     async def _slow_ddgs_backup(**_: object) -> list[dict[str, str]]:
-        try:
-            await asyncio.sleep(1.0)
-        except asyncio.CancelledError:
-            backup_cancelled.set()
-            raise
-        raise AssertionError("ddgs backup should not complete when html discovery already succeeded")
+        nonlocal backup_called
+        backup_called = True
+        raise AssertionError("ddgs backup should not start when html discovery already succeeded")
 
     async def _fake_fetch_page_text(**_: object) -> str:
         return ""
@@ -321,7 +319,7 @@ def test_industry_web_discovery_live_cancels_ddgs_backup_when_html_engines_succe
     )
 
     assert len(hits) == 1
-    assert backup_cancelled.is_set()
+    assert backup_called is False
 
 
 def test_ddgs_backup_query_adds_semiconductor_focus_for_packaging_capacity_queries() -> None:
@@ -356,7 +354,8 @@ def test_industry_web_discovery_live_rewrites_packaging_capacity_queries_with_se
 
     asyncio.run(adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"))
 
-    assert observed_queries == ["semiconductor advanced packaging capacity outlook 2026"]
+    assert observed_queries[0] == "semiconductor advanced packaging capacity outlook 2026"
+    assert any("site:semi.org" in query for query in observed_queries)
 
 
 def test_industry_web_discovery_live_uses_broader_outlook_backup_when_packaging_capacity_discovery_is_empty(
@@ -396,6 +395,201 @@ def test_industry_web_discovery_live_uses_broader_outlook_backup_when_packaging_
         "advanced packaging capacity outlook 2026",
         "2026 semiconductor industry outlook",
     ]
+    assert len(hits) == 1
+    assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
+
+
+def test_industry_web_discovery_live_runs_packaging_capacity_backups_in_parallel(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed_backup_queries: list[str] = []
+
+    async def _empty_search_multi_engine(**_: object) -> list[object]:
+        return []
+
+    async def _fake_ddgs_news_backup(*, query: str, **_: object) -> list[dict[str, str]]:
+        observed_backup_queries.append(query)
+        await asyncio.sleep(0.15)
+        if query == "2026 semiconductor industry outlook":
+            return [
+                {
+                    "title": "2026 Semiconductor Industry Outlook | Deloitte Insights",
+                    "url": "https://www2.deloitte.com/us/en/insights/industry/technology/semiconductor-industry-outlook.html",
+                    "snippet": "Deloitte expects AI-driven semiconductor demand to remain strong in 2026.",
+                    "_tier": "general_web",
+                    "_engine": "ddgs_news_backup",
+                }
+            ]
+        return []
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _empty_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    started_at = time.perf_counter()
+    hits = asyncio.run(adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"))
+    elapsed = time.perf_counter() - started_at
+
+    assert set(observed_backup_queries) == {
+        "advanced packaging capacity outlook 2026",
+        "2026 semiconductor industry outlook",
+    }
+    assert len(hits) == 1
+    assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
+    assert elapsed < 0.26
+
+
+def test_industry_web_discovery_live_uses_focused_semi_query_before_broad_discovery(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_queries: list[str] = []
+    broad_cancelled = asyncio.Event()
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        observed_queries.append(query)
+        if query == "semiconductor advanced packaging capacity outlook 2026":
+            try:
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                broad_cancelled.set()
+                raise
+            return []
+        if "site:semi.org" in query:
+            await asyncio.sleep(0.01)
+            return [
+                SearchCandidate(
+                    engine="bing",
+                    title="SEMI outlook for semiconductor packaging capacity",
+                    url="https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                    snippet="Industry-association forecast for semiconductor packaging capacity in 2026.",
+                )
+            ]
+        return []
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.2,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "SEMI outlook for semiconductor packaging capacity"
+    assert any("site:semi.org" in query for query in observed_queries)
+    assert broad_cancelled.is_set()
+
+
+def test_industry_web_discovery_live_uses_bing_rss_parallel_backup_for_packaging_capacity_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_calls: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        observed_calls.append((query, engines))
+        if engines == ("bing_rss",) and query == "CoWoS capacity 2026":
+            await asyncio.sleep(0.01)
+            return [
+                SearchCandidate(
+                    engine="bing_rss",
+                    title="TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27",
+                    url="https://www.digitimes.com/news/a20251210PD210/tsmc-cowos-capacity-2026.html",
+                    snippet=(
+                        "TSMC expands CoWoS capacity with Nvidia booking over half for "
+                        "2026-27 as advanced packaging supply remains tight."
+                    ),
+                )
+            ]
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _ddgs_backup_should_not_run(**_: object) -> list[dict[str, str]]:
+        raise AssertionError("ddgs backup should not run when bing_rss backup already succeeded")
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _ddgs_backup_should_not_run)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.2,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://www.digitimes.com/news/a20251210PD210/tsmc-cowos-capacity-2026.html"
+    assert hits[0].title == "TSMC expands CoWoS capacity with Nvidia booking over half for 2026-27"
+    assert ("CoWoS capacity 2026", ("bing_rss",)) in observed_calls
+
+
+def test_industry_web_discovery_live_does_not_wait_for_slow_bing_rss_before_ddgs_backup(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        if engines == ("bing_rss",):
+            await asyncio.sleep(1.0)
+            return []
+        await asyncio.sleep(0.01)
+        return []
+
+    async def _fake_ddgs_news_backup(*, query: str, **_: object) -> list[dict[str, str]]:
+        if query != "advanced packaging capacity outlook 2026":
+            return []
+        return [
+            {
+                "title": "2026 Semiconductor Industry Outlook | Deloitte Insights",
+                "url": "https://www.deloitte.com/us/en/insights/industry/technology/technology-media-telecom-outlooks/semiconductor-industry-outlook.html",
+                "snippet": "Deloitte expects AI-driven semiconductor demand to remain strong in 2026.",
+                "_tier": "general_web",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.2,
+        )
+    )
+
     assert len(hits) == 1
     assert hits[0].title == "2026 Semiconductor Industry Outlook | Deloitte Insights"
 

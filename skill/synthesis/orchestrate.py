@@ -1356,6 +1356,7 @@ def _build_industry_lookup_fast_path_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
+    query: str,
     matched_record: CanonicalEvidence,
     matched_slice: EvidenceSlice,
     supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = (),
@@ -1420,7 +1421,13 @@ def _build_industry_lookup_fast_path_response(
         retrieval_response,
         canonical_evidence,
         draft,
+        query=query,
         local_fast_path=True,
+        answer_status_override=(
+            "insufficient_evidence"
+            if retrieval_response.status == "partial"
+            else None
+        ),
         uncertainty_focus_evidence_ids=(matched_record.evidence_id,),
     )
 
@@ -1509,11 +1516,24 @@ def _build_local_answer_candidate(
     query: str,
     require_clean_runtime: bool,
 ) -> AnswerResponse | None:
-    if retrieval_response.status != "success":
+    partial_industry_lookup_allowed = (
+        retrieval_response.status == "partial"
+        and retrieval_response.route_label != "mixed"
+        and retrieval_response.primary_route == "industry"
+        and _is_industry_lookup_query(query)
+    )
+
+    if retrieval_response.status not in {"success", "partial"}:
+        return None
+    if retrieval_response.status == "partial" and not partial_industry_lookup_allowed:
         return None
 
     if require_clean_runtime and (
-        retrieval_response.evidence_pruned or retrieval_response.gaps
+        retrieval_response.evidence_pruned
+        or (
+            retrieval_response.gaps
+            and not partial_industry_lookup_allowed
+        )
     ):
         return None
 
@@ -1634,11 +1654,13 @@ def _build_local_answer_candidate(
         and (
             not require_clean_runtime
             or not retrieval_response.gaps
+            or partial_industry_lookup_allowed
         )
     ):
         return _build_industry_lookup_fast_path_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
             matched_record=industry_matches[0][0],
             matched_slice=industry_matches[0][1],
             supporting_matches=supporting_industry_matches,
@@ -1709,16 +1731,18 @@ def _build_answer_response(
     *,
     query: str | None = None,
     local_fast_path: bool = False,
+    answer_status_override: str | None = None,
     uncertainty_focus_evidence_ids: tuple[str, ...] = (),
 ) -> AnswerResponse:
     citation_result = validate_answer_citations(draft, canonical_evidence)
-    answer_status = determine_answer_status(
+    computed_answer_status = determine_answer_status(
         retrieval_status=retrieval_response.status,
         failure_reason=retrieval_response.failure_reason,
         canonical_evidence_count=len(canonical_evidence),
         grounded_key_point_count=citation_result.grounded_key_point_count,
         total_key_point_count=citation_result.total_key_point_count,
     )
+    answer_status = answer_status_override or computed_answer_status
     validated_key_points = [
         {
             "key_point_id": key_point.key_point_id,

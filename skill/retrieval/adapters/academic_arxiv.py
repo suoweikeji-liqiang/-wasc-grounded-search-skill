@@ -20,6 +20,8 @@ from skill.retrieval.priority import score_query_alignment
 _SOURCE_ID = "academic_arxiv"
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?", re.IGNORECASE)
 _HINTED_EUROPE_PMC_TIMEOUT_SECONDS = 0.75
+_PRIMARY_API_TIMEOUT_SECONDS = 0.15
+_FALLBACK_EUROPE_PMC_TIMEOUT_SECONDS = 0.1
 _MIN_FIXTURE_SCORE = 6
 _FIXTURES: tuple[dict[str, Any], ...] = (
     {
@@ -152,7 +154,10 @@ async def search_live(query: str) -> list[RetrievalHit]:
             return fixture_hits[:3]
 
     try:
-        records = await academic_api.search_arxiv(query=query, max_results=5)
+        records = await asyncio.wait_for(
+            academic_api.search_arxiv(query=query, max_results=5),
+            timeout=_PRIMARY_API_TIMEOUT_SECONDS,
+        )
     except Exception:
         records = []
     ranked_records = rank_live_academic_records(
@@ -197,7 +202,10 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     if not europe_pmc_records:
         try:
-            europe_pmc_records = await academic_api.search_europe_pmc(query=query, max_results=5)
+            europe_pmc_records = await asyncio.wait_for(
+                academic_api.search_europe_pmc(query=query, max_results=5),
+                timeout=_FALLBACK_EUROPE_PMC_TIMEOUT_SECONDS,
+            )
         except Exception:
             europe_pmc_records = []
     ranked_europe_pmc_records = rank_live_academic_records(
