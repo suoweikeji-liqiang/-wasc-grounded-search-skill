@@ -37,23 +37,23 @@ def main() -> None:
         answer_response.raise_for_status()
         answer_payload = answer_response.json()
 
-    runtime_trace = getattr(app.state, "last_runtime_trace", None)
-    if runtime_trace is None:
-        raise RuntimeError("Judge packet worker did not publish app.state.last_runtime_trace")
-    answer_artifacts = getattr(app.state, "last_answer_artifacts", None)
-    if not isinstance(answer_artifacts, dict):
-        raise RuntimeError("Judge packet worker did not publish app.state.last_answer_artifacts")
-    retrieve_payload = answer_artifacts.get("retrieve")
-    if not isinstance(retrieve_payload, dict):
-        raise RuntimeError("Judge packet worker artifacts missing retrieve payload")
+        runtime_trace = getattr(app.state, "last_runtime_trace", None)
+        if runtime_trace is None:
+            raise RuntimeError("Judge packet worker did not publish app.state.last_runtime_trace")
+        answer_artifacts = getattr(app.state, "last_answer_artifacts", None)
+        if not isinstance(answer_artifacts, dict):
+            raise RuntimeError("Judge packet worker did not publish app.state.last_answer_artifacts")
+        retrieve_payload = answer_artifacts.get("retrieve")
+        if not isinstance(retrieve_payload, dict):
+            raise RuntimeError("Judge packet worker artifacts missing retrieve payload")
 
-    packet = _build_packet(
-        case=case,
-        retrieve_payload=retrieve_payload,
-        answer_payload=answer_payload,
-        runtime_trace=runtime_trace,
-    )
-    print(json.dumps(packet))
+        packet = _build_packet(
+            case=case,
+            retrieve_payload=retrieve_payload,
+            answer_payload=answer_payload,
+            runtime_trace=runtime_trace,
+        )
+        print(json.dumps(packet), flush=True)
 
 
 if __name__ == "__main__":

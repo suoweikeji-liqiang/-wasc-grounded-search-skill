@@ -121,6 +121,19 @@ def _build_timeout_packet(*, case: BenchmarkCase, timeout_seconds: float) -> dic
     }
 
 
+def _coerce_timeout_output(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _parse_worker_packet_output(output: str) -> dict[str, Any]:
+    payload = output.strip().splitlines()[-1]
+    return json.loads(payload)
+
+
 def _build_packet_index_item(packet: dict[str, Any], *, case: BenchmarkCase, packet_path: str) -> dict[str, Any]:
     answer_payload = packet.get("answer", {})
     runtime_payload = packet.get("runtime", {})
@@ -159,11 +172,16 @@ def _export_case_fresh_process(
             check=True,
             timeout=timeout_seconds,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        partial_output = _coerce_timeout_output(getattr(exc, "stdout", None) or exc.output)
+        if partial_output.strip():
+            try:
+                return _parse_worker_packet_output(partial_output)
+            except (IndexError, json.JSONDecodeError):
+                pass
         return _build_timeout_packet(case=case, timeout_seconds=timeout_seconds)
 
-    payload = completed.stdout.strip().splitlines()[-1]
-    return json.loads(payload)
+    return _parse_worker_packet_output(completed.stdout)
 
 
 def export_judge_packets(

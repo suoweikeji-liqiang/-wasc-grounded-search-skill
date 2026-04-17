@@ -11,7 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from skill.api.entry import app
 from skill.benchmark.harness import load_benchmark_cases
 from skill.benchmark.judge_packets import export_judge_packets
 
@@ -21,6 +20,12 @@ _DEFAULT_CASES_PATH = Path("tests/fixtures/benchmark_phase5_cases.json")
 def _configure_shadow_eval_environment() -> None:
     os.environ["WASC_RETRIEVAL_MODE"] = "live"
     os.environ["WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED"] = "0"
+
+
+def _load_app():
+    from skill.api.entry import app
+
+    return app
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,13 +66,14 @@ def main() -> int:
     args = parse_args()
     if args.shadow_eval:
         _configure_shadow_eval_environment()
+    fresh_process = args.fresh_process or args.shadow_eval
     cases = load_benchmark_cases(args.cases)
     index_payload = export_judge_packets(
-        app=app,
+        app=None if fresh_process else _load_app(),
         cases=cases,
         cases_path=args.cases,
         output_dir=args.output_dir,
-        fresh_process=args.fresh_process or args.shadow_eval,
+        fresh_process=fresh_process,
         app_import_path=args.app_import_path,
     )
     print(f"Exported {index_payload['total_cases']} judge packets to: {args.output_dir}")

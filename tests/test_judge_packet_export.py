@@ -7,8 +7,10 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from skill.benchmark.models import BenchmarkCase
@@ -247,6 +249,24 @@ def test_export_judge_packets_cli_writes_index_and_packets(monkeypatch, tmp_path
     assert (tmp_path / "judge-packets" / "policy-01.json").exists()
 
 
+def test_export_judge_packets_script_import_does_not_eagerly_import_app() -> None:
+    module_path = Path(__file__).resolve().parent.parent / "scripts" / "export_judge_packets.py"
+    spec = importlib.util.spec_from_file_location("export_judge_packets_script", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+
+    previous_api_entry = sys.modules.pop("skill.api.entry", None)
+    try:
+        spec.loader.exec_module(module)
+        assert "skill.api.entry" not in sys.modules
+    finally:
+        sys.modules.pop("export_judge_packets_script", None)
+        sys.modules.pop("skill.api.entry", None)
+        if previous_api_entry is not None:
+            sys.modules["skill.api.entry"] = previous_api_entry
+
+
 def test_export_judge_packets_supports_fresh_process_worker_output(
     monkeypatch,
     tmp_path,
@@ -376,6 +396,160 @@ def test_export_judge_packets_fresh_process_timeout_writes_failure_packet(
     assert packet["runtime"]["failure_reason"] == "timeout"
     assert packet["runtime"]["elapsed_ms"] == 60000
     assert index_payload["packets"][0]["answer_status"] == "retrieval_failure"
+
+
+def test_export_judge_packets_fresh_process_timeout_recovers_partial_worker_stdout(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import skill.benchmark.judge_packets as judge_packets
+
+    from skill.benchmark.judge_packets import export_judge_packets
+
+    worker_packet = {
+        "case_id": "industry-01",
+        "query": "advanced packaging capacity outlook 2026",
+        "retrieve": {
+            "status": "success",
+            "failure_reason": None,
+            "gaps": [],
+            "canonical_evidence": [
+                {
+                    "canonical_title": "TSMC capacity outlook",
+                }
+            ],
+            "evidence_clipped": False,
+            "evidence_pruned": False,
+        },
+        "answer": {
+            "answer_status": "grounded_success",
+            "retrieval_status": "success",
+            "conclusion": "Recovered from partial worker stdout.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+            "gaps": [],
+        },
+        "runtime": {
+            "elapsed_ms": 8123,
+            "retrieval_elapsed_ms": 8123,
+            "synthesis_elapsed_ms": 0,
+            "provider_total_tokens": None,
+            "failure_reason": None,
+            "retrieval_trace": [],
+        },
+    }
+
+    def _fake_run(*args: object, **kwargs: object) -> object:
+        raise subprocess.TimeoutExpired(
+            cmd="python -m skill.benchmark.judge_packet_worker",
+            timeout=60.0,
+            output=f"worker log line\n{json.dumps(worker_packet)}\n",
+        )
+
+    monkeypatch.setattr(judge_packets.subprocess, "run", _fake_run)
+    cases = [BenchmarkCase(case_id="industry-01", query="advanced packaging capacity outlook 2026")]
+
+    index_payload = export_judge_packets(
+        app=None,
+        cases=cases,
+        output_dir=tmp_path,
+        fresh_process=True,
+        app_import_path="skill.api.entry:app",
+    )
+
+    packet = json.loads(
+        (tmp_path / "judge-packets" / "industry-01.json").read_text(encoding="utf-8")
+    )
+    assert packet == worker_packet
+    assert index_payload["packets"][0]["answer_status"] == "grounded_success"
+
+
+def test_judge_packet_worker_prints_packet_before_testclient_exit(
+    monkeypatch,
+) -> None:
+    import builtins
+    import skill.benchmark.judge_packet_worker as worker
+
+    printed: list[str] = []
+
+    class _FakeAnswerResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "answer_status": "grounded_success",
+                "retrieval_status": "success",
+                "conclusion": "Worker produced an answer.",
+                "key_points": [],
+                "sources": [],
+                "uncertainty_notes": [],
+                "gaps": [],
+            }
+
+    class _FakeTestClient:
+        def __init__(self, app: object) -> None:
+            self.app = app
+
+        def __enter__(self) -> "_FakeTestClient":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            raise RuntimeError("simulated shutdown hang")
+
+        def post(self, path: str, json: dict[str, object]) -> _FakeAnswerResponse:
+            assert path == "/answer"
+            assert json["query"] == "advanced packaging capacity outlook 2026"
+            return _FakeAnswerResponse()
+
+    fake_app = SimpleNamespace(
+        state=SimpleNamespace(
+            last_runtime_trace=SimpleNamespace(
+                elapsed_ms=8123,
+                retrieval_elapsed_ms=8123,
+                synthesis_elapsed_ms=0,
+                provider_total_tokens=None,
+                failure_reason=None,
+                retrieval_trace=[],
+            ),
+            last_answer_artifacts={
+                "retrieve": {
+                    "status": "success",
+                    "failure_reason": None,
+                    "gaps": [],
+                    "canonical_evidence": [],
+                    "evidence_clipped": False,
+                    "evidence_pruned": False,
+                }
+            },
+        )
+    )
+
+    monkeypatch.setattr(
+        worker,
+        "parse_args",
+        lambda: SimpleNamespace(
+            app_import_path="skill.api.entry:app",
+            case_id="industry-01",
+            query="advanced packaging capacity outlook 2026",
+        ),
+    )
+    monkeypatch.setattr(worker, "_load_app", lambda import_path: fake_app)
+    monkeypatch.setattr(worker, "TestClient", _FakeTestClient)
+    monkeypatch.setattr(
+        builtins,
+        "print",
+        lambda *args, **kwargs: printed.append(" ".join(str(arg) for arg in args)),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated shutdown hang"):
+        worker.main()
+
+    assert printed
+    packet = json.loads(printed[-1])
+    assert packet["case_id"] == "industry-01"
+    assert packet["answer"]["answer_status"] == "grounded_success"
 
 
 def test_export_judge_packets_cli_shadow_eval_implies_fresh_process_and_sets_env(
