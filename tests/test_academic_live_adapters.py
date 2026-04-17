@@ -606,6 +606,109 @@ def test_semantic_scholar_live_adapter_accepts_slightly_slow_openalex_metadata(
     assert hits[0].doi == "10.5555/evidence-ranking.2026.10"
 
 
+def test_semantic_scholar_live_adapter_rejects_weak_cross_domain_openalex_false_positive(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "ai chip export controls academic research"
+        assert max_results == 5
+        return []
+
+    async def _weak_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "ai chip export controls academic research"
+        assert max_results == 5
+        return [
+            {
+                "title": (
+                    "Impact of COVID-19 pandemic on information management "
+                    "research and practice: Transforming education, work and life"
+                ),
+                "url": "https://doi.org/10.1016/j.ijinfomgt.2020.102211",
+                "snippet": (
+                    "Impact of COVID-19 pandemic on information management research "
+                    "and practice: Transforming education, work and life"
+                ),
+                "doi": "10.1016/j.ijinfomgt.2020.102211",
+                "first_author": "Dwivedi",
+                "year": 2020,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _empty_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _weak_openalex)
+
+    hits = asyncio.run(
+        adapter.search_live("AI chip export controls 对 academic research 影响")
+    )
+
+    assert hits == []
+
+
+def test_semantic_scholar_live_adapter_rejects_weak_ranking_false_positive_from_openalex(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _empty_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "evidence ranking benchmark"
+        assert max_results == 5
+        return []
+
+    async def _weak_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "evidence ranking benchmark"
+        assert max_results == 5
+        return [
+            {
+                "title": "Learning to Rank for Information Retrieval Using Genetic Programming",
+                "url": "http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.90.220",
+                "snippet": (
+                    "One central problem of information retrieval (IR) is to determine "
+                    "which documents are relevant and which are not to the user information "
+                    "need. This task is referred to as learning to rank for IR."
+                ),
+                "first_author": "Yeh",
+                "year": 2007,
+                "evidence_level": "peer_reviewed",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _empty_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _weak_openalex)
+
+    hits = asyncio.run(adapter.search_live("多源 evidence ranking benchmark 论文"))
+
+    assert hits == []
+
+
 def test_semantic_scholar_live_adapter_rejects_generic_fixture_shortcuts_when_live_match_is_more_specific(
     monkeypatch,
 ) -> None:
@@ -854,6 +957,54 @@ def test_arxiv_live_adapter_accepts_slightly_slow_primary_metadata(
 
     assert len(hits) == 1
     assert hits[0].arxiv_id == "2604.12345"
+
+
+def test_arxiv_live_adapter_rejects_weak_partial_overlap_match(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_arxiv as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    async def _weak_arxiv(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        return [
+            {
+                "title": "Grounded Reinforcement Learning for Visual Reasoning",
+                "url": "https://arxiv.org/abs/2505.23678",
+                "snippet": (
+                    "While reinforcement learning (RL) over chains of thought has "
+                    "significantly advanced language models in tasks such as mathematics "
+                    "and coding, visual reasoning introduces added complexity by requiring "
+                    "models to direct visual attention, interpret perceptual inputs, and "
+                    "ground abstract reasoning in spatial evidence."
+                ),
+                "arxiv_id": "2505.23678",
+                "first_author": "Sarch",
+                "year": 2025,
+                "evidence_level": "preprint",
+            }
+        ]
+
+    async def _empty_europe_pmc(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        return []
+
+    monkeypatch.setattr(academic_api, "search_arxiv", _weak_arxiv)
+    monkeypatch.setattr(academic_api, "search_europe_pmc", _empty_europe_pmc)
+
+    hits = asyncio.run(adapter.search_live("有哪些 grounded search evidence packing 论文"))
+
+    assert hits == []
 
 
 def test_arxiv_live_adapter_prefers_europe_pmc_for_explicit_repository_hint_when_match_is_stronger(

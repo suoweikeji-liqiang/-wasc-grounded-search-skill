@@ -121,6 +121,36 @@ def _shortcut_focus_terms(text: str) -> set[str]:
     }
 
 
+def _academic_required_focus_overlap(query_terms: set[str]) -> int:
+    if len(query_terms) >= 4:
+        return 3
+    if len(query_terms) >= 2:
+        return 2
+    return 0
+
+
+def _academic_live_record_has_focus_overlap(
+    *,
+    query: str,
+    title: str,
+    snippet: str,
+) -> bool:
+    query_terms = _shortcut_focus_terms(query)
+    required_overlap = _academic_required_focus_overlap(query_terms)
+    if required_overlap <= 0:
+        return True
+
+    title_terms = _shortcut_focus_terms(title)
+    title_overlap = len(query_terms & title_terms)
+    if title_overlap <= 0:
+        return False
+    if len(query_terms) >= 3 and title_overlap < 2:
+        return False
+
+    record_terms = _shortcut_focus_terms(f"{title} {snippet}")
+    return len(query_terms & record_terms) >= required_overlap
+
+
 def _trim_query_aligned_snippet(query: str, snippet: str) -> str:
     words = snippet.split()
     if len(words) <= _ACADEMIC_SNIPPET_WORD_LIMIT:
@@ -195,6 +225,12 @@ def rank_live_academic_records(
             continue
         alignment_score = academic_alignment_score(query, normalized)
         if alignment_score < _MIN_ACADEMIC_LIVE_SCORE:
+            continue
+        if not _academic_live_record_has_focus_overlap(
+            query=query,
+            title=normalized["title"],
+            snippet=normalized["snippet"],
+        ):
             continue
         ranked.append(
             {
