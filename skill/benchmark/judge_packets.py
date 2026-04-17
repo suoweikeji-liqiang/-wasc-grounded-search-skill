@@ -14,6 +14,7 @@ from skill.synthesis.cache import ANSWER_CACHE
 
 
 _SAFE_FILENAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_JUDGE_BUNDLE_FILENAME = "judge-bundle-minimal.json"
 
 
 def _safe_filename(value: str) -> str:
@@ -63,6 +64,27 @@ def _build_packet(
     }
 
 
+def _write_json(path: Path, payload: object, *, ensure_ascii: bool = True) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=ensure_ascii, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _build_bundle_payload(
+    *,
+    packets: list[dict[str, Any]],
+    packet_paths: list[str],
+    cases_path: Path | None,
+) -> dict[str, Any]:
+    return {
+        "cases_path": None if cases_path is None else str(cases_path),
+        "total_cases": len(packets),
+        "packet_paths": packet_paths,
+        "packets": packets,
+    }
+
+
 def export_judge_packets(
     *,
     app,
@@ -77,6 +99,7 @@ def export_judge_packets(
 
     packet_paths: list[str] = []
     packets_index: list[dict[str, Any]] = []
+    packets_bundle: list[dict[str, Any]] = []
 
     with TestClient(app) as client:
         for case in cases:
@@ -102,13 +125,11 @@ def export_judge_packets(
             )
             packet_filename = f"{_safe_filename(case.case_id)}.json"
             packet_path = packet_dir / packet_filename
-            packet_path.write_text(
-                json.dumps(packet, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            _write_json(packet_path, packet)
 
             relative_path = str(Path("judge-packets") / packet_filename).replace("\\", "/")
             packet_paths.append(relative_path)
+            packets_bundle.append(packet)
             packets_index.append(
                 {
                     "case_id": case.case_id,
@@ -125,8 +146,13 @@ def export_judge_packets(
         "packet_paths": packet_paths,
         "packets": packets_index,
     }
-    (output_dir / "judge-packets-index.json").write_text(
-        json.dumps(index_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    _write_json(output_dir / "judge-packets-index.json", index_payload)
+    _write_json(
+        output_dir / _JUDGE_BUNDLE_FILENAME,
+        _build_bundle_payload(
+            packets=packets_bundle,
+            packet_paths=packet_paths,
+            cases_path=cases_path,
+        ),
     )
     return index_payload

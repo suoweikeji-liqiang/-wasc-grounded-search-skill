@@ -15,7 +15,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
         [
             {
                 "case_id": "policy-01",
-                "dimension": "信息全面度",
+                "dimension": "completeness",
                 "score": 12,
                 "rationale": "partial coverage",
                 "positives": ["structured output"],
@@ -23,7 +23,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
             },
             {
                 "case_id": "policy-01",
-                "dimension": "信息准确度",
+                "dimension": "accuracy",
                 "score": 18,
                 "rationale": "well grounded",
                 "positives": ["source-backed"],
@@ -31,7 +31,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
             },
             {
                 "case_id": "policy-01",
-                "dimension": "易用性",
+                "dimension": "usability",
                 "score": 7,
                 "rationale": "readable enough",
                 "positives": ["clear sections"],
@@ -39,7 +39,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
             },
             {
                 "case_id": "industry-01",
-                "dimension": "信息全面度",
+                "dimension": "completeness",
                 "score": 4,
                 "rationale": "mostly failed",
                 "positives": ["failure is clear"],
@@ -47,7 +47,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
             },
             {
                 "case_id": "industry-01",
-                "dimension": "信息准确度",
+                "dimension": "accuracy",
                 "score": 20,
                 "rationale": "no unsupported claim",
                 "positives": ["conservative"],
@@ -55,7 +55,7 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
             },
             {
                 "case_id": "industry-01",
-                "dimension": "易用性",
+                "dimension": "usability",
                 "score": 5,
                 "rationale": "diagnostic but technical",
                 "positives": ["explicit failure"],
@@ -65,13 +65,50 @@ def test_summarize_judge_scores_aggregates_dimension_and_case_metrics() -> None:
     )
 
     assert summary["total_scores"] == 6
-    assert summary["dimensions"]["信息全面度"]["average_score"] == 8.0
-    assert summary["dimensions"]["信息准确度"]["average_score"] == 19.0
-    assert summary["dimensions"]["易用性"]["average_score"] == 6.0
-    assert summary["dimensions"]["信息全面度"]["max_score"] == 20
-    assert summary["dimensions"]["易用性"]["max_score"] == 10
+    assert summary["dimensions"]["completeness"]["average_score"] == 8.0
+    assert summary["dimensions"]["accuracy"]["average_score"] == 19.0
+    assert summary["dimensions"]["usability"]["average_score"] == 6.0
+    assert summary["dimensions"]["completeness"]["max_score"] == 20
+    assert summary["dimensions"]["usability"]["max_score"] == 10
     assert summary["cases"]["policy-01"]["total_normalized_ratio"] == 0.74
     assert summary["cases"]["industry-01"]["total_normalized_ratio"] == 0.58
+
+
+def test_summarize_judge_scores_normalizes_legacy_dimension_aliases() -> None:
+    from skill.benchmark.judge_score_report import summarize_judge_scores
+
+    summary = summarize_judge_scores(
+        [
+            {
+                "case_id": "policy-01",
+                "dimension": "信息全面度",
+                "score": 10,
+                "rationale": "ok",
+                "positives": [],
+                "negatives": [],
+            },
+            {
+                "case_id": "policy-01",
+                "dimension": "信息准确度",
+                "score": 19,
+                "rationale": "good",
+                "positives": [],
+                "negatives": [],
+            },
+            {
+                "case_id": "policy-01",
+                "dimension": "易用性",
+                "score": 8,
+                "rationale": "clear",
+                "positives": [],
+                "negatives": [],
+            },
+        ]
+    )
+
+    assert summary["dimensions"]["completeness"]["average_score"] == 10.0
+    assert summary["dimensions"]["accuracy"]["average_score"] == 19.0
+    assert summary["dimensions"]["usability"]["average_score"] == 8.0
 
 
 def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
@@ -85,7 +122,7 @@ def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
             [
                 {
                     "case_id": "policy-01",
-                    "dimension": "信息全面度",
+                    "dimension": "completeness",
                     "score": 10,
                     "rationale": "ok",
                     "positives": [],
@@ -102,7 +139,7 @@ def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
             [
                 {
                     "case_id": "policy-01",
-                    "dimension": "信息准确度",
+                    "dimension": "accuracy",
                     "score": 19,
                     "rationale": "good",
                     "positives": [],
@@ -118,7 +155,7 @@ def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
         json.dumps(
             {
                 "case_id": "policy-01",
-                "dimension": "易用性",
+                "dimension": "usability",
                 "score": 8,
                 "rationale": "clear",
                 "positives": [],
@@ -156,6 +193,6 @@ def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
     assert output_path.exists()
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["total_scores"] == 3
-    assert payload["dimensions"]["信息全面度"]["average_score"] == 10.0
-    assert payload["dimensions"]["信息准确度"]["average_score"] == 19.0
-    assert payload["dimensions"]["易用性"]["average_score"] == 8.0
+    assert payload["dimensions"]["completeness"]["average_score"] == 10.0
+    assert payload["dimensions"]["accuracy"]["average_score"] == 19.0
+    assert payload["dimensions"]["usability"]["average_score"] == 8.0

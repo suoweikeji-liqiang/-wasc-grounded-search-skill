@@ -47,6 +47,7 @@ def main() -> int:
     )
     print(f"Exported {index_payload['total_cases']} judge packets to: {args.output_dir}")
     print(f"Index saved to: {args.output_dir / 'judge-packets-index.json'}")
+    print(f"ASCII-safe bundle saved to: {args.output_dir / 'judge-bundle-minimal.json'}")
     return 0
 
 

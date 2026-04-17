@@ -138,7 +138,7 @@ def test_export_judge_packets_writes_minimal_case_packet(monkeypatch, tmp_path) 
         "policy_official_registry": _policy_adapter,
     }
     api_entry.app.state.model_client = _NeverCalledModelClient()
-    cases = [BenchmarkCase(case_id="policy-01", query="latest climate order version")]
+    cases = [BenchmarkCase(case_id="policy-01", query="自动驾驶试点监管什么时候实施")]
 
     try:
         index_payload = export_judge_packets(
@@ -153,9 +153,13 @@ def test_export_judge_packets_writes_minimal_case_packet(monkeypatch, tmp_path) 
 
     assert index_payload["total_cases"] == 1
     packet_path = tmp_path / "judge-packets" / "policy-01.json"
+    bundle_path = tmp_path / "judge-bundle-minimal.json"
     assert packet_path.exists()
+    assert bundle_path.exists()
 
     packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    bundle_text = bundle_path.read_text(encoding="utf-8")
+    bundle_payload = json.loads(bundle_text)
     assert set(packet) == {
         "case_id",
         "query",
@@ -164,7 +168,7 @@ def test_export_judge_packets_writes_minimal_case_packet(monkeypatch, tmp_path) 
         "runtime",
     }
     assert packet["case_id"] == "policy-01"
-    assert packet["query"] == "latest climate order version"
+    assert packet["query"] == "自动驾驶试点监管什么时候实施"
     assert packet["retrieve"]["status"] == "success"
     assert packet["retrieve"]["canonical_evidence"]
     assert packet["answer"]["answer_status"] == "grounded_success"
@@ -172,6 +176,11 @@ def test_export_judge_packets_writes_minimal_case_packet(monkeypatch, tmp_path) 
     assert packet["answer"]["sources"]
     assert packet["runtime"]["elapsed_ms"] >= 0
     assert isinstance(packet["runtime"]["retrieval_trace"], list)
+    assert bundle_text.isascii()
+    assert "\\u81ea\\u52a8\\u9a7e\\u9a76" in bundle_text
+    assert bundle_payload["total_cases"] == 1
+    assert bundle_payload["packets"][0]["case_id"] == "policy-01"
+    assert bundle_payload["packets"][0]["query"] == "自动驾驶试点监管什么时候实施"
 
 
 def test_export_judge_packets_cli_writes_index_and_packets(monkeypatch, tmp_path) -> None:

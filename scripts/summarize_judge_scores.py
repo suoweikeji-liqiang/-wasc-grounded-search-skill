@@ -39,7 +39,7 @@ def main() -> int:
     summary = summarize_judge_scores(entries)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
+        json.dumps(summary, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
     print(f"Loaded {summary['total_scores']} judge scores from: {args.scores_dir}")

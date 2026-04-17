@@ -8,11 +8,27 @@ from pathlib import Path
 from typing import Any
 
 
-_MAX_SCORE_BY_DIMENSION: dict[str, int] = {
-    "信息全面度": 20,
-    "信息准确度": 20,
-    "易用性": 10,
+_DIMENSION_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "completeness": {
+        "display_name": "信息全面度",
+        "max_score": 20,
+        "aliases": ("completeness", "信息全面度"),
+    },
+    "accuracy": {
+        "display_name": "信息准确度",
+        "max_score": 20,
+        "aliases": ("accuracy", "信息准确度"),
+    },
+    "usability": {
+        "display_name": "易用性",
+        "max_score": 10,
+        "aliases": ("usability", "易用性"),
+    },
 }
+_DIMENSION_ALIAS_TO_ID: dict[str, str] = {}
+for _dimension_id, _definition in _DIMENSION_DEFINITIONS.items():
+    for _alias in _definition["aliases"]:
+        _DIMENSION_ALIAS_TO_ID[str(_alias).strip().lower()] = _dimension_id
 
 
 def _normalize_entries(payload: object) -> list[dict[str, Any]]:
@@ -31,21 +47,29 @@ def load_judge_scores(scores_dir: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def _normalize_dimension(raw_dimension: object) -> str:
+    dimension = str(raw_dimension).strip()
+    dimension_id = _DIMENSION_ALIAS_TO_ID.get(dimension.lower())
+    if dimension_id is None:
+        raise ValueError(f"unsupported judge dimension: {dimension}")
+    return dimension_id
+
+
 def summarize_judge_scores(entries: list[dict[str, Any]]) -> dict[str, Any]:
     dimensions: dict[str, list[dict[str, Any]]] = defaultdict(list)
     cases: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for entry in entries:
         case_id = str(entry["case_id"])
-        dimension = str(entry["dimension"])
+        dimension = _normalize_dimension(entry["dimension"])
         score = float(entry["score"])
-        max_score = _MAX_SCORE_BY_DIMENSION.get(dimension)
-        if max_score is None:
-            raise ValueError(f"unsupported judge dimension: {dimension}")
+        definition = _DIMENSION_DEFINITIONS[dimension]
+        max_score = int(definition["max_score"])
 
         normalized_entry = {
             "case_id": case_id,
             "dimension": dimension,
+            "dimension_display_name": definition["display_name"],
             "score": score,
             "max_score": max_score,
             "rationale": entry.get("rationale", ""),
@@ -62,6 +86,7 @@ def summarize_judge_scores(entries: list[dict[str, Any]]) -> dict[str, Any]:
         count = len(dimension_entries)
         dimension_summary[dimension] = {
             "count": count,
+            "display_name": _DIMENSION_DEFINITIONS[dimension]["display_name"],
             "max_score": max_score,
             "average_score": round(total_score / count, 2) if count else 0.0,
             "average_ratio": round((total_score / (count * max_score)), 2) if count else 0.0,
@@ -74,6 +99,7 @@ def summarize_judge_scores(entries: list[dict[str, Any]]) -> dict[str, Any]:
         case_summary[case_id] = {
             "dimensions": {
                 item["dimension"]: {
+                    "display_name": item["dimension_display_name"],
                     "score": item["score"],
                     "max_score": item["max_score"],
                     "rationale": item["rationale"],
