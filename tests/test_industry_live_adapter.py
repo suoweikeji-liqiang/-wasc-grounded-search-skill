@@ -872,6 +872,81 @@ def test_industry_web_discovery_live_uses_google_news_parallel_recall_when_html_
     assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
 
 
+def test_industry_web_discovery_live_does_not_wait_for_slow_google_news_url_resolution_before_publisher_search(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    observed_queries: list[str] = []
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        observed_queries.append(query)
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="2026 Global Semiconductor Industry Outlook - Deloitte",
+                    url="https://news.google.com/rss/articles/example-deloitte",
+                    snippet="Deloitte | Thu, 05 Feb 2026 08:00:00 GMT",
+                    source_url="https://www.deloitte.com",
+                )
+            ]
+        if query == 'site:deloitte.com "Global Semiconductor Industry Outlook"':
+            await asyncio.sleep(0.01)
+            return [
+                SearchCandidate(
+                    engine="duckduckgo",
+                    title="2026 Semiconductor Industry Outlook | Deloitte Insights",
+                    url=(
+                        "https://www.deloitte.com/us/en/insights/industry/technology/"
+                        "technology-media-telecom-outlooks/semiconductor-industry-outlook.html"
+                    ),
+                    snippet=(
+                        "Deloitte expects AI-driven semiconductor demand to remain strong in 2026."
+                    ),
+                )
+            ]
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _slow_resolve_google_news_article_url(_: str) -> str | None:
+        await asyncio.sleep(1.0)
+        return None
+
+    async def _article_page_text(*, url: str, **_: object) -> str:
+        assert url.endswith("/semiconductor-industry-outlook.html")
+        return (
+            "Deloitte expects AI-driven semiconductor demand to remain strong in 2026, "
+            "with advanced packaging capacity staying tight."
+        )
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _slow_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _article_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+            timeout=0.3,
+        )
+    )
+
+    assert any(
+        query == 'site:deloitte.com "Global Semiconductor Industry Outlook"'
+        for query in observed_queries
+    )
+    assert len(hits) == 1
+    assert hits[0].url.endswith("/semiconductor-industry-outlook.html")
+    assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
+
+
 def test_industry_web_discovery_live_keeps_waiting_when_early_rss_candidate_cannot_be_grounded(
     monkeypatch,
 ) -> None:

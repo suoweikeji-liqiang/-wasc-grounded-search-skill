@@ -84,7 +84,7 @@ _INDUSTRY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "semiconductor packaging",
     "cowos",
 )
-_INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO = 0.5
+_INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS = 3
 _MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO = 0.33
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "cross_domain_fragment_focus": 6,
@@ -918,11 +918,17 @@ def _variant_timeout_seconds(
     if (
         len(variants) > 1
         and _is_primary_industry_variant_retry_context(step=step, plan=plan)
-        and variant.reason_code == "industry_cjk_gloss"
+        and _has_industry_cjk_gloss_variant(variants)
+        and variant.reason_code in {"original", "industry_cjk_gloss"}
+        and _has_later_variant(variant=variant, variants=variants)
     ):
         timeout_seconds = min(
             timeout_seconds,
-            max(0.0, plan.per_source_timeout_seconds * _INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO),
+            max(
+                0.0,
+                plan.per_source_timeout_seconds
+                / min(_INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS, len(variants)),
+            ),
         )
     elif (
         len(variants) > 1
@@ -954,7 +960,8 @@ def _should_continue_after_variant_failure(
         return False
     if _is_primary_industry_variant_retry_context(step=step, plan=plan):
         return (
-            variant.reason_code == "industry_cjk_gloss"
+            _has_industry_cjk_gloss_variant(variants)
+            and variant.reason_code in {"original", "industry_cjk_gloss"}
             and _has_later_variant(variant=variant, variants=variants)
         )
     if _is_mixed_supplemental_industry_retry_context(step=step, plan=plan):
@@ -989,6 +996,12 @@ def _is_mixed_supplemental_industry_retry_context(
         and step.source.route == "industry"
         and step.source.is_supplemental
     )
+
+
+def _has_industry_cjk_gloss_variant(
+    variants: tuple[QueryVariant, ...],
+) -> bool:
+    return any(variant.reason_code == "industry_cjk_gloss" for variant in variants)
 
 
 def _has_later_variant(

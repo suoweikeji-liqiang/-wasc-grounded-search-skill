@@ -886,27 +886,92 @@ async def _resolve_google_news_article_candidates(
     candidates: list[SearchCandidate],
     config: LiveRetrievalConfig,
 ) -> list[SearchCandidate]:
-    resolved_candidates = await _resolve_google_news_candidates(candidates)
-    article_candidates: list[SearchCandidate] = []
-    unresolved_candidates: list[SearchCandidate] = []
+    def _split_article_candidates(
+        source_candidates: list[SearchCandidate],
+    ) -> tuple[list[SearchCandidate], list[SearchCandidate]]:
+        article_candidates: list[SearchCandidate] = []
+        unresolved_candidates: list[SearchCandidate] = []
+        for candidate in source_candidates:
+            article_candidate = _article_like_source_candidate(candidate)
+            if article_candidate is not None:
+                article_candidates.append(article_candidate)
+                continue
+            if candidate.engine == "google_news_rss":
+                unresolved_candidates.append(candidate)
+        return article_candidates, unresolved_candidates
 
-    for candidate in resolved_candidates:
-        article_candidate = _article_like_source_candidate(candidate)
-        if article_candidate is not None:
-            article_candidates.append(article_candidate)
-            continue
-        if candidate.engine == "google_news_rss":
-            unresolved_candidates.append(candidate)
+    def _dedupe_article_candidates(
+        source_candidates: list[SearchCandidate],
+    ) -> list[SearchCandidate]:
+        deduped: list[SearchCandidate] = []
+        seen_urls: set[str] = set()
+        for candidate in source_candidates:
+            url = candidate.url.strip()
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            deduped.append(candidate)
+        return deduped
 
-    if unresolved_candidates:
-        article_candidates.extend(
-            await _search_google_news_publisher_candidates(
-                query=query,
-                candidates=unresolved_candidates,
-                config=config,
-            )
+    direct_article_candidates, unresolved_candidates = _split_article_candidates(candidates)
+    if direct_article_candidates or not unresolved_candidates:
+        return _dedupe_article_candidates(direct_article_candidates)
+
+    resolution_task = asyncio.create_task(
+        _resolve_google_news_candidates(unresolved_candidates)
+    )
+    publisher_task = asyncio.create_task(
+        _search_google_news_publisher_candidates(
+            query=query,
+            candidates=unresolved_candidates,
+            config=config,
         )
-    return article_candidates
+    )
+    pending_tasks: set[asyncio.Task[object]] = {resolution_task, publisher_task}
+    resolved_article_candidates: list[SearchCandidate] = []
+    publisher_candidates: list[SearchCandidate] = []
+
+    try:
+        while pending_tasks:
+            done, pending_tasks = await asyncio.wait(
+                pending_tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if resolution_task in done:
+                try:
+                    resolved_candidates = resolution_task.result()
+                except Exception:
+                    resolved_candidates = unresolved_candidates
+                resolved_article_candidates, _ = _split_article_candidates(
+                    resolved_candidates
+                )
+            if publisher_task in done:
+                try:
+                    publisher_candidates = publisher_task.result()
+                except Exception:
+                    publisher_candidates = []
+
+            article_candidates = _dedupe_article_candidates(
+                [
+                    *direct_article_candidates,
+                    *resolved_article_candidates,
+                    *publisher_candidates,
+                ]
+            )
+            if article_candidates:
+                await _cancel_search_tasks(list(pending_tasks))
+                return article_candidates
+
+        return _dedupe_article_candidates(
+            [
+                *direct_article_candidates,
+                *resolved_article_candidates,
+                *publisher_candidates,
+            ]
+        )
+    except asyncio.CancelledError:
+        await _cancel_search_tasks([resolution_task, publisher_task])
+        raise
 
 
 def _detect_known_company_ir_target(query: str) -> dict[str, object] | None:

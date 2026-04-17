@@ -826,6 +826,75 @@ def test_run_retrieval_keeps_original_industry_query_before_cjk_gloss_fallback()
     assert outcome.results[0].title == "battery-recycling-market-share-forecast"
 
 
+def test_run_retrieval_caps_primary_cjk_original_timeout_to_allow_gloss_retry() -> None:
+    query = "\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        )
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.12,
+        overall_deadline_seconds=0.12,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        target_route="industry",
+        variant_limit=5,
+    )
+    gloss_query = next(
+        (item.query for item in variants if item.reason_code == "industry_cjk_gloss"),
+        None,
+    )
+
+    assert gloss_query == "ev battery recycling market share forecast"
+
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            await asyncio.sleep(0.2)
+            return []
+        if candidate_query == gloss_query:
+            await asyncio.sleep(0.01)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="battery-recycling-market-share-forecast",
+                    url="https://example.com/battery-recycling-market-share-forecast",
+                    snippet="Battery recycling market-share outlook.",
+                    credibility_tier="trusted_news",
+                )
+            ]
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert observed_queries[:2] == [query, gloss_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "battery-recycling-market-share-forecast"
+
+
 def test_run_retrieval_falls_through_after_cjk_gloss_timeout_to_later_industry_variant() -> None:
     query = "\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a2026"
     base_plan = build_retrieval_plan(
