@@ -327,6 +327,38 @@ _ACADEMIC_FAST_PATH_GENERIC_TERMS = frozenset(
         "systems",
     }
 )
+_INDUSTRY_CONTEXT_GENERIC_TERMS = frozenset(
+    {
+        "annual",
+        "forecast",
+        "form",
+        "filing",
+        "guidance",
+        "industry",
+        "liquidity",
+        "market",
+        "outlook",
+        "report",
+        "research",
+        "revenue",
+        "sales",
+        "segment",
+        "share",
+        "shipment",
+        "shipments",
+        "trend",
+        "trends",
+        "update",
+        "warranty",
+        "reserves",
+        "市场",
+        "趋势",
+        "预测",
+        "份额",
+        "出货",
+        "行业",
+    }
+)
 _DATE_LITERAL_RE = re.compile(r"20\d{2}-\d{2}-\d{2}")
 _YEAR_LITERAL_RE = re.compile(r"20\d{2}")
 _VERSION_LITERAL_RE = re.compile(r"version [^.;,)]+", re.IGNORECASE)
@@ -383,6 +415,29 @@ def _academic_focus_terms(text: str) -> set[str]:
         for token in _content_terms(text)
         if token not in _ACADEMIC_FAST_PATH_GENERIC_TERMS
     }
+
+
+def _industry_context_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in _content_terms(text)
+        if not (token.isdigit() and len(token) == 4)
+        and token not in _INDUSTRY_CONTEXT_GENERIC_TERMS
+    }
+
+
+def _industry_thematic_overlap(query: str, record: CanonicalEvidence) -> int:
+    query_terms = _industry_context_terms(query)
+    gloss_query = _build_industry_cjk_gloss_query(query)
+    if gloss_query:
+        query_terms.update(_industry_context_terms(gloss_query))
+    if not query_terms:
+        return 0
+
+    record_terms = _industry_context_terms(record.canonical_title)
+    for slice_ in record.retained_slices:
+        record_terms.update(_industry_context_terms(slice_.text))
+    return len(query_terms & record_terms)
 
 
 def _best_slice_overlap(
@@ -650,6 +705,48 @@ def _query_requests_multiple_academic_items(query: str) -> bool:
     )
 
 
+def _desired_academic_lookup_items(query: str) -> int:
+    return 3 if _query_requests_multiple_academic_items(query) else 2
+
+
+def _academic_lookup_candidate_limit(query: str) -> int:
+    return 5 if _query_requests_multiple_academic_items(query) else 2
+
+
+def _select_academic_lookup_matches(
+    query: str,
+    *match_groups: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
+) -> tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...]:
+    desired_limit = _desired_academic_lookup_items(query)
+    combined_matches = _combine_ranked_matches(
+        *match_groups,
+        limit=_academic_lookup_candidate_limit(query),
+    )
+    if desired_limit <= 2 or len(combined_matches) <= 2:
+        return combined_matches[:desired_limit]
+
+    best_alignment = _partial_match_alignment_score(query, combined_matches[0][0])
+    selected = list(combined_matches[:2])
+    for record, matched_slice, slice_overlap in combined_matches[2:]:
+        if not _academic_fast_path_match_allowed(
+            query,
+            record=record,
+            matched_slice=matched_slice,
+            slice_overlap=slice_overlap,
+        ):
+            continue
+        if not _should_surface_additional_partial_match(
+            query,
+            record,
+            best_alignment=best_alignment,
+        ):
+            continue
+        selected.append((record, matched_slice, slice_overlap))
+        if len(selected) >= desired_limit:
+            break
+    return tuple(selected)
+
+
 def _should_attempt_same_route_enrichment(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -665,7 +762,16 @@ def _should_attempt_same_route_enrichment(
         return False
     if local_candidate is None or local_candidate.answer_status != "grounded_success":
         return False
-    if len(local_candidate.sources) >= 2 or len(local_candidate.key_points) >= 2:
+    desired_items = 2
+    if (
+        retrieval_response.primary_route == "academic"
+        and _is_academic_lookup_query(query)
+    ):
+        desired_items = _desired_academic_lookup_items(query)
+    if (
+        len(local_candidate.sources) >= desired_items
+        or len(local_candidate.key_points) >= desired_items
+    ):
         return False
 
     if retrieval_response.primary_route == "industry":
@@ -988,24 +1094,25 @@ def _build_same_route_academic_enrichment_response(
     *,
     query: str,
 ) -> AnswerResponse | None:
+    candidate_limit = _academic_lookup_candidate_limit(query)
     primary_matches = _top_route_matches(
         query,
         canonical_evidence,
         domain="academic",
         route_role="primary",
-        limit=2,
+        limit=candidate_limit,
     )
     supplemental_matches = _top_route_matches(
         query,
         canonical_evidence,
         domain="academic",
         route_role="supplemental",
-        limit=2,
+        limit=candidate_limit,
     )
-    combined_matches = _combine_ranked_matches(
+    combined_matches = _select_academic_lookup_matches(
+        query,
         primary_matches,
         supplemental_matches,
-        limit=2,
     )
     if len(combined_matches) <= 1:
         return None
@@ -1885,6 +1992,8 @@ def _should_surface_additional_partial_match(
 ) -> bool:
     if best_alignment <= 0:
         return False
+    if record.domain == "industry" and _industry_thematic_overlap(query, record) <= 0:
+        return False
     query_terms = set(_content_terms(query))
     if record.domain == "industry":
         gloss_query = _build_industry_cjk_gloss_query(query)
@@ -1924,7 +2033,7 @@ def _partition_industry_supporting_matches(
             continue
         if (
             contextual_match is None
-            and _partial_match_focus_overlap(query, record) > 0
+            and _industry_thematic_overlap(query, record) > 0
             and _partial_match_alignment_score(query, record) > 0
         ):
             contextual_match = match
@@ -3077,6 +3186,39 @@ def _build_mixed_cross_domain_fast_path_response(
             f"{primary_statement}, and "
             f'"{matched_supplemental_record.canonical_title}" shows {supplemental_statement}.'
         )
+    if {matched_primary_record.domain, matched_supplemental_record.domain} == {
+        "policy",
+        "academic",
+    }:
+        policy_text = normalize_query_text(
+            " ".join(
+                (
+                    matched_primary_record.canonical_title,
+                    matched_primary_slice.text,
+                    matched_primary_record.version or "",
+                )
+            )
+        )
+        licensing_constrained = any(
+            marker in policy_text
+            for marker in ("license", "licence", "licensing", "许可", "许可证")
+        )
+        if use_cjk:
+            constraint_label = "许可要求" if licensing_constrained else "政策要求"
+            conclusion = (
+                f"{conclusion} 这表明{constraint_label}可能改变研究条件，但现有来源并未量化这种影响。"
+            )
+        else:
+            constraint_label = (
+                "licensing requirements"
+                if licensing_constrained
+                else "policy requirements"
+            )
+            conclusion = (
+                f"{conclusion} Together, these sources suggest {constraint_label} can "
+                "reshape research conditions, but the cited sources do not quantify "
+                "the size of that effect."
+            )
 
     draft = StructuredAnswerDraft(
         conclusion=conclusion,
@@ -3744,12 +3886,16 @@ async def execute_answer_pipeline_with_trace(
         and canonical_evidence
         and _is_academic_lookup_query(query)
     ):
-        academic_matches = _top_route_matches(
+        academic_primary_matches = _top_route_matches(
             query,
             canonical_evidence,
             domain="academic",
             route_role="primary",
-            limit=2,
+            limit=_academic_lookup_candidate_limit(query),
+        )
+        academic_matches = _select_academic_lookup_matches(
+            query,
+            academic_primary_matches,
         )
         if academic_matches and _academic_fast_path_match_allowed(
             query,

@@ -1850,6 +1850,146 @@ def test_execute_answer_pipeline_with_trace_same_route_academic_enrichment_prefe
     )
 
 
+def test_execute_answer_pipeline_with_trace_academic_list_fast_path_surfaces_bounded_third_high_alignment_match(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-list-1",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing",
+                    "canonical_url": "https://example.org/paper-grounded-search-evidence-packing",
+                    "route_role": "primary",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/grounded-search.2026.001",
+                    "first_author": "Chen",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Grounded search evidence packing for bounded contexts.",
+                            "source_record_id": "paper-list-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+                {
+                    "evidence_id": "paper-list-2",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing under latency constraints",
+                    "canonical_url": "https://example.org/paper-grounded-search-evidence-packing-latency",
+                    "route_role": "primary",
+                    "evidence_level": "preprint",
+                    "canonical_match_confidence": "strong_id",
+                    "arxiv_id": "2604.88888",
+                    "first_author": "Garcia",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Paper studies grounded search evidence packing under strict latency limits.",
+                            "source_record_id": "paper-list-2-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+                {
+                    "evidence_id": "paper-list-3",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing benchmark survey",
+                    "canonical_url": "https://example.org/paper-grounded-search-evidence-packing-survey",
+                    "route_role": "primary",
+                    "evidence_level": "survey_or_review",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/grounded-search.2026.003",
+                    "first_author": "Patel",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Survey reviews grounded search evidence packing benchmarks and evaluation settings.",
+                            "source_record_id": "paper-list-3-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+                {
+                    "evidence_id": "paper-list-4",
+                    "domain": "academic",
+                    "canonical_title": "RAG chunking survey",
+                    "canonical_url": "https://example.org/paper-rag-chunking-survey",
+                    "route_role": "primary",
+                    "evidence_level": "survey_or_review",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/rag.2026.004",
+                    "first_author": "Wang",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Survey reviews RAG chunking methods and benchmark tradeoffs.",
+                            "source_record_id": "paper-list-4-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "high-alignment academic list queries should stay on the local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query="有哪些 grounded search evidence packing 论文",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 3
+    assert {source.title for source in result.response.sources} == {
+        "Grounded search evidence packing",
+        "Grounded search evidence packing under latency constraints",
+        "Grounded search evidence packing benchmark survey",
+    }
+    assert not any(
+        source.title == "RAG chunking survey"
+        for source in result.response.sources
+    )
+
+
 def test_execute_answer_pipeline_with_trace_single_source_industry_outlook_fast_path_uses_direct_limit_aware_conclusion(
     monkeypatch,
 ) -> None:
@@ -1923,6 +2063,89 @@ def test_execute_answer_pipeline_with_trace_single_source_industry_outlook_fast_
     assert "actual forecast figures" in result.response.conclusion
     assert "segment split" in result.response.conclusion
     assert "second corroborating source" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_excludes_year_only_context_noise(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "industry-noise-1",
+                    "domain": "industry",
+                    "canonical_title": "SEMI outlook for semiconductor packaging capacity",
+                    "canonical_url": "https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                    "route_role": "primary",
+                    "retained_slices": [
+                        {
+                            "text": "Industry-association forecast for semiconductor packaging capacity in 2026.",
+                            "source_record_id": "industry-noise-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+                {
+                    "evidence_id": "industry-noise-2",
+                    "domain": "industry",
+                    "canonical_title": "China smartphone shipments outlook 2026",
+                    "canonical_url": "https://www.idc.com/getdoc.jsp?containerId=china-smartphone-shipments-2026",
+                    "route_role": "primary",
+                    "retained_slices": [
+                        {
+                            "text": "Research firm expects China smartphone shipments to recover in 2026.",
+                            "source_record_id": "industry-noise-2-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry lookup fast path should stay local when only one source is directly aligned"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 1
+    assert "Related market context also includes" not in result.response.conclusion
+    assert len(result.response.key_points) == 1
 
 
 def test_execute_answer_pipeline_with_trace_single_source_academic_list_fast_path_calls_out_incomplete_coverage(
@@ -2650,6 +2873,101 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path_fo
     assert result.response.answer_status == "grounded_success"
     assert "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u529e\u6cd5\u4fee\u8ba2" in result.response.conclusion
     assert "\u81ea\u52a8\u9a7e\u9a76\u4ea7\u4e1a\u843d\u5730\u5f71\u54cd\u9884\u6d4b" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_mixed_policy_academic_fast_path_adds_mechanism_bridge(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="academic",
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "policy-export-1",
+                    "domain": "policy",
+                    "canonical_title": "Ministry of Commerce AI chip export controls notice",
+                    "canonical_url": "https://www.mofcom.gov.cn/article/ai-chip-export-controls-2026",
+                    "route_role": "primary",
+                    "authority": "Ministry of Commerce",
+                    "jurisdiction": "CN",
+                    "jurisdiction_status": "observed",
+                    "publication_date": "2026-04-02",
+                    "effective_date": "2026-04-15",
+                    "version": "2026 export control notice",
+                    "version_status": "observed",
+                    "retained_slices": [
+                        {
+                            "text": "Official AI chip export controls notice tightens 2026 licensing requirements for advanced accelerators.",
+                            "source_record_id": "policy-export-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+                {
+                    "evidence_id": "academic-export-1",
+                    "domain": "academic",
+                    "canonical_title": "Export controls and academic AI chip research",
+                    "canonical_url": "https://www.semanticscholar.org/paper/export-controls-ai-chip-research",
+                    "route_role": "supplemental",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/export-controls.2026.001",
+                    "first_author": "Zhang",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Export controls reshape academic research on AI chip systems.",
+                            "source_record_id": "academic-export-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                },
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "mixed policy-academic impact queries should use the local fast path"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "academic"),
+            query="AI chip export controls impact on academic research",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "research conditions" in result.response.conclusion.lower()
+    assert "licensing requirements" in result.response.conclusion.lower()
+    assert "do not quantify" in result.response.conclusion.lower()
 
 
 def test_execute_answer_pipeline_with_trace_keeps_mixed_fast_path_conservative(
