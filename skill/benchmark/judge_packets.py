@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,8 @@ from skill.synthesis.cache import ANSWER_CACHE
 
 _SAFE_FILENAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _JUDGE_BUNDLE_FILENAME = "judge-bundle-minimal.json"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_FRESH_PROCESS_TIMEOUT_SECONDS = 60.0
 
 
 def _safe_filename(value: str) -> str:
@@ -85,12 +89,92 @@ def _build_bundle_payload(
     }
 
 
+def _build_timeout_packet(*, case: BenchmarkCase, timeout_seconds: float) -> dict[str, Any]:
+    return {
+        "case_id": case.case_id,
+        "query": case.query,
+        "retrieve": {
+            "status": "failure_gaps",
+            "failure_reason": "timeout",
+            "gaps": [],
+            "canonical_evidence": [],
+            "evidence_clipped": False,
+            "evidence_pruned": False,
+        },
+        "answer": {
+            "answer_status": "retrieval_failure",
+            "retrieval_status": "failure_gaps",
+            "conclusion": "Retrieval failed before a grounded answer could be produced.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+            "gaps": [],
+        },
+        "runtime": {
+            "elapsed_ms": int(timeout_seconds * 1000),
+            "retrieval_elapsed_ms": int(timeout_seconds * 1000),
+            "synthesis_elapsed_ms": 0,
+            "provider_total_tokens": None,
+            "failure_reason": "timeout",
+            "retrieval_trace": [],
+        },
+    }
+
+
+def _build_packet_index_item(packet: dict[str, Any], *, case: BenchmarkCase, packet_path: str) -> dict[str, Any]:
+    answer_payload = packet.get("answer", {})
+    runtime_payload = packet.get("runtime", {})
+    return {
+        "case_id": case.case_id,
+        "query": case.query,
+        "packet_path": packet_path,
+        "answer_status": answer_payload.get("answer_status"),
+        "elapsed_ms": runtime_payload.get("elapsed_ms", 0),
+    }
+
+
+def _export_case_fresh_process(
+    *,
+    case: BenchmarkCase,
+    app_import_path: str,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    command = [
+        sys.executable,
+        "-m",
+        "skill.benchmark.judge_packet_worker",
+        "--app-import-path",
+        app_import_path,
+        "--case-id",
+        case.case_id,
+        "--query",
+        case.query,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return _build_timeout_packet(case=case, timeout_seconds=timeout_seconds)
+
+    payload = completed.stdout.strip().splitlines()[-1]
+    return json.loads(payload)
+
+
 def export_judge_packets(
     *,
     app,
     cases: list[BenchmarkCase],
     output_dir: Path,
     cases_path: Path | None = None,
+    fresh_process: bool = False,
+    app_import_path: str = "skill.api.entry:app",
+    per_case_timeout_seconds: float = _FRESH_PROCESS_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     packet_dir = output_dir / "judge-packets"
@@ -101,27 +185,12 @@ def export_judge_packets(
     packets_index: list[dict[str, Any]] = []
     packets_bundle: list[dict[str, Any]] = []
 
-    with TestClient(app) as client:
+    if fresh_process:
         for case in cases:
-            answer_response = client.post("/answer", json={"query": case.query})
-            answer_response.raise_for_status()
-            answer_payload = answer_response.json()
-
-            runtime_trace = getattr(app.state, "last_runtime_trace", None)
-            if runtime_trace is None:
-                raise RuntimeError("Judge packet export did not publish app.state.last_runtime_trace")
-            answer_artifacts = getattr(app.state, "last_answer_artifacts", None)
-            if not isinstance(answer_artifacts, dict):
-                raise RuntimeError("Judge packet export did not publish app.state.last_answer_artifacts")
-            retrieve_payload = answer_artifacts.get("retrieve")
-            if not isinstance(retrieve_payload, dict):
-                raise RuntimeError("Judge packet export artifacts missing retrieve payload")
-
-            packet = _build_packet(
+            packet = _export_case_fresh_process(
                 case=case,
-                retrieve_payload=retrieve_payload,
-                answer_payload=answer_payload,
-                runtime_trace=runtime_trace,
+                app_import_path=app_import_path,
+                timeout_seconds=per_case_timeout_seconds,
             )
             packet_filename = f"{_safe_filename(case.case_id)}.json"
             packet_path = packet_dir / packet_filename
@@ -131,14 +200,49 @@ def export_judge_packets(
             packet_paths.append(relative_path)
             packets_bundle.append(packet)
             packets_index.append(
-                {
-                    "case_id": case.case_id,
-                    "query": case.query,
-                    "packet_path": relative_path,
-                    "answer_status": packet["answer"]["answer_status"],
-                    "elapsed_ms": packet["runtime"]["elapsed_ms"],
-                }
+                _build_packet_index_item(
+                    packet,
+                    case=case,
+                    packet_path=relative_path,
+                )
             )
+    else:
+        with TestClient(app) as client:
+            for case in cases:
+                answer_response = client.post("/answer", json={"query": case.query})
+                answer_response.raise_for_status()
+                answer_payload = answer_response.json()
+
+                runtime_trace = getattr(app.state, "last_runtime_trace", None)
+                if runtime_trace is None:
+                    raise RuntimeError("Judge packet export did not publish app.state.last_runtime_trace")
+                answer_artifacts = getattr(app.state, "last_answer_artifacts", None)
+                if not isinstance(answer_artifacts, dict):
+                    raise RuntimeError("Judge packet export did not publish app.state.last_answer_artifacts")
+                retrieve_payload = answer_artifacts.get("retrieve")
+                if not isinstance(retrieve_payload, dict):
+                    raise RuntimeError("Judge packet export artifacts missing retrieve payload")
+
+                packet = _build_packet(
+                    case=case,
+                    retrieve_payload=retrieve_payload,
+                    answer_payload=answer_payload,
+                    runtime_trace=runtime_trace,
+                )
+                packet_filename = f"{_safe_filename(case.case_id)}.json"
+                packet_path = packet_dir / packet_filename
+                _write_json(packet_path, packet)
+
+                relative_path = str(Path("judge-packets") / packet_filename).replace("\\", "/")
+                packet_paths.append(relative_path)
+                packets_bundle.append(packet)
+                packets_index.append(
+                    _build_packet_index_item(
+                        packet,
+                        case=case,
+                        packet_path=relative_path,
+                    )
+                )
 
     index_payload = {
         "cases_path": None if cases_path is None else str(cases_path),
