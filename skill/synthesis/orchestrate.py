@@ -668,12 +668,16 @@ def _academic_fast_path_runtime_ok(retrieval_response: RetrieveResponse) -> bool
 
 
 def _contains_marker(
+    raw_query: str,
     normalized_query: str,
     tokens: set[str],
     markers: frozenset[str],
 ) -> bool:
+    raw_query_lower = raw_query.lower()
     return any(
-        (marker in tokens) if marker.isascii() else (marker in normalized_query)
+        (marker in tokens)
+        if marker.isascii()
+        else (marker in raw_query_lower or marker in normalized_query)
         for marker in markers
     )
 
@@ -681,7 +685,7 @@ def _contains_marker(
 def _query_contains_marker(query: str, markers: frozenset[str]) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
-    return _contains_marker(normalized, tokens, markers)
+    return _contains_marker(query, normalized, tokens, markers)
 
 
 def _query_uses_cjk(query: str) -> bool:
@@ -692,12 +696,12 @@ def _is_academic_lookup_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     tokens = set(query_tokens(normalized))
     if _contains_marker(
-        normalized, tokens, _ACADEMIC_EXPLANATORY_MARKERS
+        query, normalized, tokens, _ACADEMIC_EXPLANATORY_MARKERS
     ):
         return False
 
     if (
-        _contains_marker(normalized, tokens, _ACADEMIC_LOOKUP_MARKERS)
+        _contains_marker(query, normalized, tokens, _ACADEMIC_LOOKUP_MARKERS)
         or any(marker in normalized for marker in _ACADEMIC_LOOKUP_PHRASES)
         or "openalex" in tokens
     ):
@@ -712,12 +716,12 @@ def _is_policy_lookup_query(query: str) -> bool:
     tokens = set(query_tokens(normalized))
     traits = derive_query_traits(query)
     return (
-        _contains_marker(normalized, tokens, _POLICY_LOOKUP_MARKERS)
+        _contains_marker(query, normalized, tokens, _POLICY_LOOKUP_MARKERS)
         or traits.has_version_intent
         or traits.has_effective_date_intent
         or traits.is_policy_change
     ) and not _contains_marker(
-        normalized, tokens, _POLICY_EXPLANATORY_MARKERS
+        query, normalized, tokens, _POLICY_EXPLANATORY_MARKERS
     )
 
 
@@ -726,11 +730,11 @@ def _is_industry_lookup_query(query: str) -> bool:
     tokens = set(query_tokens(normalized))
     traits = derive_query_traits(query)
     return (
-        _contains_marker(normalized, tokens, _INDUSTRY_LOOKUP_MARKERS)
+        _contains_marker(query, normalized, tokens, _INDUSTRY_LOOKUP_MARKERS)
         or any(marker in normalized for marker in _INDUSTRY_LOOKUP_PHRASES)
         or traits.has_trend_intent
     ) and not _contains_marker(
-        normalized, tokens, _INDUSTRY_EXPLANATORY_MARKERS
+        query, normalized, tokens, _INDUSTRY_EXPLANATORY_MARKERS
     )
 
 
@@ -2743,6 +2747,82 @@ def _build_retrieval_failure_response(
     )
 
 
+def _should_treat_academic_no_support_as_insufficient_evidence(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+) -> bool:
+    if canonical_evidence:
+        return False
+    if retrieval_response.status != "failure_gaps":
+        return False
+    if retrieval_response.route_label != "academic":
+        return False
+    if retrieval_response.primary_route != "academic":
+        return False
+    if retrieval_response.supplemental_route is not None:
+        return False
+    if retrieval_response.failure_reason not in {"no_hits", "timeout"}:
+        return False
+    if not _is_academic_lookup_query(query):
+        return False
+    return all(gap.startswith("academic_") for gap in retrieval_response.gaps)
+
+
+def _build_academic_no_support_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+) -> AnswerResponse:
+    uncertainty_notes = build_uncertainty_notes(
+        retrieval_status=retrieval_response.status,
+        gaps=tuple(retrieval_response.gaps),
+        evidence_clipped=retrieval_response.evidence_clipped,
+        evidence_pruned=retrieval_response.evidence_pruned,
+        canonical_evidence=canonical_evidence,
+        citation_issues=(),
+    )
+    if _query_uses_cjk(query):
+        conclusion = "\u76ee\u524d\u53ef\u5f97\u8bc1\u636e\u4e0d\u8db3\u4ee5\u9a8c\u8bc1\u8fd9\u4e2a\u5b66\u672f\u68c0\u7d22\u8bf7\u6c42\u3002"
+        lookup_note = (
+            "\u5b66\u672f\u68c0\u7d22\uff1a"
+            "\u53ef\u7528\u7684\u5b66\u672f\u6765\u6e90\u672a\u80fd\u63d0\u4f9b\u8fd9\u4e2a\u67e5\u8be2\u7684\u76f4\u63a5\u53ef\u652f\u6491\u5339\u914d\u3002"
+        )
+        if retrieval_response.failure_reason == "timeout":
+            lookup_note = (
+                "\u5b66\u672f\u68c0\u7d22\uff1a"
+                "\u53ef\u7528\u7684\u5b66\u672f\u6765\u6e90\u5728\u68c0\u7d22\u9884\u7b97\u8017\u5c3d\u524d\uff0c"
+                "\u4ecd\u672a\u8fd4\u56de\u8fd9\u4e2a\u67e5\u8be2\u7684\u76f4\u63a5\u53ef\u652f\u6491\u5339\u914d\u3002"
+            )
+    else:
+        conclusion = "Available evidence was insufficient to verify the requested academic lookup."
+        lookup_note = (
+            "Academic lookup: available scholarly sources did not surface a directly "
+            "supportable match for this query."
+        )
+        if retrieval_response.failure_reason == "timeout":
+            lookup_note = (
+                "Academic lookup: available scholarly sources did not surface a directly "
+                "supportable match before the search budget was exhausted."
+            )
+    return AnswerResponse(
+        answer_status="insufficient_evidence",
+        retrieval_status=retrieval_response.status,
+        failure_reason=retrieval_response.failure_reason,
+        route_label=retrieval_response.route_label,
+        primary_route=retrieval_response.primary_route,
+        supplemental_route=retrieval_response.supplemental_route,
+        browser_automation="disabled",
+        conclusion=conclusion,
+        key_points=[],
+        sources=[],
+        uncertainty_notes=[lookup_note, *uncertainty_notes],
+        gaps=list(retrieval_response.gaps),
+    )
+
+
 def _build_budget_enforced_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -4006,6 +4086,30 @@ async def execute_answer_pipeline_with_trace(
     local_fast_path_response: AnswerResponse | None = None
 
     if retrieval_response.status == "failure_gaps" and not canonical_evidence:
+        if _should_treat_academic_no_support_as_insufficient_evidence(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+        ):
+            response = _build_academic_no_support_response(
+                retrieval_response,
+                canonical_evidence,
+                query=query,
+            )
+            answer_token_estimate = _estimate_response_tokens(response)
+            return _build_answer_execution_result(
+                request_id=request_id,
+                response=response,
+                retrieval_response=retrieval_response,
+                canonical_evidence=canonical_evidence,
+                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                synthesis_elapsed_seconds=0.0,
+                evidence_token_estimate=evidence_token_estimate,
+                answer_token_estimate=answer_token_estimate,
+                runtime_budget=budget,
+                budget_exhausted_phase=None,
+                retrieval_trace=retrieval_trace,
+            )
         response = _build_retrieval_failure_response(
             retrieval_response,
             canonical_evidence,

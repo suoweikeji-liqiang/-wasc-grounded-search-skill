@@ -41,6 +41,7 @@ def _build_plan(route_label: str, primary_route: str, supplemental_route: str | 
 
 
 _PARTIAL_MIXED_QUERY = "autonomous driving regulation supplier investment costs"
+_ACADEMIC_LOOKUP_QUERY = "\u6709\u54ea\u4e9b grounded search evidence packing \u8bba\u6587"
 
 
 def _partial_mixed_retrieve_response() -> RetrieveResponse:
@@ -93,6 +94,29 @@ def _partial_mixed_retrieve_response() -> RetrieveResponse:
             }
         ],
         evidence_clipped=True,
+        evidence_pruned=False,
+    )
+
+
+def _academic_no_support_retrieve_response(
+    *,
+    failure_reason: str = "timeout",
+) -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="academic",
+        primary_route="academic",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="failure_gaps",
+        failure_reason=failure_reason,
+        gaps=[
+            "academic_semantic_scholar",
+            "academic_arxiv",
+            "academic_asta_mcp",
+        ],
+        results=[],
+        canonical_evidence=[],
+        evidence_clipped=False,
         evidence_pruned=False,
     )
 
@@ -219,6 +243,89 @@ def test_generation_backend_failure_with_canonical_evidence_still_returns_partia
     )
     assert not any("MiniMax" in note for note in result.response.uncertainty_notes)
     assert not any("status 500" in note for note in result.response.uncertainty_notes)
+
+
+def test_academic_lookup_without_support_returns_insufficient_evidence_not_retrieval_failure(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _academic_no_support_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self,
+            prompt: str,
+            timeout_seconds: float | None = None,
+        ) -> str:
+            raise AssertionError(
+                "unsupported academic lookup should not invoke grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=_ACADEMIC_LOOKUP_QUERY,
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert result.response.conclusion != "Retrieval failed before a grounded answer could be produced."
+    assert result.response.key_points == []
+    assert result.response.sources == []
+    assert any(
+        note.startswith(("Academic lookup:", "学术检索："))
+        for note in result.response.uncertainty_notes
+    )
+    assert any(note.startswith("Retrieval gaps:") for note in result.response.uncertainty_notes)
+
+
+def test_academic_lookup_adapter_error_without_support_remains_retrieval_failure(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _academic_no_support_retrieve_response(failure_reason="adapter_error")
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self,
+            prompt: str,
+            timeout_seconds: float | None = None,
+        ) -> str:
+            raise AssertionError(
+                "retrieval failure should not invoke grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=_ACADEMIC_LOOKUP_QUERY,
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "retrieval_failure"
+    assert result.response.conclusion == "Retrieval failed before a grounded answer could be produced."
 
 
 def test_budget_enforcement_with_canonical_evidence_still_returns_partial_facts(
