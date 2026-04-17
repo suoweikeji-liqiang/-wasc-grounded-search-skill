@@ -1100,7 +1100,7 @@ def test_execute_answer_pipeline_with_trace_skips_generation_for_irrelevant_evid
     assert result.response.key_points
     assert result.response.sources
     assert any(
-        note.startswith("Relevance gate:")
+        note.startswith(("Answer scope:", "回答范围："))
         for note in result.response.uncertainty_notes
     )
     assert result.runtime_trace.budget_exhausted_phase is None
@@ -1145,7 +1145,7 @@ def test_execute_answer_pipeline_with_trace_skips_generation_on_single_term_over
     assert model_client.call_count == 0
     assert result.response.answer_status == "insufficient_evidence"
     assert any(
-        note.startswith("Relevance gate:")
+        note.startswith(("Answer scope:", "回答范围："))
         for note in result.response.uncertainty_notes
     )
 
@@ -1446,7 +1446,7 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
 
     assert result.response.answer_status == "grounded_success"
     assert result.response.conclusion.startswith(
-        'The strongest retained industry source is "Battery recycling market share outlook 2025".'
+        'The strongest direct industry source is "Battery recycling market share outlook 2025".'
     )
     assert result.response.key_points[0].model_dump() == {
         "key_point_id": "kp-1",
@@ -1505,7 +1505,7 @@ def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_relabels_w
     assert result.response.answer_status == "grounded_success"
     assert len(result.response.sources) == 2
     assert result.response.conclusion.startswith(
-        'The strongest retained industry source is "Battery recycling market share outlook 2025".'
+        'The strongest direct industry source is "Battery recycling market share outlook 2025".'
     )
     assert "Supporting industry evidence also includes" not in result.response.conclusion
     assert "Related market context also includes" in result.response.conclusion
@@ -1712,7 +1712,7 @@ def test_execute_answer_pipeline_with_trace_enriches_thin_academic_list_query_wi
     )
 
     assert observed_queries
-    assert "grounded search evidence packing" in observed_queries[0].lower()
+    assert observed_queries[0].lower() == "grounded search evidence packing"
     assert result.response.answer_status == "grounded_success"
     assert len(result.response.sources) == 2
     assert {source.title for source in result.response.sources} == {
@@ -1726,6 +1726,7 @@ def test_execute_answer_pipeline_with_trace_enriches_thin_academic_list_query_wi
         entry["stage"] == "coverage_frontier_probe"
         and entry["source_id"] == "academic_arxiv"
         and entry["hit_count"] == 1
+        and entry["probe_variant_reason_code"] == "academic_ascii_core"
         for entry in result.runtime_trace.retrieval_trace
     )
     assert result.runtime_trace.synthesis_elapsed_ms == 0
@@ -1915,11 +1916,12 @@ def test_execute_answer_pipeline_with_trace_single_source_industry_outlook_fast_
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert "Available retained industry evidence points to" in result.response.conclusion
+    assert "What can be confirmed so far is that" in result.response.conclusion
     assert "SEMI outlook for semiconductor packaging capacity" in (
         result.response.conclusion
     )
-    assert "does not expose a numeric" in result.response.conclusion
+    assert "actual forecast figures" in result.response.conclusion
+    assert "segment split" in result.response.conclusion
     assert "second corroborating source" in result.response.conclusion
 
 
@@ -2036,9 +2038,10 @@ def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_pa
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert "Current sources support" in result.response.conclusion
+    assert "What can be confirmed so far is" in result.response.conclusion
     assert "SEMI outlook for semiconductor packaging capacity" in result.response.conclusion
-    assert "numeric forecast" in result.response.conclusion
+    assert "directional market signal" in result.response.conclusion
+    assert "a numeric forecast or range" in result.response.conclusion
     assert "retrieval gaps" not in result.response.conclusion.lower()
     assert "industry_news_rss" not in result.response.conclusion
     assert "Confirmed from retained evidence" not in result.response.conclusion
@@ -2101,7 +2104,7 @@ def test_execute_answer_pipeline_with_trace_relevance_gated_industry_partial_exc
         for source in result.response.sources
     )
     assert any(
-        note.startswith("Relevance gate:")
+        note.startswith(("Answer scope:", "回答范围："))
         for note in result.response.uncertainty_notes
     )
 
@@ -2185,7 +2188,7 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_s
 
     assert result.response.answer_status == "grounded_success"
     assert result.response.conclusion.startswith(
-        'The strongest retained industry source is "RFC 9700".'
+        'The strongest direct industry source is "RFC 9700".'
     )
     assert result.response.key_points[0].model_dump() == {
         "key_point_id": "kp-1",
@@ -2342,7 +2345,7 @@ def test_execute_answer_pipeline_with_trace_budget_enforced_mixed_partial_uses_u
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert result.response.conclusion.startswith("基于当前来源，可以确认：")
+    assert result.response.conclusion.startswith("综合当前来源，可以先做一个谨慎的阶段性判断：")
     assert "BYD autonomous driving supplier investment update" in result.response.conclusion
     assert "供应链投资、支出类别或时间节奏" in result.response.conclusion
     assert "industry_web_discovery" not in result.response.conclusion
@@ -2350,7 +2353,7 @@ def test_execute_answer_pipeline_with_trace_budget_enforced_mixed_partial_uses_u
     assert "Confirmed from retained evidence" not in result.response.conclusion
     assert len(result.response.key_points) == 2
     assert len(result.response.sources) == 2
-    assert "\u5b8c\u6574\u5f52\u56e0\u5206\u6790" in result.response.conclusion
+    assert "部分答案" in result.response.conclusion
     assert not any(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
@@ -2687,7 +2690,7 @@ def test_execute_answer_pipeline_with_trace_keeps_mixed_fast_path_conservative(
     assert model_client.call_count == 0
     assert result.response.answer_status == "insufficient_evidence"
     assert any(
-        note.startswith("Relevance gate:")
+        note.startswith(("Answer scope:", "回答范围："))
         for note in result.response.uncertainty_notes
     )
 
@@ -2728,9 +2731,10 @@ def test_execute_answer_pipeline_with_trace_degrades_on_generation_backend_error
     assert result.response.key_points
     assert result.response.sources
     assert any(
-        note.startswith("Generation backend:")
+        note.startswith(("Answer assembly:", "回答生成："))
         for note in result.response.uncertainty_notes
     )
+    assert not any("MiniMax" in note for note in result.response.uncertainty_notes)
     assert result.runtime_trace.budget_exhausted_phase is None
 
 
@@ -2772,7 +2776,7 @@ def test_execute_answer_pipeline_with_trace_skips_academic_generation_when_slice
     assert model_client.call_count == 0
     assert result.response.answer_status == "insufficient_evidence"
     assert any(
-        note.startswith("Relevance gate:")
+        note.startswith(("Answer scope:", "回答范围："))
         for note in result.response.uncertainty_notes
     )
 

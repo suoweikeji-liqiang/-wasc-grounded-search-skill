@@ -159,10 +159,18 @@ def test_partial_insufficient_evidence_keeps_grounded_conclusion_key_points_and_
     assert result.response.answer_status == "insufficient_evidence"
     assert "Available evidence was insufficient to fully support" not in result.response.conclusion
     assert "autonomous driving pilot regulation" in result.response.conclusion
-    assert "complete answer would still need" in result.response.conclusion.lower()
-    assert len(result.response.key_points) == 1
-    assert len(result.response.sources) == 1
+    assert "taken together" in result.response.conclusion.lower()
+    assert "cautious partial answer" in result.response.conclusion.lower()
+    assert "regulatory signal and a same-topic industry signal" in (
+        result.response.conclusion.lower()
+    )
+    assert len(result.response.key_points) == 2
+    assert len(result.response.sources) == 2
     assert result.response.key_points[0].citations[0].evidence_id == "policy-1"
+    assert {source.evidence_id for source in result.response.sources} == {
+        "policy-1",
+        "industry-1",
+    }
     assert any(note.startswith("Retrieval gaps:") for note in result.response.uncertainty_notes)
     assert any(note.startswith("Industry coverage gap:") for note in result.response.uncertainty_notes)
 
@@ -205,9 +213,11 @@ def test_generation_backend_failure_with_canonical_evidence_still_returns_partia
     assert result.response.sources
     assert "autonomous driving pilot regulation" in result.response.conclusion
     assert any(
-        note.startswith("Generation backend:")
+        note.startswith(("Answer assembly:", "回答生成："))
         for note in result.response.uncertainty_notes
     )
+    assert not any("MiniMax" in note for note in result.response.uncertainty_notes)
+    assert not any("status 500" in note for note in result.response.uncertainty_notes)
 
 
 def test_budget_enforcement_with_canonical_evidence_still_returns_partial_facts(

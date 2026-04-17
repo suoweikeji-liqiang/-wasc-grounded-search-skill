@@ -695,12 +695,27 @@ def _choose_same_route_enrichment_variant(
         variant_limit=5,
     )
     if route == "academic":
+        multiple_item_query = _query_requests_multiple_academic_items(query)
+        reason_codes = {variant.reason_code for variant in variants}
+        prefer_ascii_core = (
+            multiple_item_query
+            and _query_uses_cjk(query)
+            and "academic_ascii_core" in reason_codes
+        )
         priority = {
-            "academic_ascii_core": 0,
-            "academic_phrase_locked": 1,
-            "academic_evidence_type_focus": 2,
-            "academic_topic_focus": 3,
-            "academic_lookup": 4,
+            "academic_ascii_core": (
+                0
+                if prefer_ascii_core
+                else (1 if multiple_item_query else 0)
+            ),
+            "academic_lookup": (
+                1
+                if prefer_ascii_core
+                else (0 if multiple_item_query else 4)
+            ),
+            "academic_phrase_locked": 2 if multiple_item_query else 1,
+            "academic_evidence_type_focus": 3 if multiple_item_query else 2,
+            "academic_topic_focus": 4 if multiple_item_query else 3,
             "academic_benchmark": 5,
             "original": 6,
         }
@@ -2199,6 +2214,48 @@ def _partial_missing_summary(
     return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
 
 
+def _build_mixed_partial_bridge_note(
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    use_cjk: bool,
+) -> str:
+    domains = {record.domain for record in canonical_evidence}
+    if "policy" in domains and "industry" in domains:
+        if use_cjk:
+            return (
+                "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u540c\u65f6\u7ed9\u51fa\u4e86\u653f\u7b56"
+                "\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u4ea7\u4e1a\u4fe1\u53f7\uff0c"
+                "\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u786e\u8ba4\u5b8c\u6574\u7684\u5f71\u54cd"
+                "\u4f20\u5bfc\u8def\u5f84\u3002"
+            )
+        return (
+            "Current evidence already establishes a regulatory signal and a same-topic "
+            "industry signal, but not the transmission path needed for a full impact estimate."
+        )
+    if "policy" in domains and "academic" in domains:
+        if use_cjk:
+            return (
+                "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u540c\u65f6\u7ed9\u51fa\u4e86\u653f\u7b56"
+                "\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u7814\u7a76\u4fe1\u53f7\uff0c"
+                "\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u786e\u8ba4\u5b8c\u6574\u7684\u5f71\u54cd"
+                "\u673a\u5236\u6216\u8303\u56f4\u3002"
+            )
+        return (
+            "Current evidence already establishes a policy signal and a same-topic research "
+            "signal, but not the mechanism or scope needed for a full impact estimate."
+        )
+    if use_cjk:
+        return (
+            "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u7ed9\u51fa\u4e86\u540c\u9898\u8de8\u57df"
+            "\u4fe1\u53f7\uff0c\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u5b8c\u6210\u5b8c\u6574\u7684"
+            "\u5f71\u54cd\u5206\u6790\u3002"
+        )
+    return (
+        "Current evidence already establishes same-topic cross-domain signals, but not enough "
+        "for a full impact estimate."
+    )
+
+
 def _build_partial_conclusion(
     *,
     retrieval_response: RetrieveResponse,
@@ -2286,7 +2343,7 @@ def _build_partial_conclusion(
     if not confirmed_parts:
         if use_cjk:
             return (
-                f"基于当前来源，信息仍然不完整。要完整回答这个问题，还需要{missing_summary}."
+                f"当前来源仍然不足以完整回答这个问题。要继续补全答案，还需要{missing_summary}."
                 f"{requirement_note}{contextual_note}"
             )
         return (
@@ -2295,14 +2352,45 @@ def _build_partial_conclusion(
         )
 
     confirmed_summary = "; ".join(confirmed_parts)
-    if use_cjk:
-        return (
-            f"基于当前来源，可以确认：{confirmed_summary}。"
-            f"要完整回答这个问题，还需要{missing_summary}.{requirement_note}{contextual_note}"
+    has_industry = any(record.domain == "industry" for record in canonical_evidence)
+    traits = derive_query_traits(query)
+    if retrieval_response.route_label == "mixed":
+        bridge_note = _build_mixed_partial_bridge_note(
+            canonical_evidence,
+            use_cjk=use_cjk,
         )
-    signal_label = "this supported point" if len(confirmed_parts) == 1 else "these supported points"
+        if use_cjk:
+            return (
+                f"综合当前来源，可以先做一个谨慎的阶段性判断：{confirmed_summary}。"
+                f"{bridge_note}"
+                f"这能支持一个部分答案，但完整回答这个问题仍需要{missing_summary}."
+                f"{requirement_note}{contextual_note}"
+            )
+        return (
+            f"Taken together, current sources show these parallel signals: {confirmed_summary}. "
+            f"{bridge_note} "
+            f"This supports a cautious partial answer, but a complete answer would still need "
+            f"{missing_summary}.{requirement_note}{contextual_note}"
+        )
+    if use_cjk:
+        if has_industry and traits.has_trend_intent:
+            return (
+                f"目前可以确认的是：{confirmed_summary}。"
+                f"这还只能作为方向性市场信号，完整回答这个问题仍需要{missing_summary}."
+                f"{requirement_note}{contextual_note}"
+            )
+        return (
+            f"目前可以确认的是：{confirmed_summary}。"
+            f"完整回答这个问题仍需要{missing_summary}.{requirement_note}{contextual_note}"
+        )
+    if has_industry and traits.has_trend_intent:
+        return (
+            f"What can be confirmed so far is: {confirmed_summary}. "
+            f"This supports only a directional market signal, and a complete answer would still need "
+            f"{missing_summary}.{requirement_note}{contextual_note}"
+        )
     return (
-        f"Current sources support {signal_label}: {confirmed_summary}. "
+        f"What can be confirmed so far is: {confirmed_summary}. "
         f"A complete answer would still need {missing_summary}.{requirement_note}{contextual_note}"
     )
 
@@ -2318,14 +2406,39 @@ def _build_partial_response_payload(
     reason: str | None = None,
 ) -> tuple[str, list[dict[str, object]], list[dict[str, str]]]:
     key_points = list(validated_key_points or [])
+    matches = _select_partial_evidence_matches(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        limit=2,
+    )
     if not key_points:
-        matches = _select_partial_evidence_matches(
-            retrieval_response,
-            canonical_evidence,
-            query=query,
-            limit=2,
-        )
         key_points = _build_key_points_from_partial_matches(matches)
+    elif len(key_points) < 2:
+        cited_evidence_ids = {
+            str(citation.get("evidence_id"))
+            for key_point in key_points
+            for citation in key_point.get("citations", [])
+            if isinstance(citation, dict) and citation.get("evidence_id")
+        }
+        for record, slice_ in matches:
+            if len(key_points) >= 2 or record.evidence_id in cited_evidence_ids:
+                continue
+            key_points.append(
+                {
+                    "key_point_id": f"kp-{len(key_points) + 1}",
+                    "statement": slice_.text,
+                    "citations": [
+                        {
+                            "evidence_id": record.evidence_id,
+                            "source_record_id": slice_.source_record_id,
+                            "source_url": record.canonical_url,
+                            "quote_text": slice_.text,
+                        }
+                    ],
+                }
+            )
+            cited_evidence_ids.add(record.evidence_id)
 
     evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
     cited_evidence_ids = [
@@ -2492,6 +2605,11 @@ def _build_relevance_gated_response(
     conclusion = "Available evidence was insufficient to fully support the requested answer."
     key_points: list[dict[str, object]] = []
     sources: list[dict[str, str]] = []
+    scope_note = (
+        "回答范围：当前保留来源还不足以直接支撑这个问题的精确表述。"
+        if _query_uses_cjk(query)
+        else "Answer scope: current sources are not specific enough to ground this exact query."
+    )
     if canonical_evidence:
         conclusion, key_points, sources = _build_partial_response_payload(
             retrieval_response,
@@ -2511,7 +2629,7 @@ def _build_relevance_gated_response(
         key_points=key_points,
         sources=sources,
         uncertainty_notes=[
-            "Relevance gate: retained evidence does not share enough query-specific terms for grounded synthesis.",
+            scope_note,
             *uncertainty_notes,
         ],
         gaps=list(retrieval_response.gaps),
@@ -2543,6 +2661,17 @@ def _build_generation_backend_response(
             query=query,
             reason="a completed grounded synthesis from the generation backend",
         )
+    backend_note = (
+        "\u56de\u7b54\u751f\u6210\uff1a\u672c\u6b21\u5b8c\u6574\u7684\u6765\u6e90\u7efc\u5408"
+        "\u672a\u80fd\u5b8c\u6210\uff0c\u56e0\u6b64\u4ee5\u4e0b\u5185\u5bb9\u4ec5\u9650\u4e8e"
+        "\u5f53\u524d\u53ef\u76f4\u63a5\u652f\u6491\u7684\u8bc1\u636e\u3002"
+        if _query_uses_cjk(query)
+        else (
+            "Answer assembly: the full source-backed synthesis did not complete, so this "
+            "response is limited to directly supported evidence."
+        )
+    )
+    del reason
     return AnswerResponse(
         answer_status="insufficient_evidence",
         retrieval_status=retrieval_response.status,
@@ -2555,7 +2684,7 @@ def _build_generation_backend_response(
         key_points=key_points,
         sources=sources,
         uncertainty_notes=[
-            f"Generation backend: {reason}",
+            backend_note,
             *uncertainty_notes,
         ],
         gaps=list(retrieval_response.gaps),
@@ -2788,30 +2917,49 @@ def _build_industry_lookup_fast_path_response(
             supporting_matches,
         )
     )
+    use_cjk = _query_uses_cjk(query)
     single_source_outlook = (
         not direct_supporting_matches
         and contextual_supporting_match is None
         and derive_query_traits(query).has_trend_intent
     )
     if single_source_outlook:
-        conclusion = (
-            f'Available retained industry evidence points to "{matched_record.canonical_title}", '
-            "but the available snippet does not expose a numeric breakout or a "
-            "second corroborating source."
-        )
+        if use_cjk:
+            conclusion = (
+                f'目前可以确认的是，"{matched_record.canonical_title}" 是这类 2026 年行业展望的直接来源之一，'
+                "但当前片段还没有给出实际预测数值、细分拆分或第二个交叉来源。"
+            )
+        else:
+            conclusion = (
+                f'What can be confirmed so far is that "{matched_record.canonical_title}" '
+                "is a direct source on this 2026 outlook, but the retained snippet does not "
+                "expose the actual forecast figures, segment split, or a second corroborating source."
+            )
     else:
-        conclusion = f'The strongest retained industry source is "{matched_record.canonical_title}".'
-    if direct_supporting_matches:
         conclusion = (
-            f"{conclusion} Additional industry evidence also includes "
-            f"{_format_quoted_titles([record.canonical_title for record, _, _ in direct_supporting_matches])}."
+            f'当前最直接的行业来源是 "{matched_record.canonical_title}"。'
+            if use_cjk
+            else f'The strongest direct industry source is "{matched_record.canonical_title}".'
+        )
+    if direct_supporting_matches:
+        supporting_titles = _format_quoted_titles(
+            [record.canonical_title for record, _, _ in direct_supporting_matches]
+        )
+        conclusion = (
+            f"{conclusion} 补充行业佐证还包括 {supporting_titles}。"
+            if use_cjk
+            else f"{conclusion} Additional industry evidence also includes {supporting_titles}."
         )
     elif contextual_supporting_match is not None:
         contextual_record, _, _ = contextual_supporting_match
         conclusion = (
-            f'{conclusion} Related market context also includes '
-            f'"{contextual_record.canonical_title}", but it is not direct evidence '
-            "for the requested answer."
+            f'{conclusion} 相关市场背景还包括 "{contextual_record.canonical_title}"，但它仍不是直接回答这个问题的证据。'
+            if use_cjk
+            else (
+                f'{conclusion} Related market context also includes '
+                f'"{contextual_record.canonical_title}", but it is not direct evidence '
+                "for the requested answer."
+            )
         )
 
     draft = StructuredAnswerDraft(
