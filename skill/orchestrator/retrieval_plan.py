@@ -40,6 +40,7 @@ _ALLOWED_SOURCE_IDS: frozenset[str] = frozenset(
 )
 _PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS = 8.0
 _PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS = 9.0
+_PRIMARY_INDUSTRY_DISCOVERY_ONLY_PER_SOURCE_TIMEOUT_SECONDS = 6.5
 _PRIMARY_INDUSTRY_GLOBAL_CONCURRENCY_CAP = 3
 _MIXED_OVERALL_DEADLINE_SECONDS = 8.0
 _MIXED_DISCOVERY_DEADLINE_SECONDS = 2.5
@@ -334,6 +335,14 @@ def _build_mixed_supplemental_industry_fallback() -> tuple[PlannedSourceStep, ..
     )
 
 
+def _is_primary_industry_discovery_only_first_wave(
+    first_wave: tuple[PlannedSourceStep, ...],
+) -> bool:
+    return tuple(step.source.source_id for step in first_wave) == (
+        "industry_web_discovery",
+    )
+
+
 def build_retrieval_plan(
     classification: ClassificationResult,
     *,
@@ -396,6 +405,10 @@ def build_retrieval_plan(
         overall_deadline_seconds = _PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS
         query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
         global_concurrency_cap = _PRIMARY_INDUSTRY_GLOBAL_CONCURRENCY_CAP
+        if _is_primary_industry_discovery_only_first_wave(first_wave):
+            per_source_timeout_seconds = (
+                _PRIMARY_INDUSTRY_DISCOVERY_ONLY_PER_SOURCE_TIMEOUT_SECONDS
+            )
     elif classification.route_label == "mixed":
         overall_deadline_seconds = _MIXED_OVERALL_DEADLINE_SECONDS
         query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET

@@ -51,6 +51,11 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
         "industry_web_discovery",
     ]
     assert (
+        general_industry_plan.overall_deadline_seconds
+        - general_industry_plan.per_source_timeout_seconds
+        >= 2.5
+    )
+    assert (
         general_industry_plan.fallback_sources[0].fallback_from_source_id
         == "industry_web_discovery"
     )

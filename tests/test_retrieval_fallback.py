@@ -780,6 +780,60 @@ def test_run_retrieval_primary_industry_packaging_query_uses_fallback_chain_afte
     ]
 
 
+def test_run_retrieval_primary_industry_discovery_only_plan_reserves_time_for_news_fallback() -> None:
+    classification = ClassificationResult(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        reason_code="industry_hit",
+        scores={"policy": 0, "academic": 0, "industry": 5},
+    )
+    base_plan = build_retrieval_plan(
+        classification,
+        query="advanced packaging capacity outlook 2026",
+    )
+    plan = replace(
+        base_plan,
+        query_variant_budget=1,
+        per_source_timeout_seconds=base_plan.per_source_timeout_seconds * 0.08,
+        overall_deadline_seconds=base_plan.overall_deadline_seconds * 0.08,
+        global_concurrency_cap=3,
+    )
+    events: list[str] = []
+
+    async def _web(_: str) -> list[RetrievalHit]:
+        events.append("web:start")
+        await asyncio.sleep(0.6)
+        events.append("web:end:no_hits")
+        return []
+
+    async def _news(_: str) -> list[RetrievalHit]:
+        events.append("news:start")
+        await asyncio.sleep(0.15)
+        events.append("news:end:success")
+        return [_mk_hit("industry_news_rss")]
+
+    async def _official(_: str) -> list[RetrievalHit]:
+        events.append("official:start")
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={
+                "industry_web_discovery": _web,
+                "industry_news_rss": _news,
+                "industry_official_or_filings": _official,
+            },
+        )
+    )
+
+    assert outcome.status == "success"
+    assert any(hit.source_id == "industry_news_rss" for hit in outcome.results)
+    assert "official:start" not in events
+
+
 def test_run_retrieval_mixed_supplemental_academic_skips_asta_fallback_after_primary_success() -> None:
     classification = ClassificationResult(
         route_label="mixed",
