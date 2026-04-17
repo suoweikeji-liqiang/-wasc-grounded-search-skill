@@ -125,6 +125,14 @@ COVERAGE_FRONTIER_COMPLEMENTARY_SOURCES: Final[
     Mapping[tuple[ConcreteRoute, ConcreteRoute], tuple[str, ...]]
 ] = MappingProxyType(
     {
+        ("academic", "academic"): (
+            "academic_asta_mcp",
+            "academic_arxiv",
+        ),
+        ("industry", "industry"): (
+            "industry_official_or_filings",
+            "industry_news_rss",
+        ),
         ("policy", "industry"): (
             "industry_web_discovery",
             "industry_official_or_filings",

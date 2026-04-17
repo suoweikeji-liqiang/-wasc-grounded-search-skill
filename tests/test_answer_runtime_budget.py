@@ -1466,6 +1466,492 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
     assert result.runtime_trace.latency_budget_ok is True
 
 
+def test_execute_answer_pipeline_with_trace_enriches_thin_industry_fast_path_with_bounded_same_route_support(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    observed_queries: list[str] = []
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "industry-thin-1",
+                    "domain": "industry",
+                    "canonical_title": "SEMI outlook for semiconductor packaging capacity",
+                    "canonical_url": "https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                    "route_role": "primary",
+                    "retained_slices": [
+                        {
+                            "text": (
+                                "Industry-association forecast for semiconductor "
+                                "packaging capacity in 2026."
+                            ),
+                            "source_record_id": "industry-thin-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    async def _industry_official_or_filings_adapter(
+        candidate_query: str,
+    ) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        return [
+            RetrievalHit(
+                source_id="industry_official_or_filings",
+                title="Amkor investor presentation on advanced packaging capacity",
+                url="https://ir.amkor.com/advanced-packaging-capacity-2026",
+                snippet=(
+                    "Company guidance says advanced packaging capacity expansion "
+                    "continues into 2026 to support AI demand."
+                ),
+            )
+        ]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "same-route industry enrichment should recover a local fast path before grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={
+                "industry_official_or_filings": _industry_official_or_filings_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert observed_queries
+    assert "advanced packaging" in observed_queries[0].lower()
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 2
+    assert {source.title for source in result.response.sources} == {
+        "SEMI outlook for semiconductor packaging capacity",
+        "Amkor investor presentation on advanced packaging capacity",
+    }
+    assert "Amkor investor presentation on advanced packaging capacity" in (
+        result.response.conclusion
+    )
+    assert any(
+        entry["stage"] == "coverage_frontier_probe"
+        and entry["source_id"] == "industry_official_or_filings"
+        and entry["hit_count"] == 1
+        for entry in result.runtime_trace.retrieval_trace
+    )
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_enriches_thin_academic_list_query_with_bounded_same_route_support(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    observed_queries: list[str] = []
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-thin-1",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing",
+                    "canonical_url": "https://www.semanticscholar.org/paper/grounded-search-evidence-packing",
+                    "route_role": "primary",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/grounded-search.2026.001",
+                    "first_author": "Chen",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Grounded search evidence packing for bounded contexts.",
+                            "source_record_id": "paper-thin-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    async def _academic_arxiv_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        return [
+            RetrievalHit(
+                source_id="academic_arxiv",
+                title="Evidence packing for grounded search under latency constraints",
+                url="https://arxiv.org/abs/2604.88888",
+                snippet=(
+                    "Preprint on grounded search evidence packing under bounded "
+                    "latency and context limits."
+                ),
+                year=2026,
+            )
+        ]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "same-route academic enrichment should stay local and avoid grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "\u6709\u54ea\u4e9b grounded search evidence packing "
+                "\u8bba\u6587"
+            ),
+            adapter_registry={
+                "academic_arxiv": _academic_arxiv_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert observed_queries
+    assert "grounded search evidence packing" in observed_queries[0].lower()
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 2
+    assert {source.title for source in result.response.sources} == {
+        "Grounded search evidence packing",
+        "Evidence packing for grounded search under latency constraints",
+    }
+    assert "Supporting academic evidence also includes" in result.response.conclusion
+    assert any(
+        entry["stage"] == "coverage_frontier_probe"
+        and entry["source_id"] == "academic_arxiv"
+        and entry["hit_count"] == 1
+        for entry in result.runtime_trace.retrieval_trace
+    )
+    assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_same_route_academic_enrichment_prefers_novel_support_over_duplicate_variant(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-thin-dup-1",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing",
+                    "canonical_url": "https://www.semanticscholar.org/paper/grounded-search-evidence-packing",
+                    "route_role": "primary",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/grounded-search.2026.001",
+                    "arxiv_id": "2604.77777",
+                    "first_author": "Chen",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Grounded search evidence packing for bounded contexts.",
+                            "source_record_id": "paper-thin-dup-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    async def _academic_asta_mcp_adapter(_: str) -> list[RetrievalHit]:
+        return [
+            RetrievalHit(
+                source_id="academic_asta_mcp",
+                title="Grounded search evidence packing",
+                url="https://www.semanticscholar.org/paper/asta-grounded-search-evidence-packing",
+                snippet="Asta-backed grounded search evidence packing study for bounded contexts.",
+                doi="10.1000/grounded-search.2026.001",
+                arxiv_id="2604.77777",
+                first_author="Chen",
+                year=2026,
+                evidence_level="peer_reviewed",
+            ),
+            RetrievalHit(
+                source_id="academic_asta_mcp",
+                title="Evidence normalization for retrieval grounded systems",
+                url="https://www.semanticscholar.org/paper/asta-evidence-normalization",
+                snippet=(
+                    "Asta-backed multi-source evidence ranking benchmark for "
+                    "grounded retrieval systems."
+                ),
+                doi="10.48550/wasc.2025.001",
+                first_author="Lin",
+                year=2025,
+                evidence_level="peer_reviewed",
+            ),
+        ]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "same-route academic novelty preference should stay local"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "\u6709\u54ea\u4e9b grounded search evidence packing "
+                "\u8bba\u6587"
+            ),
+            adapter_registry={
+                "academic_asta_mcp": _academic_asta_mcp_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 2
+    assert {
+        source.title for source in result.response.sources
+    } == {
+        "Grounded search evidence packing",
+        "Evidence normalization for retrieval grounded systems",
+    }
+    assert not any(
+        source.url == "https://www.semanticscholar.org/paper/asta-grounded-search-evidence-packing"
+        for source in result.response.sources
+    )
+
+
+def test_execute_answer_pipeline_with_trace_single_source_industry_outlook_fast_path_uses_direct_limit_aware_conclusion(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "industry-single-1",
+                    "domain": "industry",
+                    "canonical_title": "SEMI outlook for semiconductor packaging capacity",
+                    "canonical_url": "https://www.semi.org/en/news-resources/market-data/packaging-capacity-2026",
+                    "route_role": "primary",
+                    "retained_slices": [
+                        {
+                            "text": (
+                                "Industry-association forecast for semiconductor "
+                                "packaging capacity in 2026."
+                            ),
+                            "source_record_id": "industry-single-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "single-source industry outlook fast path should stay local"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="advanced packaging capacity outlook 2026",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(request_deadline_seconds=1.5),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Retained industry outlook evidence" in result.response.conclusion
+    assert "SEMI outlook for semiconductor packaging capacity" in (
+        result.response.conclusion
+    )
+    assert "does not include a numeric" in result.response.conclusion
+    assert "second corroborating source" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_single_source_academic_list_fast_path_calls_out_incomplete_coverage(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return RetrieveResponse(
+            route_label="academic",
+            primary_route="academic",
+            supplemental_route=None,
+            browser_automation="disabled",
+            status="success",
+            failure_reason=None,
+            gaps=[],
+            results=[],
+            canonical_evidence=[
+                {
+                    "evidence_id": "paper-single-1",
+                    "domain": "academic",
+                    "canonical_title": "Grounded search evidence packing",
+                    "canonical_url": "https://www.semanticscholar.org/paper/grounded-search-evidence-packing",
+                    "route_role": "primary",
+                    "evidence_level": "peer_reviewed",
+                    "canonical_match_confidence": "strong_id",
+                    "doi": "10.1000/grounded-search.2026.001",
+                    "first_author": "Chen",
+                    "year": 2026,
+                    "retained_slices": [
+                        {
+                            "text": "Grounded search evidence packing for bounded contexts.",
+                            "source_record_id": "paper-single-1-slice-1",
+                            "source_span": "snippet",
+                        }
+                    ],
+                    "linked_variants": [],
+                }
+            ],
+            evidence_clipped=False,
+            evidence_pruned=False,
+        )
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "single-source academic list fast path should stay local"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("academic", "academic", None),
+            query=(
+                "\u6709\u54ea\u4e9b grounded search evidence packing "
+                "\u8bba\u6587"
+            ),
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(request_deadline_seconds=1.5),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Grounded search evidence packing" in result.response.conclusion
+    assert "Only one retained paper matched this query" in result.response.conclusion
+    assert "broader literature coverage remains incomplete" in (
+        result.response.conclusion
+    )
+
+
 def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_path(
     monkeypatch,
 ) -> None:

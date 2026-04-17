@@ -274,6 +274,20 @@ _ACADEMIC_PAPER_MARKERS = frozenset({"paper", "papers", "\u8bba\u6587"})
 _MIXED_IMPACT_QUERY_MARKERS = frozenset(
     {"impact", "effect", "\u5f71\u54cd", "\u6548\u5e94"}
 )
+_ACADEMIC_LIST_INTENT_MARKERS = frozenset(
+    {
+        "benchmarks",
+        "literature",
+        "list",
+        "papers",
+        "studies",
+        "surveys",
+        "\u54ea\u4e9b",
+        "\u54ea\u51e0",
+        "\u5217\u51fa",
+        "\u6709\u54ea\u4e9b",
+    }
+)
 _COVERAGE_FRONTIER_VARIANT_PRIORITY: dict[str, int] = {
     "cross_domain_fragment_focus": 0,
     "document_focus": 1,
@@ -623,6 +637,118 @@ def _choose_coverage_frontier_variant(
     return selected.query, selected.reason_code
 
 
+def _query_requests_multiple_academic_items(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    tokens = set(query_tokens(normalized))
+    return any(
+        (marker in tokens) if marker.isascii() else (marker in normalized)
+        for marker in _ACADEMIC_LIST_INTENT_MARKERS
+    )
+
+
+def _should_attempt_same_route_enrichment(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+    local_candidate: AnswerResponse | None,
+) -> bool:
+    if retrieval_response.status != "success" or retrieval_response.failure_reason is not None:
+        return False
+    if retrieval_response.gaps or not canonical_evidence:
+        return False
+    if retrieval_response.supplemental_route is not None:
+        return False
+    if local_candidate is None or local_candidate.answer_status != "grounded_success":
+        return False
+    if len(local_candidate.sources) >= 2 or len(local_candidate.key_points) >= 2:
+        return False
+
+    if retrieval_response.primary_route == "industry":
+        return (
+            _is_industry_lookup_query(query)
+            and derive_query_traits(query).has_trend_intent
+        )
+    if retrieval_response.primary_route == "academic":
+        return (
+            _is_academic_lookup_query(query)
+            and _query_requests_multiple_academic_items(query)
+        )
+    return False
+
+
+def _choose_same_route_enrichment_variant(
+    query: str,
+    *,
+    route: str,
+) -> tuple[str, str]:
+    variants = build_query_variants(
+        query=query,
+        route_label=route,  # type: ignore[arg-type]
+        primary_route=route,  # type: ignore[arg-type]
+        supplemental_route=None,
+        target_route=route,  # type: ignore[arg-type]
+        variant_limit=5,
+    )
+    if route == "academic":
+        priority = {
+            "academic_ascii_core": 0,
+            "academic_phrase_locked": 1,
+            "academic_evidence_type_focus": 2,
+            "academic_topic_focus": 3,
+            "academic_lookup": 4,
+            "academic_benchmark": 5,
+            "original": 6,
+        }
+    else:
+        priority = {
+            "industry_cjk_gloss": 0,
+            "original": 1,
+            "core_focus": 2,
+            "industry_trend": 3,
+            "industry_share": 4,
+        }
+    selected = min(
+        variants,
+        key=lambda variant: (
+            priority.get(variant.reason_code, 99),
+            len(variant.query),
+            variant.query,
+        ),
+    )
+    return selected.query, selected.reason_code
+
+
+def _successful_retrieval_source_ids(
+    retrieval_trace: tuple[dict[str, object], ...],
+) -> set[str]:
+    source_ids: set[str] = set()
+    for entry in retrieval_trace:
+        source_id = entry.get("source_id")
+        hit_count = entry.get("hit_count")
+        if isinstance(source_id, str) and isinstance(hit_count, int) and hit_count > 0:
+            source_ids.add(source_id)
+    return source_ids
+
+
+def _combine_ranked_matches(
+    *match_groups: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
+    limit: int = 2,
+) -> tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...]:
+    combined: list[tuple[CanonicalEvidence, EvidenceSlice, int]] = []
+    seen_evidence_ids: set[str] = set()
+    for group in match_groups:
+        for match in group:
+            record = match[0]
+            if record.evidence_id in seen_evidence_ids:
+                continue
+            combined.append(match)
+            seen_evidence_ids.add(record.evidence_id)
+            if len(combined) >= limit:
+                return tuple(combined)
+    return tuple(combined)
+
+
 def _should_activate_coverage_frontier(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -690,11 +816,42 @@ def _coverage_frontier_trace_entry(
     }
 
 
+def _coverage_frontier_hit_is_duplicate(
+    hit: RetrievalHit,
+    *,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> bool:
+    normalized_title = normalize_query_text(hit.title)
+    normalized_url = hit.url.strip().lower()
+    normalized_doi = normalize_query_text(hit.doi) if hit.doi else ""
+    normalized_arxiv_id = normalize_query_text(hit.arxiv_id) if hit.arxiv_id else ""
+
+    for record in canonical_evidence:
+        if normalized_url and normalized_url == record.canonical_url.strip().lower():
+            return True
+        if normalized_title and normalized_title == normalize_query_text(
+            record.canonical_title
+        ):
+            return True
+        if normalized_doi and record.doi and normalized_doi == normalize_query_text(
+            record.doi
+        ):
+            return True
+        if (
+            normalized_arxiv_id
+            and record.arxiv_id
+            and normalized_arxiv_id == normalize_query_text(record.arxiv_id)
+        ):
+            return True
+    return False
+
+
 def _select_coverage_frontier_hit(
     probe: CoverageFrontierProbe,
     *,
     query: str,
     probe_hits: list[RetrievalHit],
+    canonical_evidence: tuple[CanonicalEvidence, ...] = (),
 ) -> tuple[CoverageFrontierProbe, RetrievalHit | None, int]:
     ranked_hits = list(
         prioritize_hits(
@@ -718,6 +875,11 @@ def _select_coverage_frontier_hit(
     best_key = (-1, "", "", "", "")
 
     for hit in ranked_hits:
+        if canonical_evidence and _coverage_frontier_hit_is_duplicate(
+            hit,
+            canonical_evidence=canonical_evidence,
+        ):
+            continue
         original_query_probe = attach_probe_alignment(
             probe,
             query=query,
@@ -798,6 +960,325 @@ def _merge_coverage_frontier_evidence(
         combined_pack.clipped,
         combined_pack.pruned,
         has_supplemental_evidence,
+    )
+
+
+def _build_same_route_academic_enrichment_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+) -> AnswerResponse | None:
+    primary_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="academic",
+        route_role="primary",
+        limit=2,
+    )
+    supplemental_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="academic",
+        route_role="supplemental",
+        limit=2,
+    )
+    combined_matches = _combine_ranked_matches(
+        primary_matches,
+        supplemental_matches,
+        limit=2,
+    )
+    if len(combined_matches) <= 1:
+        return None
+    if not _academic_fast_path_match_allowed(
+        query,
+        record=combined_matches[0][0],
+        matched_slice=combined_matches[0][1],
+        slice_overlap=combined_matches[0][2],
+    ):
+        return None
+    return _build_academic_lookup_fast_path_response(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        matched_records=combined_matches,
+    )
+
+
+def _build_same_route_industry_enrichment_response(
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
+) -> AnswerResponse | None:
+    primary_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="industry",
+        route_role="primary",
+        limit=2,
+    )
+    supplemental_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain="industry",
+        route_role="supplemental",
+        limit=2,
+    )
+    combined_matches = _combine_ranked_matches(
+        primary_matches,
+        supplemental_matches,
+        limit=2,
+    )
+    query_terms = _content_terms(query)
+    if (
+        len(combined_matches) <= 1
+        or combined_matches[0][2] < min(2, len(query_terms))
+    ):
+        return None
+    return _build_industry_lookup_fast_path_response(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        matched_record=combined_matches[0][0],
+        matched_slice=combined_matches[0][1],
+        supporting_matches=combined_matches[1:],
+    )
+
+
+async def _maybe_apply_same_route_enrichment(
+    *,
+    query: str,
+    retrieval_response: RetrieveResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+    local_fast_path_response: AnswerResponse,
+    adapter_registry: Mapping[str, Adapter],
+    runtime_budget: RuntimeBudget,
+    retrieval_elapsed_seconds: float,
+    retrieval_trace: tuple[dict[str, object], ...],
+) -> tuple[
+    RetrieveResponse,
+    tuple[CanonicalEvidence, ...],
+    tuple[dict[str, object], ...],
+    float,
+    AnswerResponse | None,
+]:
+    if not _should_attempt_same_route_enrichment(
+        retrieval_response,
+        canonical_evidence,
+        query=query,
+        local_candidate=local_fast_path_response,
+    ):
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    probe_query, probe_variant_reason_code = _choose_same_route_enrichment_variant(
+        query,
+        route=retrieval_response.primary_route,
+    )
+    remaining_request_seconds = runtime_budget.remaining_request_seconds(
+        elapsed_seconds=retrieval_elapsed_seconds,
+    )
+    if not has_budget_for_coverage_frontier_probe(
+        remaining_request_seconds=remaining_request_seconds,
+    ):
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    used_source_ids = _successful_retrieval_source_ids(retrieval_trace)
+    frontier_candidates = tuple(
+        replace(
+            candidate,
+            reason_code=(
+                f"{candidate.reason_code}:{probe_variant_reason_code}"
+            ),
+        )
+        for candidate in build_coverage_frontier_candidates(
+            source_route=retrieval_response.primary_route,
+            probe_query=probe_query,
+        )
+        if candidate.target_route == retrieval_response.primary_route
+        and candidate.source_id not in used_source_ids
+    )
+    if not frontier_candidates:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    total_probe_elapsed_seconds = 0.0
+    updated_trace = list(retrieval_trace)
+    selected_hits_by_evidence_id: dict[str, RetrievalHit] = {}
+    selected_probes: list[CoverageFrontierProbe] = []
+    any_probe_executed = False
+
+    for frontier_probe in frontier_candidates:
+        adapter = adapter_registry.get(frontier_probe.source_id)
+        if adapter is None:
+            continue
+
+        current_remaining_seconds = runtime_budget.remaining_request_seconds(
+            elapsed_seconds=retrieval_elapsed_seconds + total_probe_elapsed_seconds,
+        )
+        if not has_budget_for_coverage_frontier_probe(
+            remaining_request_seconds=current_remaining_seconds,
+        ):
+            break
+
+        probe_timeout_seconds = min(
+            COVERAGE_FRONTIER_PER_PROBE_TIMEOUT_SECONDS,
+            current_remaining_seconds
+            - COVERAGE_FRONTIER_MIN_REMAINING_SECONDS_TO_PROBE,
+        )
+        if probe_timeout_seconds <= 0:
+            break
+        if runtime_budget.remaining_synthesis_seconds(
+            retrieval_elapsed_seconds=(
+                retrieval_elapsed_seconds
+                + total_probe_elapsed_seconds
+                + probe_timeout_seconds
+            ),
+        ) <= 0.5:
+            break
+
+        any_probe_executed = True
+        probe_started_at = time.perf_counter()
+        failure_reason: RetrievalFailureReason | None = None
+        error_class = "ok"
+        try:
+            probe_hits = await asyncio.wait_for(
+                adapter(frontier_probe.probe_query),
+                timeout=probe_timeout_seconds,
+            )
+        except TimeoutError:
+            failure_reason = "timeout"
+            error_class = "timeout"
+            probe_hits = []
+        except Exception:
+            failure_reason = "adapter_error"
+            error_class = "adapter_error"
+            probe_hits = []
+        probe_elapsed_seconds = time.perf_counter() - probe_started_at
+        total_probe_elapsed_seconds += probe_elapsed_seconds
+
+        annotated_probe = frontier_probe
+        if probe_hits:
+            annotated_probe, selected_hit, _ = _select_coverage_frontier_hit(
+                frontier_probe,
+                query=query,
+                probe_hits=probe_hits,
+                canonical_evidence=canonical_evidence,
+            )
+            if (
+                selected_hit is not None
+                and annotated_probe.selected_evidence_id is not None
+            ):
+                selected_hits_by_evidence_id[annotated_probe.selected_evidence_id] = (
+                    selected_hit
+                )
+                selected_probes.append(annotated_probe)
+        if failure_reason is None and annotated_probe.selected_evidence_id is None:
+            failure_reason = "no_hits"
+            error_class = "parse_empty"
+
+        updated_trace.append(
+            _coverage_frontier_trace_entry(
+                stage="coverage_frontier_probe",
+                probe=annotated_probe,
+                started_at_ms=int(
+                    round(
+                        (
+                            retrieval_elapsed_seconds
+                            + total_probe_elapsed_seconds
+                            - probe_elapsed_seconds
+                        )
+                        * 1000
+                    )
+                ),
+                elapsed_ms=int(round(probe_elapsed_seconds * 1000)),
+                hit_count=len(probe_hits),
+                failure_reason=failure_reason,
+                error_class=error_class,
+                probe_variant_reason_code=probe_variant_reason_code,
+            )
+        )
+
+    if not any_probe_executed:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
+    winner = select_coverage_frontier_winner(tuple(selected_probes))
+    if winner is None or winner.selected_evidence_id is None:
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+
+    selected_hit = selected_hits_by_evidence_id.get(winner.selected_evidence_id)
+    if selected_hit is None:
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+
+    merged_evidence, clipped, pruned, has_supplemental_evidence = _merge_coverage_frontier_evidence(
+        canonical_evidence,
+        supplemental_hits=(selected_hit,),
+        runtime_budget=runtime_budget,
+    )
+    if not has_supplemental_evidence:
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+
+    updated_response = retrieval_response.model_copy(
+        update={
+            "supplemental_route": retrieval_response.primary_route,
+            "evidence_clipped": retrieval_response.evidence_clipped or clipped,
+            "evidence_pruned": retrieval_response.evidence_pruned or pruned,
+        }
+    )
+    if retrieval_response.primary_route == "academic":
+        enriched_response = _build_same_route_academic_enrichment_response(
+            updated_response,
+            merged_evidence,
+            query=query,
+        )
+    else:
+        enriched_response = _build_same_route_industry_enrichment_response(
+            updated_response,
+            merged_evidence,
+            query=query,
+        )
+    if enriched_response is None:
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+    if (
+        len(enriched_response.sources) <= len(local_fast_path_response.sources)
+        and len(enriched_response.key_points) <= len(local_fast_path_response.key_points)
+    ):
+        return (
+            retrieval_response,
+            canonical_evidence,
+            tuple(updated_trace),
+            total_probe_elapsed_seconds,
+            None,
+        )
+    return (
+        updated_response,
+        merged_evidence,
+        tuple(updated_trace),
+        total_probe_elapsed_seconds,
+        enriched_response,
     )
 
 
@@ -926,6 +1407,7 @@ async def _maybe_apply_coverage_frontier_policy(
                 frontier_probe,
                 query=query,
                 probe_hits=probe_hits,
+                canonical_evidence=canonical_evidence,
             )
             total_candidate_hit_count += candidate_hit_count
             if selected_hit is not None and annotated_probe.selected_evidence_id is not None:
@@ -1893,6 +2375,11 @@ def _build_academic_lookup_fast_path_response(
             f'"{record.canonical_title}"' for record, _, _ in matched_records[1:]
         )
         conclusion = f"{conclusion} Supporting academic evidence also includes {supporting_titles}."
+    elif _query_requests_multiple_academic_items(query):
+        conclusion = (
+            f"{conclusion} Only one retained paper matched this query, so broader "
+            "literature coverage remains incomplete."
+        )
 
     draft = StructuredAnswerDraft(
         conclusion=conclusion,
@@ -2037,7 +2524,17 @@ def _build_industry_lookup_fast_path_response(
     matched_slice: EvidenceSlice,
     supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...] = (),
 ) -> AnswerResponse:
-    conclusion = f'Closest retained industry match: "{matched_record.canonical_title}".'
+    single_source_outlook = (
+        not supporting_matches and derive_query_traits(query).has_trend_intent
+    )
+    if single_source_outlook:
+        conclusion = (
+            f'Retained industry outlook evidence: "{matched_record.canonical_title}". '
+            "The retained material does not include a numeric breakout or a second "
+            "corroborating source."
+        )
+    else:
+        conclusion = f'Closest retained industry match: "{matched_record.canonical_title}".'
     if supporting_matches:
         supporting_titles = ", ".join(
             f'"{record.canonical_title}"' for record, _, _ in supporting_matches
@@ -2768,6 +3265,7 @@ async def execute_answer_pipeline_with_trace(
     provider_prompt_tokens: int | None = None
     provider_completion_tokens: int | None = None
     provider_total_tokens: int | None = None
+    local_fast_path_response: AnswerResponse | None = None
 
     if retrieval_response.status == "failure_gaps" and not canonical_evidence:
         response = _build_retrieval_failure_response(
@@ -2808,41 +3306,73 @@ async def execute_answer_pipeline_with_trace(
             matched_slice=academic_matches[0][1],
             slice_overlap=academic_matches[0][2],
         ):
-            response = _build_academic_lookup_fast_path_response(
+            local_fast_path_response = _build_academic_lookup_fast_path_response(
                 retrieval_response,
                 canonical_evidence,
                 query=query,
                 matched_records=academic_matches,
             )
-            answer_token_estimate = _estimate_response_tokens(response)
-            _maybe_cache_response(
+            if not _should_attempt_same_route_enrichment(
+                retrieval_response,
+                canonical_evidence,
                 query=query,
-                plan=retrieval_plan,
-                response=response,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                retrieval_trace=retrieval_trace,
-            )
-            return _build_answer_execution_result(
-                request_id=request_id,
-                response=response,
-                retrieval_response=retrieval_response,
-                canonical_evidence=canonical_evidence,
-                retrieval_elapsed_seconds=retrieval_elapsed_seconds,
-                synthesis_elapsed_seconds=0.0,
-                evidence_token_estimate=evidence_token_estimate,
-                answer_token_estimate=answer_token_estimate,
-                runtime_budget=budget,
-                budget_exhausted_phase=None,
-                retrieval_trace=retrieval_trace,
-            )
+                local_candidate=local_fast_path_response,
+            ):
+                response = local_fast_path_response
+                answer_token_estimate = _estimate_response_tokens(response)
+                _maybe_cache_response(
+                    query=query,
+                    plan=retrieval_plan,
+                    response=response,
+                    evidence_token_estimate=evidence_token_estimate,
+                    answer_token_estimate=answer_token_estimate,
+                    retrieval_trace=retrieval_trace,
+                )
+                return _build_answer_execution_result(
+                    request_id=request_id,
+                    response=response,
+                    retrieval_response=retrieval_response,
+                    canonical_evidence=canonical_evidence,
+                    retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+                    synthesis_elapsed_seconds=0.0,
+                    evidence_token_estimate=evidence_token_estimate,
+                    answer_token_estimate=answer_token_estimate,
+                    runtime_budget=budget,
+                    budget_exhausted_phase=None,
+                    retrieval_trace=retrieval_trace,
+                )
 
-    local_fast_path_response = _build_local_answer_candidate(
-        retrieval_response,
-        canonical_evidence,
-        query=query,
-        require_clean_runtime=True,
-    )
+    if local_fast_path_response is None:
+        local_fast_path_response = _build_local_answer_candidate(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+            require_clean_runtime=True,
+        )
+
+    if local_fast_path_response is not None:
+        (
+            retrieval_response,
+            canonical_evidence,
+            retrieval_trace,
+            same_route_enrichment_elapsed_seconds,
+            enriched_local_response,
+        ) = await _maybe_apply_same_route_enrichment(
+            query=query,
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            local_fast_path_response=local_fast_path_response,
+            adapter_registry=adapter_registry,
+            runtime_budget=budget,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            retrieval_trace=retrieval_trace,
+        )
+        if same_route_enrichment_elapsed_seconds > 0:
+            retrieval_elapsed_seconds += same_route_enrichment_elapsed_seconds
+            evidence_token_estimate = _estimate_evidence_tokens(canonical_evidence)
+        if enriched_local_response is not None:
+            local_fast_path_response = enriched_local_response
+
     if local_fast_path_response is None:
         (
             retrieval_response,
