@@ -362,6 +362,64 @@ def test_semantic_scholar_live_adapter_returns_empty_when_primary_api_is_rate_li
 
     assert hits == []
 
+
+def test_semantic_scholar_live_adapter_does_not_fall_back_to_openalex_title_when_generic_openalex_is_unranked(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.academic_semantic_scholar as adapter
+    from skill.retrieval.live.clients import academic_api
+
+    observed_queries: list[tuple[str, str]] = []
+
+    async def _failing_search_semantic_scholar(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(("semantic_scholar", query))
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        raise RuntimeError("429")
+
+    async def _weak_openalex(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        observed_queries.append(("openalex", query))
+        assert query == "grounded search evidence packing"
+        assert max_results == 5
+        return [
+            {
+                "title": "Grounded Reinforcement Learning for Visual Reasoning",
+                "url": "https://arxiv.org/abs/2505.23678",
+                "snippet": (
+                    "Visual reasoning work that grounds spatial attention and "
+                    "reinforcement learning."
+                ),
+                "arxiv_id": "2505.23678",
+                "first_author": "Sarch",
+                "year": 2025,
+                "evidence_level": "preprint",
+            }
+        ]
+
+    monkeypatch.setattr(
+        academic_api,
+        "search_semantic_scholar",
+        _failing_search_semantic_scholar,
+    )
+    monkeypatch.setattr(academic_api, "search_openalex", _weak_openalex)
+
+    hits = asyncio.run(adapter.search_live("有哪些 grounded search evidence packing 论文"))
+
+    assert hits == []
+    assert sorted(observed_queries) == [
+        ("openalex", "grounded search evidence packing"),
+        ("semantic_scholar", "grounded search evidence packing"),
+    ]
+
+
 def test_semantic_scholar_live_adapter_does_not_fallback_to_search_discovery_after_dual_empty(
     monkeypatch,
 ) -> None:

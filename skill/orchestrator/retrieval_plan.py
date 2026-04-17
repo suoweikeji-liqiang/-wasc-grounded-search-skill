@@ -73,6 +73,10 @@ _INDUSTRY_OFFICIAL_FIRST_MARKERS: tuple[str, ...] = (
 )
 
 
+def _query_uses_cjk(query: str) -> bool:
+    return any(not character.isascii() for character in query)
+
+
 @dataclass(frozen=True)
 class RetrievalSource:
     source_id: str
@@ -156,6 +160,13 @@ def _build_supplemental_first_wave(
     query: str | None = None,
 ) -> list[PlannedSourceStep]:
     if supplemental_route == "industry":
+        source_ids = _industry_first_wave_source_ids(query)
+        if query is not None and derive_query_traits(query).is_cross_domain_impact:
+            source_ids = (
+                ("industry_web_discovery",)
+                if _query_uses_cjk(query)
+                else ("industry_news_rss",)
+            )
         return [
             PlannedSourceStep(
                 source=RetrievalSource(
@@ -164,7 +175,7 @@ def _build_supplemental_first_wave(
                     is_supplemental=True,
                 ),
             )
-            for source_id in _industry_first_wave_source_ids(query)
+            for source_id in source_ids
             if source_id not in _FALLBACK_ONLY_SOURCES
         ]
     supplemental_source_id = SUPPLEMENTAL_STRONGEST_SOURCE[supplemental_route]
@@ -300,6 +311,29 @@ def _build_mixed_supplemental_academic_fallback() -> tuple[PlannedSourceStep, ..
     )
 
 
+def _build_mixed_supplemental_industry_fallback() -> tuple[PlannedSourceStep, ...]:
+    return (
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="industry_web_discovery",
+                route="industry",
+                is_supplemental=True,
+            ),
+            fallback_from_source_id="industry_news_rss",
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+        PlannedSourceStep(
+            source=RetrievalSource(
+                source_id="industry_official_or_filings",
+                route="industry",
+                is_supplemental=True,
+            ),
+            fallback_from_source_id="industry_web_discovery",
+            trigger_on_failures=("no_hits", "timeout", "rate_limited"),
+        ),
+    )
+
+
 def build_retrieval_plan(
     classification: ClassificationResult,
     *,
@@ -341,6 +375,18 @@ def build_retrieval_plan(
             for step in fallback
             if not (step.source.route == "academic" and step.source.is_supplemental)
         ) + _build_mixed_supplemental_academic_fallback()
+    if (
+        classification.route_label == "mixed"
+        and supplemental_route == "industry"
+        and query is not None
+        and derive_query_traits(query).is_cross_domain_impact
+        and not _query_uses_cjk(query)
+    ):
+        fallback = tuple(
+            step
+            for step in fallback
+            if not (step.source.route == "industry" and step.source.is_supplemental)
+        ) + _build_mixed_supplemental_industry_fallback()
     per_source_timeout_seconds = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds = OVERALL_RETRIEVAL_DEADLINE_SECONDS
     query_variant_budget = 3

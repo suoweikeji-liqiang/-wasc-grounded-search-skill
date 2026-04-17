@@ -1138,6 +1138,105 @@ def test_industry_news_rss_live_cancels_promptly_without_waiting_for_slow_google
     assert elapsed < 0.18
 
 
+def test_industry_web_discovery_live_cancels_promptly_without_waiting_for_slow_search_cleanup(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    html_cancelled = asyncio.Event()
+    news_cancelled = asyncio.Event()
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[object]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        cancelled_event = (
+            news_cancelled if engines == ("google_news_rss",) else html_cancelled
+        )
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            cancelled_event.set()
+            await asyncio.sleep(0.2)
+            raise
+        return []
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(1.0)
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "_SECONDARY_DISCOVERY_HEADSTART_SECONDS", 0.01)
+
+    started_at = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            asyncio.wait_for(
+                adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+                timeout=0.05,
+            )
+        )
+    elapsed = time.perf_counter() - started_at
+
+    assert html_cancelled.is_set()
+    assert news_cancelled.is_set()
+    assert elapsed < 0.18
+
+
+def test_industry_web_discovery_live_cancels_promptly_without_waiting_for_slow_ranking_cleanup(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    ranking_cancelled = asyncio.Event()
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        engines = tuple(str(engine) for engine in kwargs["engines"])
+        if engines == ("google_news_rss",):
+            return []
+        return [
+            SearchCandidate(
+                engine="duckduckgo",
+                title="2026 Semiconductor Industry Outlook | Deloitte Insights",
+                url=(
+                    "https://www.deloitte.com/us/en/insights/industry/technology/"
+                    "technology-media-telecom-outlooks/semiconductor-industry-outlook.html"
+                ),
+                snippet="Deloitte expects AI-driven semiconductor demand to remain strong in 2026.",
+            )
+        ]
+
+    async def _slow_rank_live_candidate(**_: object) -> dict[str, str | int] | None:
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            ranking_cancelled.set()
+            await asyncio.sleep(0.2)
+            raise
+        return None
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(1.0)
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_rank_live_candidate", _slow_rank_live_candidate)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+
+    started_at = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            asyncio.wait_for(
+                adapter.search_web_discovery_live("advanced packaging capacity outlook 2026"),
+                timeout=0.05,
+            )
+        )
+    elapsed = time.perf_counter() - started_at
+
+    assert ranking_cancelled.is_set()
+    assert elapsed < 0.18
+
+
 def test_industry_web_discovery_live_keeps_waiting_when_early_rss_candidate_cannot_be_grounded(
     monkeypatch,
 ) -> None:

@@ -666,14 +666,21 @@ async def _rank_payloads_to_hits(
         for record in sec_records
         if record.get("title") and record.get("url") and record.get("snippet")
     )
+    if not rank_tasks:
+        return []
 
     try:
-        rank_results = await asyncio.gather(*rank_tasks, return_exceptions=True)
+        await asyncio.wait(set(rank_tasks), return_when=asyncio.ALL_COMPLETED)
     except asyncio.CancelledError:
-        for task in rank_tasks:
-            task.cancel()
-        await asyncio.gather(*rank_tasks, return_exceptions=True)
+        _cancel_search_tasks_detached(rank_tasks)
         raise
+
+    rank_results: list[dict[str, str | int] | None | BaseException] = []
+    for task in rank_tasks:
+        try:
+            rank_results.append(task.result())
+        except BaseException as exc:
+            rank_results.append(exc)
 
     ranked = [
         item
@@ -1954,15 +1961,15 @@ async def search_web_discovery_live(query: str) -> list[RetrievalHit]:
             _cancel_search_tasks_detached(detached_pending)
             await _cancel_search_tasks(awaited_pending)
     except asyncio.CancelledError:
-        detached_tasks = list(ddgs_backup_tasks.values())
-        awaited_tasks = [
-            web_task,
-            news_task,
-            *focused_web_tasks.values(),
-            *bing_rss_backup_tasks.values(),
-        ]
-        _cancel_search_tasks_detached(detached_tasks)
-        await _cancel_search_tasks(awaited_tasks)
+        _cancel_search_tasks_detached(
+            [
+                web_task,
+                news_task,
+                *focused_web_tasks.values(),
+                *bing_rss_backup_tasks.values(),
+                *ddgs_backup_tasks.values(),
+            ]
+        )
         raise
 
     if ranked_hits:

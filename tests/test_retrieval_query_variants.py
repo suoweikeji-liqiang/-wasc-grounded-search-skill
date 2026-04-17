@@ -989,7 +989,7 @@ def test_run_retrieval_mixed_supplemental_industry_tries_cjk_gloss_after_origina
     first_step = next(
         step
         for step in base_plan.first_wave_sources
-        if step.source.source_id == "industry_web_discovery"
+        if step.source.route == "industry" and step.source.is_supplemental
     )
     plan = replace(
         base_plan,
@@ -1062,7 +1062,7 @@ def test_run_retrieval_mixed_supplemental_industry_falls_through_after_cjk_gloss
     first_step = next(
         step
         for step in base_plan.first_wave_sources
-        if step.source.source_id == "industry_web_discovery"
+        if step.source.route == "industry" and step.source.is_supplemental
     )
     plan = replace(
         base_plan,

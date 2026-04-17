@@ -75,14 +75,57 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
 
     assert [step.source.source_id for step in mixed_plan.first_wave_sources] == [
         "policy_official_registry",
-        "industry_web_discovery",
         "industry_news_rss",
-        "industry_official_or_filings",
     ]
     assert all(
         step.source.is_supplemental
         for step in mixed_plan.first_wave_sources[1:]
     )
+    supplemental_fallback = [
+        step
+        for step in mixed_plan.fallback_sources
+        if step.source.route == "industry" and step.source.is_supplemental
+    ]
+    assert [
+        (step.fallback_from_source_id, step.source.source_id)
+        for step in supplemental_fallback
+    ] == [
+        ("industry_news_rss", "industry_web_discovery"),
+        ("industry_web_discovery", "industry_official_or_filings"),
+    ]
+
+
+def test_build_retrieval_plan_keeps_cjk_mixed_industry_queries_on_web_discovery_anchor() -> None:
+    query = (
+        "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1"
+        "\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd"
+    )
+    mixed_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_hit",
+            scores={"policy": 3, "industry": 2, "academic": 0},
+        ),
+        query=query,
+    )
+
+    assert [step.source.source_id for step in mixed_plan.first_wave_sources] == [
+        "policy_official_registry",
+        "industry_web_discovery",
+    ]
+    supplemental_fallback = [
+        step
+        for step in mixed_plan.fallback_sources
+        if step.source.route == "industry" and step.source.is_supplemental
+    ]
+    fallback_edges = [
+        (step.fallback_from_source_id, step.source.source_id)
+        for step in supplemental_fallback
+    ]
+    assert ("industry_web_discovery", "industry_news_rss") in fallback_edges
+    assert ("industry_news_rss", "industry_official_or_filings") in fallback_edges
 
 
 def test_default_adapter_registry_exposes_split_industry_sources_and_legacy_alias(
