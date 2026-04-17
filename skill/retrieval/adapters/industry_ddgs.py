@@ -87,6 +87,49 @@ _INDUSTRY_ASSOCIATION_DOMAINS: frozenset[str] = frozenset(
 _TRUSTED_NEWS_DOMAINS: frozenset[str] = frozenset(
     {"www.reuters.com", "www.bloomberg.com"}
 )
+_LOW_VALUE_NEWS_DOMAINS: frozenset[str] = frozenset(
+    {
+        "www.openpr.com",
+        "openpr.com",
+        "www.prnewswire.com",
+        "prnewswire.com",
+        "www.businesswire.com",
+        "businesswire.com",
+        "www.globenewswire.com",
+        "globenewswire.com",
+        "www.accessnewswire.com",
+        "accessnewswire.com",
+        "www.fortunebusinessinsights.com",
+        "fortunebusinessinsights.com",
+        "www.marketsandmarkets.com",
+        "marketsandmarkets.com",
+        "www.researchandmarkets.com",
+        "researchandmarkets.com",
+        "www.grandviewresearch.com",
+        "grandviewresearch.com",
+        "www.precedenceresearch.com",
+        "precedenceresearch.com",
+        "www.marketresearchfuture.com",
+        "marketresearchfuture.com",
+        "www.imarcgroup.com",
+        "imarcgroup.com",
+        "www.futuremarketinsights.com",
+        "futuremarketinsights.com",
+        "www.verifiedmarketresearch.com",
+        "verifiedmarketresearch.com",
+    }
+)
+_LOW_VALUE_NEWS_PATH_MARKERS: tuple[str, ...] = (
+    "/industry-reports/",
+    "/market-reports/",
+    "/market-report/",
+)
+_LOW_VALUE_NEWS_TITLE_MARKERS: tuple[str, ...] = (
+    "market size",
+    "industry report",
+    "market report",
+)
+_LOW_VALUE_NEWS_SCORE_PENALTY = 3
 _QUERY_ALIGNED_FETCH_HOSTS: frozenset[str] = frozenset(
     {"www.sec.gov", "sec.gov", "datatracker.ietf.org"}
 )
@@ -449,6 +492,7 @@ def _candidate_payloads_from_search_results(
             "snippet": payload_snippet,
             "_tier": _tier_for_url(tier_url),
             "_engine": engine,
+            "_source_quality_url": tier_url,
         }
         if grounding_strategy:
             payload["_google_news_grounding_strategy"] = grounding_strategy
@@ -595,6 +639,7 @@ async def _rank_payloads_to_hits(
                 url=payload["url"],
                 candidate_snippet=payload["snippet"],
                 tier=payload["_tier"],
+                source_quality_url=payload.get("_source_quality_url", payload["url"]),
                 engine=payload.get("_engine", ""),
                 google_news_grounding_strategy=payload.get(
                     "_google_news_grounding_strategy",
@@ -645,6 +690,14 @@ async def _rank_payloads_to_hits(
         reverse=True,
     )
     positive = [item for item in ranked if int(item["_score"]) > 0]
+    if source_id == SOURCE_ID_NEWS_RSS:
+        preferred_positive = [
+            item
+            for item in positive
+            if item.get("_low_value_news_candidate") != "1"
+        ]
+        if preferred_positive:
+            positive = preferred_positive
     selected = positive[:3] if positive else ranked[:3]
 
     if not any(item["_tier"] == "company_official" for item in selected):
@@ -710,6 +763,26 @@ def _is_homepage_url(url: str) -> bool:
     if not parts.scheme or not parts.netloc:
         return False
     return (parts.path or "/").rstrip("/") in {"", "/"}
+
+
+def _is_low_value_industry_news_candidate(
+    *,
+    title: str,
+    url: str,
+    snippet: str,
+    tier: str,
+) -> bool:
+    if tier != "general_web":
+        return False
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if host in _LOW_VALUE_NEWS_DOMAINS:
+        return True
+    path = parts.path.lower()
+    if any(marker in path for marker in _LOW_VALUE_NEWS_PATH_MARKERS):
+        return True
+    normalized_text = normalize_query_text(f"{title} {snippet}")
+    return any(marker in normalized_text for marker in _LOW_VALUE_NEWS_TITLE_MARKERS)
 
 
 def _normalize_google_news_title_for_search(title: str) -> str:
@@ -1420,17 +1493,26 @@ async def _rank_live_candidate(
     url: str,
     candidate_snippet: str,
     tier: str,
+    source_quality_url: str = "",
     engine: str = "",
     google_news_grounding_strategy: str = "",
     force_fetch: bool = False,
     config: LiveRetrievalConfig,
 ) -> dict[str, str | int] | None:
+    low_value_news_candidate = _is_low_value_industry_news_candidate(
+        title=title,
+        url=source_quality_url or url,
+        snippet=candidate_snippet,
+        tier=tier,
+    )
     base_payload = {
         "title": title,
         "url": url,
         "snippet": candidate_snippet,
     }
     base_score = _score(query, base_payload)
+    if low_value_news_candidate:
+        base_score -= _LOW_VALUE_NEWS_SCORE_PENALTY
     missing_focus_terms = _missing_focus_terms(
         query,
         title=title,
@@ -1457,6 +1539,7 @@ async def _rank_live_candidate(
             **base_payload,
             "_score": base_score,
             "_tier": tier,
+            "_low_value_news_candidate": "1" if low_value_news_candidate else "0",
         }
 
     use_query_aligned_fetch = _should_query_align_fetch(url) or (
@@ -1529,10 +1612,13 @@ async def _rank_live_candidate(
     elif base_score > enriched_score:
         payload["snippet"] = candidate_snippet
         enriched_score = base_score
+    if low_value_news_candidate:
+        enriched_score -= _LOW_VALUE_NEWS_SCORE_PENALTY
     return {
         **payload,
         "_score": enriched_score,
         "_tier": tier,
+        "_low_value_news_candidate": "1" if low_value_news_candidate else "0",
     }
 
 
@@ -1952,14 +2038,33 @@ async def search_news_rss_live(query: str) -> list[RetrievalHit]:
                 for candidate in news_candidates
             )
             if requires_slow_grounding and len(news_candidates) > 1:
-                # Multiple homepage-only Google News titles already provide fallback
-                # signal; keep the raw article URLs instead of paying slow grounding
-                # costs in the lightweight news lane.
-                candidate_payloads = _candidate_payloads_from_search_results(
+                raw_candidate_payloads = _candidate_payloads_from_search_results(
                     list(news_candidates),
                     preserve_google_news_url_for_homepage_candidates=True,
                 )
-                _cancel_search_tasks_detached([ddgs_backup_task])
+                await asyncio.sleep(0)
+                if raw_candidate_payloads and all(
+                    _is_low_value_industry_news_candidate(
+                        title=payload["title"],
+                        url=payload.get("_source_quality_url", payload["url"]),
+                        snippet=payload["snippet"],
+                        tier=payload["_tier"],
+                    )
+                    for payload in raw_candidate_payloads
+                ) and ddgs_backup_task.done():
+                    try:
+                        ddgs_backup_payloads = ddgs_backup_task.result()
+                    except Exception:
+                        ddgs_backup_payloads = []
+                    candidate_payloads = _dedupe_candidate_payloads(
+                        [*ddgs_backup_payloads, *raw_candidate_payloads]
+                    )
+                else:
+                    # Multiple homepage-only Google News titles already provide fallback
+                    # signal; keep the raw article URLs instead of paying slow grounding
+                    # costs in the lightweight news lane.
+                    candidate_payloads = raw_candidate_payloads
+                    _cancel_search_tasks_detached([ddgs_backup_task])
                 news_candidates = []
             elif requires_slow_grounding:
                 resolve_task = asyncio.create_task(

@@ -612,7 +612,11 @@ def test_industry_news_rss_live_limits_google_news_candidates_to_top_two(
             observed_max_results.append(int(kwargs["max_results"]))
         return []
 
+    async def _empty_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _empty_ddgs_news_backup)
 
     hits = asyncio.run(adapter.search_news_rss_live("battery recycling market share forecast 2026"))
 
@@ -634,14 +638,14 @@ def test_industry_news_rss_live_uses_raw_google_news_urls_for_multiple_homepage_
                     title="锂离子电池回收市场规模、份额及预测 [2034] - Fortune Business Insights",
                     url="https://news.google.com/rss/articles/example-fbi-liion",
                     snippet="Fortune Business Insights | Mon, 30 Mar 2026 07:00:00 GMT",
-                    source_url="https://www.fortunebusinessinsights.com",
+                    source_url="https://www.industrywatch.example.com",
                 ),
                 SearchCandidate(
                     engine="google_news_rss",
                     title="铅酸电池回收市场规模、份额|成长[2034] - Fortune Business Insights",
                     url="https://news.google.com/rss/articles/example-fbi-leadacid",
                     snippet="Fortune Business Insights | Mon, 30 Mar 2026 07:00:00 GMT",
-                    source_url="https://www.fortunebusinessinsights.com",
+                    source_url="https://www.industrypulse.example.com",
                 ),
             ]
         raise AssertionError("publisher search should not run for multiple raw news candidates")
@@ -2855,3 +2859,63 @@ def test_industry_live_adapter_does_not_probe_company_ir_for_non_segment_filing_
     assert len(hits) == 1
     assert hits[0].title == "BOEING CO Form 10-K filing"
     assert observed["company_ir_fetch_called"] is False
+def test_industry_news_rss_live_prefers_trusted_backup_over_multiple_low_value_homepage_candidates(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        if tuple(kwargs["engines"]) == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="锂离子电池回收市场规模、份额及预测 [2034] - Fortune Business Insights",
+                    url="https://news.google.com/rss/articles/example-fbi-liion",
+                    snippet="Fortune Business Insights | Mon, 30 Mar 2026 07:00:00 GMT",
+                    source_url="https://www.fortunebusinessinsights.com",
+                ),
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title=(
+                        "EV Battery Recycling Market Forecast Indicates Strong Growth "
+                        "Through 2033 - openPR.com"
+                    ),
+                    url="https://news.google.com/rss/articles/example-openpr-liion",
+                    snippet="openPR.com | Mon, 30 Mar 2026 07:00:00 GMT",
+                    source_url="https://www.openpr.com",
+                ),
+            ]
+        raise AssertionError("publisher search should not run for low-value raw news candidates")
+
+    async def _unexpected_resolve_google_news_article_url(_: str) -> str | None:
+        raise AssertionError("google news resolver should not run for low-value raw news candidates")
+
+    async def _fast_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        return [
+            {
+                "title": "Battery recycling market share outlook 2026",
+                "url": "https://www.reuters.com/markets/battery-recycling-share-2026",
+                "snippet": "Trusted news estimate of battery recycling market-share shifts in 2026.",
+                "_tier": "trusted_news",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("low-value raw news fallback should not fetch page text")
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _unexpected_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+
+    hits = asyncio.run(adapter.search_news_rss_live("动力电池回收市场份额预测"))
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://www.reuters.com/markets/battery-recycling-share-2026"
+    assert hits[0].credibility_tier == "trusted_news"
