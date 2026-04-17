@@ -40,6 +40,9 @@ def _build_plan(route_label: str, primary_route: str, supplemental_route: str | 
     )
 
 
+_PARTIAL_MIXED_QUERY = "autonomous driving regulation supplier investment costs"
+
+
 def _partial_mixed_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="mixed",
@@ -146,7 +149,7 @@ def test_partial_insufficient_evidence_keeps_grounded_conclusion_key_points_and_
     result = asyncio.run(
         execute_answer_pipeline_with_trace(
             plan=_build_plan("mixed", "policy", "industry"),
-            query="autonomous driving regulation impact on supplier investment costs",
+            query=_PARTIAL_MIXED_QUERY,
             adapter_registry={},
             model_client=model_client,
             runtime_budget=RuntimeBudget(),
@@ -156,7 +159,7 @@ def test_partial_insufficient_evidence_keeps_grounded_conclusion_key_points_and_
     assert result.response.answer_status == "insufficient_evidence"
     assert "Available evidence was insufficient to fully support" not in result.response.conclusion
     assert "autonomous driving pilot regulation" in result.response.conclusion
-    assert "missing" in result.response.conclusion.lower()
+    assert "complete answer still needs" in result.response.conclusion.lower()
     assert len(result.response.key_points) == 1
     assert len(result.response.sources) == 1
     assert result.response.key_points[0].citations[0].evidence_id == "policy-1"
@@ -190,7 +193,7 @@ def test_generation_backend_failure_with_canonical_evidence_still_returns_partia
     result = asyncio.run(
         execute_answer_pipeline_with_trace(
             plan=_build_plan("mixed", "policy", "industry"),
-            query="autonomous driving regulation impact on supplier investment costs",
+            query=_PARTIAL_MIXED_QUERY,
             adapter_registry={},
             model_client=_FailingModelClient(),
             runtime_budget=RuntimeBudget(),
@@ -233,7 +236,7 @@ def test_budget_enforcement_with_canonical_evidence_still_returns_partial_facts(
     result = asyncio.run(
         execute_answer_pipeline_with_trace(
             plan=_build_plan("mixed", "policy", "industry"),
-            query="autonomous driving regulation impact on supplier investment costs",
+            query=_PARTIAL_MIXED_QUERY,
             adapter_registry={},
             model_client=model_client,
             runtime_budget=RuntimeBudget(

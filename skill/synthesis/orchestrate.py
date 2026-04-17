@@ -35,7 +35,7 @@ from skill.retrieval.orchestrate import (
     execute_retrieval_pipeline,
 )
 from skill.retrieval.priority import prioritize_hits, score_query_alignment
-from skill.retrieval.query_variants import build_query_variants
+from skill.retrieval.query_variants import _build_industry_cjk_gloss_query, build_query_variants
 from skill.orchestrator.query_traits import derive_query_traits
 from skill.synthesis.cache import ANSWER_CACHE, CachedAnswerEntry
 from skill.synthesis.citation_check import validate_answer_citations
@@ -1340,6 +1340,63 @@ def _truncate_words(text: str, *, max_words: int = 18) -> str:
     return " ".join(words[:max_words]).strip().rstrip(",.;:") + "..."
 
 
+def _partial_match_alignment_score(query: str, record: CanonicalEvidence) -> int:
+    return score_query_alignment(
+        query,
+        route=record.domain,  # type: ignore[arg-type]
+        title=record.canonical_title,
+        snippet=" ".join(slice_.text for slice_ in record.retained_slices),
+        url=record.canonical_url,
+        authority=record.authority,
+        publication_date=record.publication_date,
+        effective_date=record.effective_date,
+        version=record.version,
+        year=record.year,
+    )
+
+
+def _partial_extra_match_threshold(best_alignment: int) -> int:
+    if best_alignment <= 0:
+        return 0
+    return max(8, int(best_alignment * 0.65 + 0.999))
+
+
+def _partial_match_focus_overlap(query: str, record: CanonicalEvidence) -> int:
+    query_terms = set(_content_terms(query))
+    if record.domain == "industry":
+        gloss_query = _build_industry_cjk_gloss_query(query)
+        if gloss_query:
+            query_terms.update(_content_terms(gloss_query))
+    if not query_terms:
+        return 0
+
+    record_terms = set(_content_terms(record.canonical_title))
+    for slice_ in record.retained_slices:
+        record_terms.update(_content_terms(slice_.text))
+    return len(query_terms & record_terms)
+
+
+def _should_surface_additional_partial_match(
+    query: str,
+    record: CanonicalEvidence,
+    *,
+    best_alignment: int,
+) -> bool:
+    if best_alignment <= 0:
+        return False
+    query_terms = set(_content_terms(query))
+    if record.domain == "industry":
+        gloss_query = _build_industry_cjk_gloss_query(query)
+        if gloss_query:
+            query_terms.update(_content_terms(gloss_query))
+    required_focus_overlap = min(2, len(query_terms))
+    if required_focus_overlap > 0 and _partial_match_focus_overlap(query, record) < required_focus_overlap:
+        return False
+    return _partial_match_alignment_score(query, record) >= _partial_extra_match_threshold(
+        best_alignment
+    )
+
+
 def _select_partial_evidence_matches(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -1391,14 +1448,35 @@ def _select_partial_evidence_matches(
         route_role="primary",
         limit=limit,
     )
-    for record, slice_, _ in route_matches:
+    best_route_alignment = (
+        _partial_match_alignment_score(query, route_matches[0][0]) if route_matches else 0
+    )
+    for index, (record, slice_, _) in enumerate(route_matches):
         if len(selected) >= limit:
             break
+        if index > 0 and not _should_surface_additional_partial_match(
+            query,
+            record,
+            best_alignment=best_route_alignment,
+        ):
+            continue
         _append_match(record, slice_)
 
     if len(selected) < limit:
+        best_alignment = 0
+        if canonical_evidence:
+            best_alignment = max(
+                _partial_match_alignment_score(query, record)
+                for record in canonical_evidence
+            )
         for record in canonical_evidence:
             if not record.retained_slices or record.evidence_id in seen_evidence_ids:
+                continue
+            if selected and not _should_surface_additional_partial_match(
+                query,
+                record,
+                best_alignment=best_alignment,
+            ):
                 continue
             _append_match(record, record.retained_slices[0])
             if len(selected) >= limit:
@@ -1441,24 +1519,32 @@ def _partial_missing_summary(
 
     fragments: list[str] = []
     if retrieval_response.route_label == "mixed":
-        fragments.append("cross-domain corroboration linking the retained evidence")
+        fragments.append(
+            "more evidence showing how the retained policy and industry signals connect"
+        )
     elif has_academic:
-        fragments.append("additional academic corroboration or benchmark detail")
+        fragments.append("more academic corroboration or benchmark detail")
     elif has_industry:
-        fragments.append("additional industry corroboration or original-source detail")
+        fragments.append("more industry corroboration or original-source detail")
     else:
-        fragments.append("additional corroborating evidence")
+        fragments.append("more corroborating evidence")
 
-    if retrieval_response.gaps:
-        fragments.append(f"recovery for retrieval gaps ({'; '.join(retrieval_response.gaps)})")
     if citation_issues:
-        fragments.append("citation support for some draft claims")
+        fragments.append("direct source support for every claim")
     if reason:
-        fragments.append(reason)
+        normalized_reason = normalize_query_text(reason)
+        if "query-specific evidence alignment" in normalized_reason:
+            fragments.append("closer query-specific evidence")
+        elif "request budget" in normalized_reason or "grounded synthesis" in normalized_reason:
+            fragments.append("enough time to finish a fully grounded synthesis")
+        elif "generation backend" in normalized_reason:
+            fragments.append("a completed source-backed synthesis pass")
+        else:
+            fragments.append(reason.strip().rstrip("."))
 
     deduped = list(dict.fromkeys(fragment.strip() for fragment in fragments if fragment.strip()))
     if not deduped:
-        return "enough corroborating evidence to fully answer the query"
+        return "more corroborating evidence"
     if len(deduped) == 1:
         return deduped[0]
     return ", ".join(deduped[:-1]) + f", and {deduped[-1]}"
@@ -1487,7 +1573,7 @@ def _build_partial_conclusion(
         title = record.canonical_title if record is not None else "retained evidence"
         statement = _truncate_words(str(key_point.get("statement", "")), max_words=22)
         if statement:
-            confirmed_parts.append(f"{title}: {statement}")
+            confirmed_parts.append(f'"{title}" indicates {statement.rstrip(".")}')
 
     if not confirmed_parts:
         selected_matches = _select_partial_evidence_matches(
@@ -1497,24 +1583,26 @@ def _build_partial_conclusion(
             limit=2,
         )
         confirmed_parts = [
-            f"{record.canonical_title}: {_truncate_words(slice_.text, max_words=22)}"
+            f'"{record.canonical_title}" indicates {_truncate_words(slice_.text, max_words=22).rstrip(".")}'
             for record, slice_ in selected_matches
         ]
 
-    confirmed_summary = (
-        "; ".join(confirmed_parts)
-        if confirmed_parts
-        else "retained evidence remains limited"
-    )
     missing_summary = _partial_missing_summary(
         retrieval_response,
         canonical_evidence,
         citation_issues=citation_issues,
         reason=reason,
     )
+    if not confirmed_parts:
+        return f"Current evidence is relevant but incomplete. A complete answer still needs {missing_summary}."
+
+    signal_label = (
+        "this relevant signal" if len(confirmed_parts) == 1 else "these relevant signals"
+    )
+    confirmed_summary = "; ".join(confirmed_parts)
     return (
-        f"Confirmed from retained evidence: {confirmed_summary}. "
-        f"Still missing {missing_summary}."
+        f"Current evidence points to {signal_label}: {confirmed_summary}. "
+        f"A complete answer still needs {missing_summary}."
     )
 
 

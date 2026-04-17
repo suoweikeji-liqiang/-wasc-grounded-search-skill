@@ -455,6 +455,53 @@ def _industry_partial_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _industry_cross_lingual_partial_with_weak_secondary_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-cross-lingual-1",
+                "domain": "industry",
+                "canonical_title": "Reuters battery recycling market share outlook 2025",
+                "canonical_url": "https://www.reuters.com/markets/battery-recycling-share-2025",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Trusted news estimate of battery recycling market-share shifts in 2025.",
+                        "source_record_id": "industry-cross-lingual-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-cross-lingual-2",
+                "domain": "industry",
+                "canonical_title": "Community blog roundup of battery trends",
+                "canonical_url": "https://analysis.example.net/battery-trends-roundup",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "General-web commentary on market sentiment.",
+                        "source_record_id": "industry-cross-lingual-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _industry_filing_fast_path_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="industry",
@@ -587,6 +634,60 @@ def _mixed_partial_fast_path_retrieve_response() -> RetrieveResponse:
         canonical_evidence=response.canonical_evidence,
         evidence_clipped=response.evidence_clipped,
         evidence_pruned=response.evidence_pruned,
+    )
+
+
+def _mixed_cross_lingual_partial_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        browser_automation="disabled",
+        status="partial",
+        failure_reason="timeout",
+        gaps=["industry_web_discovery"],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-mixed-cn-1",
+                "domain": "policy",
+                "canonical_title": "\u56db\u90e8\u95e8\u5173\u4e8e\u5f00\u5c55\u667a\u80fd\u7f51\u8054\u6c7d\u8f66\u51c6\u5165\u548c\u4e0a\u8def\u901a\u884c\u8bd5\u70b9\u5de5\u4f5c\u7684\u901a\u77e5",
+                "canonical_url": "https://www.gov.cn/zhengce/zhengceku/202311/content_6915788.htm",
+                "route_role": "primary",
+                "authority": "\u5de5\u4e1a\u548c\u4fe1\u606f\u5316\u90e8\u3001\u516c\u5b89\u90e8\u3001\u4f4f\u623f\u57ce\u4e61\u5efa\u8bbe\u90e8\u3001\u4ea4\u901a\u8fd0\u8f93\u90e8",
+                "jurisdiction": "CN",
+                "jurisdiction_status": "observed",
+                "publication_date": "2023-11-17",
+                "effective_date": "2023-12-01",
+                "version": "2023 pilot notice",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": "\u5b98\u65b9\u901a\u77e5\u660e\u786e\u667a\u80fd\u7f51\u8054\u6c7d\u8f66\u51c6\u5165\u548c\u4e0a\u8def\u901a\u884c\u8bd5\u70b9\u5b89\u6392\uff0c\u5e76\u7ec6\u5316\u81ea\u52a8\u9a7e\u9a76\u76d1\u7ba1\u8981\u6c42\u4e0e\u5b9e\u65bd\u65f6\u95f4\u3002",
+                        "source_record_id": "policy-mixed-cn-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-mixed-en-1",
+                "domain": "industry",
+                "canonical_title": "BYD autonomous driving supplier investment update",
+                "canonical_url": "https://www.byd.com/news/autonomous-driving-supplier-investment-2026",
+                "route_role": "supplemental",
+                "retained_slices": [
+                    {
+                        "text": "Company update says autonomous driving programs are increasing supplier investment across the vehicle industry in 2026.",
+                        "source_record_id": "industry-mixed-en-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
     )
 
 
@@ -947,7 +1048,7 @@ def test_execute_answer_pipeline_with_trace_enforces_answer_token_budget(
     assert model_client.call_count == 1
     assert result.response.answer_status == "insufficient_evidence"
     assert "Climate Order 2026" in result.response.conclusion
-    assert "still missing" in result.response.conclusion.lower()
+    assert "a complete answer still needs" in result.response.conclusion.lower()
     assert result.response.key_points
     assert result.response.sources
     assert any(
@@ -1400,11 +1501,73 @@ def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_pa
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert "Confirmed from retained evidence:" in result.response.conclusion
+    assert "Current evidence points to" in result.response.conclusion
     assert "SEMI outlook for semiconductor packaging capacity" in result.response.conclusion
+    assert "retrieval gaps" not in result.response.conclusion.lower()
+    assert "industry_news_rss" not in result.response.conclusion
+    assert "Confirmed from retained evidence" not in result.response.conclusion
     assert result.response.key_points
     assert result.response.sources
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_relevance_gated_industry_partial_excludes_weak_secondary_evidence(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_cross_lingual_partial_with_weak_secondary_retrieve_response()
+
+    ANSWER_CACHE.clear()
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "relevance-gated industry partial response should not invoke grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="\u52a8\u529b\u7535\u6c60\u56de\u6536\u5e02\u573a\u4efd\u989d\u9884\u6d4b",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(
+                request_deadline_seconds=3.0,
+                retrieval_deadline_seconds=3.0,
+                synthesis_deadline_seconds=0.0,
+            ),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert len(result.response.key_points) == 1
+    assert len(result.response.sources) == 1
+    assert (
+        result.response.sources[0].title
+        == "Reuters battery recycling market share outlook 2025"
+    )
+    assert "Community blog roundup of battery trends" not in result.response.conclusion
+    assert "General-web commentary on market sentiment." not in result.response.conclusion
+    assert not any(
+        source.title == "Community blog roundup of battery trends"
+        for source in result.response.sources
+    )
+    assert any(
+        note.startswith("Relevance gate:")
+        for note in result.response.uncertainty_notes
+    )
 
 
 def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_filing_query(
@@ -1598,6 +1761,62 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_fast_path_when_partial_ha
         "industry-1",
     }
     assert result.runtime_trace.synthesis_elapsed_ms == 0
+
+
+def test_execute_answer_pipeline_with_trace_budget_enforced_mixed_partial_uses_user_facing_conservative_conclusion(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_cross_lingual_partial_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "budget-enforced mixed partial response should not invoke grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query="\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(
+                request_deadline_seconds=3.0,
+                retrieval_deadline_seconds=3.0,
+                synthesis_deadline_seconds=0.0,
+            ),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert "Current evidence points to" in result.response.conclusion
+    assert "BYD autonomous driving supplier investment update" in result.response.conclusion
+    assert "industry_web_discovery" not in result.response.conclusion
+    assert "retrieval gaps" not in result.response.conclusion.lower()
+    assert "Confirmed from retained evidence" not in result.response.conclusion
+    assert len(result.response.key_points) == 2
+    assert len(result.response.sources) == 2
+    assert any(
+        note.startswith("Budget enforcement:")
+        for note in result.response.uncertainty_notes
+    )
+    assert any(
+        note.startswith("Retrieval gaps:")
+        for note in result.response.uncertainty_notes
+    )
 
 
 def test_execute_answer_pipeline_with_trace_builds_coverage_frontier_after_policy_success(
