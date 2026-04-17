@@ -161,9 +161,10 @@ def test_partial_insufficient_evidence_keeps_grounded_conclusion_key_points_and_
     assert "autonomous driving pilot regulation" in result.response.conclusion
     assert "taken together" in result.response.conclusion.lower()
     assert "cautious partial answer" in result.response.conclusion.lower()
-    assert "regulatory signal and a same-topic industry signal" in (
+    assert "policy-side signal and a same-topic industry-side signal" in (
         result.response.conclusion.lower()
     )
+    assert "does not directly show whether" in result.response.conclusion.lower()
     assert len(result.response.key_points) == 2
     assert len(result.response.sources) == 2
     assert result.response.key_points[0].citations[0].evidence_id == "policy-1"

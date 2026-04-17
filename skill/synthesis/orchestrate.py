@@ -237,6 +237,85 @@ _POLICY_LOOKUP_MARKERS = frozenset(
         "\u6761\u6b3e",
     }
 )
+_MIXED_POLICY_BRIDGE_MARKERS = frozenset(
+    {
+        "policy",
+        "regulation",
+        "regulatory",
+        "rule",
+        "rules",
+        "notice",
+        "pilot",
+        "licensing",
+        "license",
+        "licence",
+        "compliance",
+        "export controls",
+        "\u76d1\u7ba1",
+        "\u653f\u7b56",
+        "\u89c4\u5219",
+        "\u901a\u77e5",
+        "\u8bd5\u70b9",
+        "\u8bb8\u53ef",
+        "\u5408\u89c4",
+        "\u51fa\u53e3\u7ba1\u5236",
+    }
+)
+_MIXED_INDUSTRY_BRIDGE_MARKERS = frozenset(
+    {
+        "industry",
+        "market",
+        "platform",
+        "platforms",
+        "checkout",
+        "ticketing",
+        "pricing",
+        "workflow",
+        "operations",
+        "service",
+        "supplier",
+        "suppliers",
+        "investment",
+        "investments",
+        "deployment",
+        "vendor",
+        "supply chain",
+        "manufacturing",
+        "\u4ea7\u4e1a",
+        "\u5e02\u573a",
+        "\u5e73\u53f0",
+        "\u7ed3\u7b97",
+        "\u7968\u52a1",
+        "\u5b9a\u4ef7",
+        "\u6d41\u7a0b",
+        "\u8fd0\u8425",
+        "\u670d\u52a1",
+        "\u4f9b\u5e94\u5546",
+        "\u6295\u8d44",
+        "\u843d\u5730",
+        "\u90e8\u7f72",
+        "\u4f9b\u7ed9",
+        "\u4f9b\u5e94\u94fe",
+    }
+)
+_MIXED_ACADEMIC_BRIDGE_MARKERS = frozenset(
+    {
+        "academic",
+        "research",
+        "paper",
+        "papers",
+        "study",
+        "studies",
+        "benchmark",
+        "scholar",
+        "science",
+        "\u5b66\u672f",
+        "\u7814\u7a76",
+        "\u8bba\u6587",
+        "\u6587\u732e",
+        "\u57fa\u51c6",
+    }
+)
 _POLICY_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "impact", "effect", "summary", "summarize"}
 )
@@ -2332,37 +2411,92 @@ def _build_mixed_partial_bridge_note(
     if "policy" in domains and "industry" in domains:
         if use_cjk:
             return (
-                "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u540c\u65f6\u7ed9\u51fa\u4e86\u653f\u7b56"
-                "\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u4ea7\u4e1a\u4fe1\u53f7\uff0c"
-                "\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u786e\u8ba4\u5b8c\u6574\u7684\u5f71\u54cd"
-                "\u4f20\u5bfc\u8def\u5f84\u3002"
+                "\u5f53\u524d\u8bc1\u636e\u53ea\u80fd\u8bf4\u660e\u5df2\u7ecf\u89c2\u5bdf\u5230"
+                "\u653f\u7b56\u4fa7\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u4ea7\u4e1a\u4fa7"
+                "\u4fe1\u53f7\uff0c\u4f46\u8fd8\u4e0d\u80fd\u76f4\u63a5\u8bf4\u660e\u540e\u8005"
+                "\u5c31\u662f\u7531\u524d\u8005\u89e6\u53d1\uff0c\u4e5f\u4e0d\u8db3\u4ee5\u786e\u8ba4"
+                "\u5b8c\u6574\u7684\u5f71\u54cd\u4f20\u5bfc\u8def\u5f84\u3002"
             )
         return (
-            "Current evidence already establishes a regulatory signal and a same-topic "
-            "industry signal, but not the transmission path needed for a full impact estimate."
+            "Current evidence provides a policy-side signal and a same-topic "
+            "industry-side signal, but it does not directly show whether the observed "
+            "industry-side signal was caused by the policy-side signal or how that "
+            "transmission works."
         )
     if "policy" in domains and "academic" in domains:
         if use_cjk:
             return (
-                "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u540c\u65f6\u7ed9\u51fa\u4e86\u653f\u7b56"
-                "\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u7814\u7a76\u4fe1\u53f7\uff0c"
-                "\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u786e\u8ba4\u5b8c\u6574\u7684\u5f71\u54cd"
-                "\u673a\u5236\u6216\u8303\u56f4\u3002"
+                "\u5f53\u524d\u8bc1\u636e\u53ea\u80fd\u8bf4\u660e\u5df2\u7ecf\u89c2\u5bdf\u5230"
+                "\u653f\u7b56\u4fa7\u4fe1\u53f7\u548c\u540c\u4e3b\u9898\u7684\u7814\u7a76\u4fa7"
+                "\u4fe1\u53f7\uff0c\u4f46\u8fd8\u4e0d\u80fd\u76f4\u63a5\u5206\u79bb\u51fa"
+                "\u5f71\u54cd\u673a\u5236\u6216\u8303\u56f4\u3002"
             )
         return (
-            "Current evidence already establishes a policy signal and a same-topic research "
-            "signal, but not the mechanism or scope needed for a full impact estimate."
+            "Current evidence provides a policy-side signal and a same-topic research-side "
+            "signal, but it does not directly isolate the mechanism or scope of the effect."
         )
     if use_cjk:
         return (
-            "\u5f53\u524d\u8bc1\u636e\u5df2\u7ecf\u7ed9\u51fa\u4e86\u540c\u9898\u8de8\u57df"
-            "\u4fe1\u53f7\uff0c\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u5b8c\u6210\u5b8c\u6574\u7684"
-            "\u5f71\u54cd\u5206\u6790\u3002"
+            "\u5f53\u524d\u8bc1\u636e\u53ea\u80fd\u8bf4\u660e\u5df2\u7ecf\u89c2\u5bdf\u5230"
+            "\u540c\u9898\u8de8\u57df\u4fe1\u53f7\uff0c\u4f46\u8fd8\u4e0d\u8db3\u4ee5\u76f4\u63a5"
+            "\u5b8c\u6210\u5b8c\u6574\u7684\u5f71\u54cd\u5206\u6790\u3002"
         )
     return (
-        "Current evidence already establishes same-topic cross-domain signals, but not enough "
-        "for a full impact estimate."
+        "Current evidence provides same-topic cross-domain signals, but not enough to directly "
+        "complete a full impact estimate."
     )
+
+
+def _mixed_record_text_for_bridge(
+    record: CanonicalEvidence,
+    slice_: EvidenceSlice,
+) -> str:
+    return normalize_query_text(
+        " ".join(
+            (
+                record.canonical_title,
+                slice_.text,
+                record.version or "",
+                record.authority or "",
+            )
+        )
+    )
+
+
+def _contains_mixed_bridge_marker(text: str, markers: frozenset[str]) -> bool:
+    return any(marker in text for marker in markers)
+
+
+def _mixed_cross_domain_bridge_supported(
+    *,
+    primary_record: CanonicalEvidence,
+    primary_slice: EvidenceSlice,
+    supplemental_record: CanonicalEvidence,
+    supplemental_slice: EvidenceSlice,
+) -> bool:
+    primary_text = _mixed_record_text_for_bridge(primary_record, primary_slice)
+    supplemental_text = _mixed_record_text_for_bridge(
+        supplemental_record,
+        supplemental_slice,
+    )
+    domains = {primary_record.domain, supplemental_record.domain}
+    if domains == {"policy", "industry"}:
+        return _contains_mixed_bridge_marker(
+            primary_text,
+            _MIXED_INDUSTRY_BRIDGE_MARKERS,
+        ) or _contains_mixed_bridge_marker(
+            supplemental_text,
+            _MIXED_POLICY_BRIDGE_MARKERS,
+        )
+    if domains == {"policy", "academic"}:
+        return _contains_mixed_bridge_marker(
+            primary_text,
+            _MIXED_ACADEMIC_BRIDGE_MARKERS,
+        ) or _contains_mixed_bridge_marker(
+            supplemental_text,
+            _MIXED_POLICY_BRIDGE_MARKERS,
+        )
+    return False
 
 
 def _build_partial_conclusion(
@@ -3182,7 +3316,7 @@ def _build_mixed_cross_domain_fast_path_response(
         )
     else:
         conclusion = (
-            f'Current sources indicate an impact pattern: "{matched_primary_record.canonical_title}" shows '
+            f'Current sources surface cross-domain evidence relevant to the impact question: "{matched_primary_record.canonical_title}" shows '
             f"{primary_statement}, and "
             f'"{matched_supplemental_record.canonical_title}" shows {supplemental_statement}.'
         )
@@ -3215,8 +3349,8 @@ def _build_mixed_cross_domain_fast_path_response(
                 else "policy requirements"
             )
             conclusion = (
-                f"{conclusion} Together, these sources suggest {constraint_label} can "
-                "reshape research conditions, but the cited sources do not quantify "
+                f"{conclusion} Taken together, these sources point to a possible link between "
+                f"{constraint_label} and research conditions, but the cited sources do not quantify "
                 "the size of that effect."
             )
 
@@ -3389,6 +3523,17 @@ def _build_local_answer_candidate(
             or partial_mixed_cross_domain_allowed
         )
     ):
+        if not _mixed_cross_domain_bridge_supported(
+            primary_record=primary_route_record,
+            primary_slice=primary_route_slice,
+            supplemental_record=supplemental_route_record,
+            supplemental_slice=supplemental_route_slice,
+        ):
+            return _build_relevance_gated_response(
+                retrieval_response,
+                canonical_evidence,
+                query=query,
+            )
         return _build_mixed_cross_domain_fast_path_response(
             retrieval_response,
             canonical_evidence,
