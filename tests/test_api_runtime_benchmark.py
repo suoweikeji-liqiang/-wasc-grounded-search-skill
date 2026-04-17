@@ -151,9 +151,17 @@ def test_api_runtime_benchmark_uses_live_answer_path_and_keeps_telemetry_interna
     assert "token_budget_ok" in first_record
     assert "evidence_token_estimate" in first_record
     assert "answer_token_estimate" in first_record
+    assert "problem_structure" in first_record
+    assert "claim_type" in first_record
+    assert "answerability_status" in first_record
+    assert "evidence_slot_coverage" in first_record
     assert "retrieval_trace" in first_record
     assert isinstance(first_record["retrieval_trace"], list)
     assert first_record["retrieval_trace"]
+    assert first_record["problem_structure"]
+    assert first_record["claim_type"]
+    assert first_record["answerability_status"]
+    assert isinstance(first_record["evidence_slot_coverage"], list)
     assert {
         "source_id",
         "stage",

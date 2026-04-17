@@ -1,9 +1,10 @@
-"""Competition-oriented query trait extraction."""
+"""Competition-oriented query trait extraction and answerability profiling."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from skill.config.routes import ACADEMIC_MARKERS, INDUSTRY_MARKERS, POLICY_MARKERS
 from skill.orchestrator.normalize import normalize_query_text
@@ -73,6 +74,14 @@ _CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
     "effect on",
     "impact of",
     "effect of",
+)
+_COMPARISON_MARKERS: tuple[str, ...] = (
+    "\u6bd4\u8f83",
+    "\u5bf9\u6bd4",
+    "vs",
+    "versus",
+    "compare",
+    "comparison",
 )
 _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
     "policy": (
@@ -217,6 +226,22 @@ _ROUTE_ENGLISH_MARKERS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+ProblemStructure = Literal[
+    "authoritative_lookup",
+    "industry_trend",
+    "scholarly_lookup",
+    "cross_domain_synthesis",
+    "underspecified",
+]
+ClaimType = Literal["fact", "trend", "comparison", "impact"]
+EvidenceSlotId = Literal[
+    "primary_evidence",
+    "supplemental_evidence",
+    "time_range",
+    "source_quality",
+]
+AnswerabilityStatus = Literal["met", "partial", "unmet"]
+
 
 @dataclass(frozen=True)
 class QueryTraits:
@@ -226,6 +251,13 @@ class QueryTraits:
     has_trend_intent: bool
     is_policy_change: bool
     is_cross_domain_impact: bool
+
+
+@dataclass(frozen=True)
+class AnswerabilityProfile:
+    problem_structure: ProblemStructure
+    claim_type: ClaimType
+    required_evidence_slots: tuple[EvidenceSlotId, ...]
 
 
 def _marker_in_text(text: str, marker: str) -> bool:
@@ -267,4 +299,63 @@ def derive_query_traits(query: str) -> QueryTraits:
         has_trend_intent=_contains_any(normalized, _TREND_MARKERS),
         is_policy_change=_contains_any(normalized, _POLICY_CHANGE_MARKERS),
         is_cross_domain_impact=is_cross_domain_impact,
+    )
+
+
+def derive_answerability_profile(
+    query: str,
+    *,
+    route_label: str | None = None,
+    primary_route: str | None = None,
+    supplemental_route: str | None = None,
+    reason_code: str | None = None,
+) -> AnswerabilityProfile:
+    normalized = normalize_query_text(query)
+    traits = derive_query_traits(query)
+
+    claim_type: ClaimType
+    if _contains_any(normalized, _COMPARISON_MARKERS):
+        claim_type = "comparison"
+    elif traits.is_cross_domain_impact:
+        claim_type = "impact"
+    elif traits.has_trend_intent:
+        claim_type = "trend"
+    else:
+        claim_type = "fact"
+
+    problem_structure: ProblemStructure
+    if route_label == "mixed" and supplemental_route is None and reason_code in {
+        "short_query",
+        "low_signal",
+    }:
+        problem_structure = "underspecified"
+    elif route_label == "mixed" or supplemental_route is not None or traits.is_cross_domain_impact:
+        problem_structure = "cross_domain_synthesis"
+    elif primary_route == "academic":
+        problem_structure = "scholarly_lookup"
+    elif primary_route == "industry" and traits.has_trend_intent:
+        problem_structure = "industry_trend"
+    elif primary_route in {"policy", "industry"}:
+        problem_structure = "authoritative_lookup"
+    else:
+        problem_structure = "underspecified"
+
+    if problem_structure == "cross_domain_synthesis":
+        required_evidence_slots: tuple[EvidenceSlotId, ...] = (
+            "primary_evidence",
+            "supplemental_evidence",
+            "source_quality",
+        )
+    elif problem_structure == "industry_trend":
+        required_evidence_slots = (
+            "primary_evidence",
+            "time_range",
+        )
+    else:
+        required_evidence_slots = ("primary_evidence",)
+
+    return AnswerabilityProfile(
+        problem_structure=problem_structure,
+        claim_type=claim_type,
+        required_evidence_slots=required_evidence_slots,
     )

@@ -192,12 +192,36 @@ def test_classify_query_keeps_strong_policy_queries_concrete_despite_trailing_cr
 
 
 def test_classify_query_assigns_supplemental_route_for_non_explicit_mixed_ambiguity() -> None:
-    policy_academic = classify_query("政策研究路径评估框架示例说明")
+    policy_academic = classify_query(
+        "\u653f\u7b56\u7814\u7a76\u8def\u5f84\u8bc4\u4f30\u6846\u67b6\u793a\u4f8b\u8bf4\u660e"
+    )
     assert policy_academic.route_label == "mixed"
     assert policy_academic.primary_route == "policy"
     assert policy_academic.supplemental_route == "academic"
 
-    academic_industry = classify_query("这篇论文行业趋势解读案例分享")
+    academic_industry = classify_query(
+        "\u8fd9\u7bc7\u8bba\u6587\u884c\u4e1a\u8d8b\u52bf\u89e3\u8bfb\u6848\u4f8b\u5206\u4eab"
+    )
     assert academic_industry.route_label == "mixed"
     assert academic_industry.primary_route == "academic"
     assert academic_industry.supplemental_route == "industry"
+
+
+def test_classify_query_emits_problem_structure_and_claim_type_metadata() -> None:
+    policy = classify_query(
+        "NIS2 Directive transposition deadline adopt publish national measures official text"
+    )
+    assert policy.problem_structure == "authoritative_lookup"
+    assert policy.claim_type == "fact"
+
+    academic = classify_query("grounded search evidence packing paper")
+    assert academic.problem_structure == "scholarly_lookup"
+    assert academic.claim_type == "fact"
+
+    industry = classify_query("advanced packaging capacity outlook 2026")
+    assert industry.problem_structure == "industry_trend"
+    assert industry.claim_type == "trend"
+
+    mixed = classify_query("AI Act 对开源模型和产业落地影响")
+    assert mixed.problem_structure == "cross_domain_synthesis"
+    assert mixed.claim_type == "impact"

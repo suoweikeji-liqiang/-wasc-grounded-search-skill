@@ -179,6 +179,10 @@ def test_export_judge_packets_writes_minimal_case_packet(monkeypatch, tmp_path) 
     assert packet["answer"]["key_points"]
     assert packet["answer"]["sources"]
     assert packet["runtime"]["elapsed_ms"] >= 0
+    assert packet["runtime"]["problem_structure"] == "authoritative_lookup"
+    assert packet["runtime"]["claim_type"] == "fact"
+    assert packet["runtime"]["answerability_status"] == "met"
+    assert isinstance(packet["runtime"]["evidence_slot_coverage"], list)
     assert isinstance(packet["runtime"]["retrieval_trace"], list)
     assert bundle_text.isascii()
     assert "\\u81ea\\u52a8\\u9a7e\\u9a76" in bundle_text

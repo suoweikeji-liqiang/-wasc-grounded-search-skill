@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from skill.config.live_retrieval import LiveRetrievalConfig
+from skill.orchestrator.normalize import normalize_query_text, query_tokens
 from skill.retrieval.live.cache import TTLCache
+from skill.retrieval.priority import score_query_alignment
 
 _CACHE: TTLCache[list[dict[str, object]]] = TTLCache(max_entries=64)
 _US_POLICY_MARKERS: tuple[str, ...] = (
@@ -18,6 +20,80 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "noncompete",
     "laboratory developed tests",
     "cyber trust mark",
+)
+_MIN_ALIGNMENT_SCORE = 7
+_GENERIC_POLICY_QUERY_TOKENS: frozenset[str] = frozenset(
+    {
+        "official",
+        "rule",
+        "rules",
+        "policy",
+        "policies",
+        "regulation",
+        "regulations",
+        "guidance",
+        "latest",
+        "final",
+        "proposed",
+        "effective",
+        "date",
+        "dates",
+        "timeline",
+        "timelines",
+        "update",
+        "updates",
+        "change",
+        "changes",
+        "compliance",
+        "deadline",
+        "deadlines",
+        "requirements",
+        "requirement",
+        "scope",
+        "eligibility",
+        "minimum",
+        "program",
+        "programs",
+        "text",
+        "notice",
+        "materials",
+        "resource",
+        "resources",
+        "implementation",
+        "status",
+        "legal",
+        "phase",
+        "phaseout",
+        "phasein",
+        "milestones",
+        "definition",
+        "definitions",
+        "page",
+        "pages",
+        "act",
+        "acts",
+        "and",
+        "or",
+        "on",
+        "for",
+        "of",
+        "to",
+        "in",
+        "by",
+        "the",
+        "a",
+        "an",
+    }
+)
+_GENERIC_AGENCY_TOKENS: frozenset[str] = frozenset(
+    {
+        "fda",
+        "fcc",
+        "epa",
+        "ftc",
+        "cisa",
+        "us",
+    }
 )
 _CATALOG: tuple[dict[str, object], ...] = (
     {
@@ -129,11 +205,43 @@ def _cache_key(query: str, *, max_results: int) -> str:
     return f"us-policy|{query.strip().lower()}|{max(1, max_results)}"
 
 
+def _substantive_overlap_count(query: str, record: dict[str, object]) -> int:
+    normalized_query = normalize_query_text(query)
+    query_token_set = {
+        token
+        for token in query_tokens(normalized_query)
+        if token not in _GENERIC_POLICY_QUERY_TOKENS and token not in _GENERIC_AGENCY_TOKENS
+    }
+    if not query_token_set:
+        return 0
+    record_token_set = set(
+        query_tokens(
+            normalize_query_text(
+                f"{record.get('title', '')} {record.get('snippet', '')}"
+            )
+        )
+    )
+    return sum(1 for token in query_token_set if token in record_token_set)
+
+
 def _record_score(query: str, record: dict[str, object]) -> int:
-    normalized = query.lower()
-    markers = tuple(str(item).lower() for item in record.get("markers", ()))
-    marker_hits = sum(1 for marker in markers if marker and marker in normalized)
-    return marker_hits
+    alignment_score = score_query_alignment(
+        query,
+        route="policy",
+        title=str(record["title"]),
+        snippet=str(record["snippet"]),
+        url=str(record["url"]),
+        authority=str(record["authority"]),
+        publication_date=str(record["publication_date"]),
+        effective_date=(
+            str(record["effective_date"]) if record.get("effective_date") is not None else None
+        ),
+        version=str(record["version"]),
+    )
+    overlap_count = _substantive_overlap_count(query, record)
+    if alignment_score < _MIN_ALIGNMENT_SCORE or overlap_count == 0:
+        return 0
+    return alignment_score + (overlap_count * 4)
 
 
 def _materialize(record: dict[str, object]) -> dict[str, object]:

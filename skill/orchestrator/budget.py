@@ -84,6 +84,10 @@ class RuntimeTrace:
     provider_prompt_tokens: int | None = None
     provider_completion_tokens: int | None = None
     provider_total_tokens: int | None = None
+    problem_structure: str = "underspecified"
+    claim_type: str = "fact"
+    answerability_status: str = "unmet"
+    evidence_slot_coverage: tuple[dict[str, object], ...] = ()
     retrieval_trace: tuple[dict[str, object], ...] = ()
 
 

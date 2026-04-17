@@ -123,6 +123,25 @@ _CROSS_DOMAIN_SPLIT_MARKERS: tuple[str, ...] = (
     " 对 ",
     " 对于 ",
 )
+_FRAGMENT_BOUNDARY_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+    }
+)
 _LOW_INFORMATION_QUERY_TERMS: frozenset[str] = frozenset(
     {
         "official",
@@ -219,6 +238,15 @@ def _split_query_words(text: str) -> list[str]:
     return [word for word in normalized.split(" ") if word]
 
 
+def _trim_fragment_boundary_words(text: str) -> str:
+    words = _split_query_words(text)
+    while words and words[0] in _FRAGMENT_BOUNDARY_STOPWORDS:
+        words.pop(0)
+    while words and words[-1] in _FRAGMENT_BOUNDARY_STOPWORDS:
+        words.pop()
+    return _compact_query_text(" ".join(words))
+
+
 def _content_words(text: str) -> list[str]:
     normalized = normalize_query_text(text)
     return [word for word in _QUERY_WORD_RE.findall(normalized) if word]
@@ -299,8 +327,8 @@ def _split_cross_domain_fragments(query: str) -> tuple[str, ...]:
         if marker not in normalized:
             continue
         left, right = normalized.split(marker, 1)
-        left = _compact_query_text(left)
-        right = _compact_query_text(right)
+        left = _trim_fragment_boundary_words(left)
+        right = _trim_fragment_boundary_words(right)
         fragments = tuple(
             fragment
             for fragment in (left, right)
@@ -706,7 +734,7 @@ def build_query_variants(
     ]
 
     cross_domain_fragment = None
-    if route_label == "mixed":
+    if route_label == "mixed" or supplemental_route is not None or traits.is_cross_domain_impact:
         cross_domain_fragment = _best_cross_domain_fragment(
             query=query,
             primary_route=primary_route,

@@ -46,6 +46,10 @@ def _record_from_runtime_trace(
         provider_prompt_tokens=runtime_trace.provider_prompt_tokens,
         provider_completion_tokens=runtime_trace.provider_completion_tokens,
         provider_total_tokens=runtime_trace.provider_total_tokens,
+        problem_structure=runtime_trace.problem_structure,
+        claim_type=runtime_trace.claim_type,
+        answerability_status=runtime_trace.answerability_status,
+        evidence_slot_coverage=list(runtime_trace.evidence_slot_coverage),
         retrieval_trace=list(runtime_trace.retrieval_trace),
     )
 

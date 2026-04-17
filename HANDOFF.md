@@ -1,5 +1,195 @@
 # Handoff (2026-04-14)
 
+## Update (2026-04-17)
+
+### Continuation (2026-04-17, commit-history forensics and score correction)
+- User challenged whether recent work has been drifting and whether score perception has been inflated by the wrong benchmark slices.
+- Artifact-backed correction:
+  - there is **no retained evidence of a stable `70 / 100` proxy score**
+  - the highest recent judge proxy preserved in this handoff is:
+    - `52`, `53`, `54` / `100` on `benchmark-results/smoke-gate-2026-04-17-round37/`
+    - that was only an `8`-case smoke slice
+  - the latest broader fresh non-mixed `gen3` run is:
+    - `39`, `39`, `40` / `100` on `benchmark-results/gen3-nonmixed-r1-fresh-2026-04-17/`
+    - this used `40` new questions with `policy / academic / industry / hard` only
+- Commit-history forensic read:
+  - this is **not** a case where all recent work was useless
+  - there were real improvements in policy / academic retrieval and U.S. policy source selection
+  - but the user concern about drift is valid: recent effort partially kept flowing into `mixed` handling, answer shaping, and judge tooling while the dominant fresh-process bottleneck remained live retrieval timeout behavior, especially in `industry`
+- Evidence for drift:
+  - `HANDOFF.md` already said on 2026-04-16 and 2026-04-17 not to optimize by `mixed`
+  - despite that, recent commits still included:
+    - `ab1e909` `feat: improve academic overlap and mixed evidence handling`
+    - `90aa3dd` `fix: generalize mixed industry variant fallback`
+    - `a5ba297` `fix: tighten mixed cross-domain answer bridge claims`
+  - in the last `20` commits, the most frequently touched production file was `skill/synthesis/orchestrate.py` (`8` touches), while the latest broad fresh score sink is retrieval timeout concentration, not answer phrasing
+  - even after excluding mixed tasks from the latest `gen3` evaluation slice, the system still emitted `route_label == "mixed"` for:
+    - `gen3-policy-10`
+    - `gen3-industry-10`
+  - this means the internal `mixed` concept is still leaking into execution and should now be treated as a bug / debt source, not a useful optimization abstraction
+- Retained forensic conclusion:
+  - yes, there has been **priority drift / partial thrash**
+  - no, it is **not** accurate to say every recent change was wasted
+  - the more accurate statement is:
+    - policy / academic improvements are real
+    - benchmark / answer-surface work and mixed-adjacent fixes consumed too much attention relative to the real bottleneck
+    - the real bottleneck on the newest broad fresh run is `industry` live retrieval stability and timeout collapse
+- Latest non-mixed fresh benchmark readout:
+  - artifact:
+    - `benchmark-results/gen3-nonmixed-r1-fresh-2026-04-17/benchmark-summary.json`
+    - `benchmark-results/gen3-nonmixed-r1-fresh-2026-04-17/benchmark-runs.jsonl`
+  - result:
+    - `12 / 40` grounded success (`0.30`)
+    - `latency_p50_ms = 6014`
+    - `latency_p95_ms = 60000`
+    - `latency_budget_pass_rate = 0.475`
+    - `token_budget_pass_rate = 1.0`
+    - `retrieval_failure = 19`
+    - `insufficient_evidence = 9`
+    - `timeout = 28`
+  - explicit buckets:
+    - `academic`: `7 / 10`
+    - `policy`: `5 / 10`
+    - `industry`: `0 / 10`
+    - `hard`: `0 / 10`
+- Stronger retained anti-goals after this forensic pass:
+  - do **not** use `mixed` as a planning bucket, benchmark bucket, or optimization label
+  - do **not** spend more time on answer phrasing / bridge logic until retrieval stability improves on broad fresh sets
+  - do **not** use smoke-only judge proxies as the main score narrative
+- Recommended next target after this audit:
+  1. eliminate internal `mixed` leakage on explicit non-mixed evaluation sets
+  2. make `industry` fresh-process live retrieval the top bottleneck to fix
+  3. only revisit answer shaping after broader fresh retrieval success materially improves
+
+### Continuation (2026-04-17, low-score reframing for next window)
+- User wants the next session to attack the current low score directly, using a higher-level and more generalized strategy instead of route-label tuning or sample-specific keyword patches.
+- Latest verified proxy baseline before opening the new window:
+  - current code commit: `4b9cdcd` (`retrieval: reserve industry fallback time`)
+  - fresh-process smoke artifact:
+    - `benchmark-results/smoke-gate-2026-04-17-round37/benchmark-summary.json`
+    - `benchmark-results/smoke-gate-2026-04-17-round37/benchmark-runs.jsonl`
+  - round37 readout:
+    - `3 / 8` grounded success (`0.375`)
+    - `latency_p50_ms = 4849`
+    - `latency_p95_ms = 10492`
+    - `latency_budget_pass_rate = 0.625`
+    - `token_budget_pass_rate = 1.0`
+    - `5 / 8` are still `insufficient_evidence`
+    - `0 / 8` are `retrieval_failure` in this run
+- Independent score readout from three no-context judge agents on the exact same round37 packet:
+  - clustered at `52`, `53`, and `54` / `100`
+  - all three rated `request_time` and `tokens` as current strengths
+  - all three rated `information_completeness`, `operability`, and `stability` as the main score sink
+  - use this as a conservative proxy, not an official score
+- Most important strategic conclusion for the next window:
+  - the low score is **not** primarily a route-label problem
+  - the low score is **not** primarily a latency problem anymore
+  - the bigger problem is that too many runs still end with incomplete evidence coverage, so answer completeness, operability, and repeated-run stability stay low
+  - therefore do **not** organize the next round around improving `policy / industry / academic / mixed` hit rates
+
+### New retained direction: do not optimize by route buckets
+- `mixed` being weak is still observable in some benchmark outputs, but `mixed` is an overloaded internal bucket and should **not** be treated as a single optimization target.
+- This conclusion is already supported by both docs and code:
+  - `docs/competition-rules-2026-04-17.md`
+  - `skill/orchestrator/intent.py`
+  - current `mixed` reasons include:
+    - `explicit_cross_domain`
+    - `short_query`
+    - `low_signal`
+    - `policy_academic_research_path`
+    - `score_tie`
+- New framing for the next window:
+  - classify and optimize by **problem structure**, not by route label
+  - use the current route classifier only as a compatibility layer until a better abstraction is in place
+
+### Proposed generalized abstraction for the next window
+- Replace route-first thinking with **problem-structure-first** and **evidence-slot-first** reasoning.
+- Suggested problem-structure buckets:
+  - authoritative single-document lookup
+  - industry trend / forecast / market aggregation
+  - scholarly concept or paper lookup
+  - cross-domain impact / causal synthesis
+  - underspecified / low-signal / ambiguous question
+- Suggested evidence slots to reason about before synthesis:
+  - subject / entity slot
+  - claim-type slot:
+    - fact
+    - trend
+    - comparison
+    - impact
+  - time-range slot
+  - primary evidence slot
+  - complementary evidence slot when the question structurally needs more than one evidence family
+  - minimum answerability threshold:
+    - what evidence must be present before the system is allowed to produce a grounded answer
+
+### Why this new framing is retained
+- It is more aligned with the official scorecard:
+  - completeness and accuracy are both `20`
+  - stability is `15`
+  - latency is already in a strong bucket when the system does not fail
+- It generalizes better than route-label tuning:
+  - no dependence on `mixed` as a vanity target
+  - no dependence on adding more route markers or benchmark-specific keyword patches
+  - no assumption that all low-scoring failures share the same domain shape
+- It better matches what the current traces are already showing:
+  - academic smoke misses are often dominated by low relevance / no-hits, not only by time budget
+  - mixed-labeled failures are heterogeneous and should be split by underlying structure
+  - industry fallback timing was a real issue and has been partially corrected already; do not revert that work just because the total score is still low
+
+### Concrete engineering direction for the next window
+- Do not reopen heavier first-hop `mixed`.
+- Do not spend the next round on more marker expansion, regex patches, or route-label corrections.
+- Instead, push in this order:
+  1. Add **problem-structure metadata** and **answerability metadata** at the classifier / planner boundary, without deleting the current route label yet.
+  2. Add **evidence-slot coverage tracing** so retrieval and answer stages can explain which required slots were filled and which were still missing.
+  3. Move from fixed route-centric budgets toward **dynamic budget allocation based on slot coverage and uncertainty**.
+  4. Treat **fresh-process stability** as a first-class target:
+     - cancellation-safe adapters
+     - explainable fallback traces
+     - no hidden waits or orphan cleanup that can become long-tail failures
+  5. Only after coverage and stability are clearer, revisit answer shaping so partial-but-grounded evidence can be surfaced more usefully instead of collapsing too early to generic `insufficient_evidence`.
+
+### Suggested first code surfaces to inspect in the new window
+- `skill/orchestrator/intent.py`
+- `skill/orchestrator/query_traits.py`
+- `skill/orchestrator/retrieval_plan.py`
+- `skill/retrieval/engine.py`
+- `skill/retrieval/orchestrate.py`
+- `skill/synthesis/orchestrate.py`
+- any runtime-trace / schema surfaces that currently expose only route-level status and not evidence-slot coverage
+
+### Explicit anti-goals for the next window
+- no sample-specific keyword tuning
+- no treating `mixed` as a single homogeneous problem
+- no route-label hit-rate optimization as a proxy for competition score
+- no broad timeout inflation without a structure-aware reason
+- no reverting the recent industry fallback-budget correction unless fresh-process evidence clearly shows it regresses score
+
+### Continuation (2026-04-17, official-rule realignment)
+- User provided the official competition rules and requested local persistence.
+- Persisted the rule snapshot at:
+  - `比赛.txt`
+  - `docs/competition-rules-2026-04-17.md`
+- Official readout that matters for strategy:
+  - latency is scored by average bucket, with full points at `<= 10s`
+  - completeness and accuracy are each worth `20`
+  - stability is evaluated over `10 tasks x 5 repeats = 50 runs`
+  - tie-breakers are `accuracy -> tokens -> stability`
+- Strategic correction:
+  - stop treating `8s` as a proven official hard cutoff
+  - stop treating `mixed` route hit rate as the main optimization target
+  - optimize for end-to-end score: grounded success, source-backed completeness, low hallucination risk, operability, and repeated-run stability
+- Current repo reading after this correction:
+  - `skill/benchmark/harness.py` scores success from `runtime_trace.answer_status == "grounded_success"`
+  - `skill/orchestrator/intent.py` uses `mixed` as an overloaded bucket for explicit cross-domain, short-query, low-signal, ambiguity, and tie cases
+  - this means "fix mixed" is too coarse to guide the next round
+- Recommended next direction after this update:
+  - prioritize timeout/failure reduction in policy and industry live paths
+  - treat true cross-domain uplift separately from underspecified/ambiguous query handling
+  - add a benchmark view aligned to the official scorecard instead of relying on route-label-centric interpretations
+  - audit Linux portability because the official environment is Ubuntu 24.04 while the repo still has PowerShell-first docs and some helper scripts with `D:\...` defaults
+
 ## Update (2026-04-16)
 
 ### Continuation (2026-04-16, handoff after routing simplification discussion)

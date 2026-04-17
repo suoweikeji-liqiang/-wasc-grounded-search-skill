@@ -16,7 +16,13 @@ from skill.config.retrieval import (
 )
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.normalize import normalize_query_text
-from skill.orchestrator.query_traits import derive_query_traits
+from skill.orchestrator.query_traits import (
+    ClaimType,
+    EvidenceSlotId,
+    ProblemStructure,
+    derive_answerability_profile,
+    derive_query_traits,
+)
 from skill.retrieval.models import RetrievalFailureReason
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
@@ -108,6 +114,9 @@ class RetrievalPlan:
     supplemental_route: ConcreteRoute | None
     first_wave_sources: tuple[PlannedSourceStep, ...]
     fallback_sources: tuple[PlannedSourceStep, ...]
+    problem_structure: ProblemStructure = "underspecified"
+    claim_type: ClaimType = "fact"
+    required_evidence_slots: tuple[EvidenceSlotId, ...] = ()
     query_variant_budget: int = 3
     per_source_timeout_seconds: float = PER_SOURCE_TIMEOUT_SECONDS
     overall_deadline_seconds: float = OVERALL_RETRIEVAL_DEADLINE_SECONDS
@@ -348,6 +357,18 @@ def build_retrieval_plan(
     *,
     query: str | None = None,
 ) -> RetrievalPlan:
+    answerability_profile = derive_answerability_profile(
+        query or "",
+        route_label=classification.route_label,
+        primary_route=classification.primary_route,
+        supplemental_route=classification.supplemental_route,
+        reason_code=classification.reason_code,
+    )
+    problem_structure = (
+        classification.problem_structure or answerability_profile.problem_structure
+    )
+    claim_type = classification.claim_type or answerability_profile.claim_type
+    required_evidence_slots = answerability_profile.required_evidence_slots
     supplemental_route: ConcreteRoute | None = None
     fallback: tuple[PlannedSourceStep, ...] | None = None
 
@@ -418,6 +439,9 @@ def build_retrieval_plan(
         supplemental_route=supplemental_route,
         first_wave_sources=first_wave,
         fallback_sources=fallback,
+        problem_structure=problem_structure,
+        claim_type=claim_type,
+        required_evidence_slots=required_evidence_slots,
         query_variant_budget=query_variant_budget,
         per_source_timeout_seconds=per_source_timeout_seconds,
         overall_deadline_seconds=overall_deadline_seconds,

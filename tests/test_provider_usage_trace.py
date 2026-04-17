@@ -158,6 +158,17 @@ def test_run_benchmark_suite_persists_provider_usage_columns(tmp_path) -> None:
             provider_prompt_tokens=321,
             provider_completion_tokens=123,
             provider_total_tokens=444,
+            problem_structure="authoritative_lookup",
+            claim_type="fact",
+            answerability_status="met",
+            evidence_slot_coverage=(
+                {
+                    "slot_id": "primary_evidence",
+                    "required": True,
+                    "filled": True,
+                    "evidence_ids": ["policy-1"],
+                },
+            ),
             retrieval_trace=(),
         )
         return AnswerResponse(
@@ -191,3 +202,6 @@ def test_run_benchmark_suite_persists_provider_usage_columns(tmp_path) -> None:
     assert record["provider_prompt_tokens"] == 321
     assert record["provider_completion_tokens"] == 123
     assert record["provider_total_tokens"] == 444
+    assert record["problem_structure"] == "authoritative_lookup"
+    assert record["claim_type"] == "fact"
+    assert record["answerability_status"] == "met"

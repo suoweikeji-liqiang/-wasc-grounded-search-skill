@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 
 def test_policy_parser_accepts_fcc_and_etsi_official_domains() -> None:
     from skill.retrieval.live.parsers.policy import (
@@ -632,6 +634,68 @@ def test_policy_registry_live_adapter_uses_federal_register_for_us_official_quer
     assert hits[0].publication_date == "2026-04-11"
     assert hits[0].effective_date == "2026-05-11"
     assert hits[0].version == "2026 final rule"
+
+
+def test_policy_registry_live_adapter_defers_open_web_until_after_us_federal_lookup(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    started: list[str] = []
+    federal_released = asyncio.Event()
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest EPA methane rule effective date"
+        assert max_results == 5
+        return []
+
+    async def _slow_search_federal_register(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "latest EPA methane rule effective date"
+        assert max_results == 5
+        started.append("federal")
+        await federal_released.wait()
+        return []
+
+    async def _tracking_search_open_web_policy(
+        *,
+        query: str,
+        config,
+    ) -> list[dict[str, object]]:
+        assert query == "latest EPA methane rule effective date"
+        del config
+        started.append("open_web")
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_federal_register", _slow_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _tracking_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _empty_direct)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            asyncio.wait_for(
+                adapter.search_live("latest EPA methane rule effective date"),
+                timeout=0.05,
+            )
+        )
+
+    assert started == ["federal"]
 
 
 def test_policy_allowlist_live_adapter_accepts_npc_law_database_domains(monkeypatch) -> None:

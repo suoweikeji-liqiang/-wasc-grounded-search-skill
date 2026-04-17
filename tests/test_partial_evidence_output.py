@@ -375,3 +375,73 @@ def test_budget_enforcement_with_canonical_evidence_still_returns_partial_facts(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
     )
+
+
+def test_partial_mixed_answer_records_answerability_trace(monkeypatch) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _partial_mixed_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _FakeModelClient(
+        {
+            "conclusion": (
+                "The retained evidence shows policy-side requirements and a same-topic "
+                "industry-side signal, but it does not quantify the cost impact."
+            ),
+            "key_points": [
+                {
+                    "key_point_id": "kp-1",
+                    "statement": (
+                        "Official autonomous driving pilot regulation sets 2026 "
+                        "compliance requirements for road testing."
+                    ),
+                    "citations": [
+                        {
+                            "evidence_id": "policy-1",
+                            "source_record_id": "policy-1-slice-1",
+                        }
+                    ],
+                }
+            ],
+            "sources": [
+                {
+                    "evidence_id": "policy-1",
+                    "title": "State Council autonomous driving pilot regulation",
+                    "url": "https://www.gov.cn/zhengce/autonomous-driving-pilot-regulation",
+                },
+                {
+                    "evidence_id": "industry-1",
+                    "title": "BYD autonomous driving supplier investment update",
+                    "url": "https://www.byd.com/news/autonomous-driving-supplier-investment-2026",
+                },
+            ],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query=_PARTIAL_MIXED_QUERY,
+            adapter_registry={},
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.runtime_trace.problem_structure == "cross_domain_synthesis"
+    assert result.runtime_trace.claim_type == "fact"
+    assert result.runtime_trace.answerability_status == "partial"
+    coverage = {
+        item["slot_id"]: item for item in result.runtime_trace.evidence_slot_coverage
+    }
+    assert coverage["primary_evidence"]["filled"] is True
+    assert coverage["supplemental_evidence"]["filled"] is True
+    assert coverage["source_quality"]["filled"] is True

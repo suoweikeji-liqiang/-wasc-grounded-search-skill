@@ -34,6 +34,17 @@ def _build_fake_benchmark_app() -> FastAPI:
             token_budget_ok=True,
             failure_reason=None,
             budget_exhausted_phase=None,
+            problem_structure="authoritative_lookup",
+            claim_type="fact",
+            answerability_status="met",
+            evidence_slot_coverage=(
+                {
+                    "slot_id": "primary_evidence",
+                    "required": True,
+                    "filled": True,
+                    "evidence_ids": ["policy-1"],
+                },
+            ),
             retrieval_trace=(
                 {
                     "source_id": "policy_official_registry",
@@ -167,11 +178,26 @@ def test_run_benchmark_suite_emits_10x5_records_with_required_runtime_fields(
         "provider_prompt_tokens",
         "provider_completion_tokens",
         "provider_total_tokens",
+        "problem_structure",
+        "claim_type",
+        "answerability_status",
+        "evidence_slot_coverage",
         "retrieval_trace",
     }
     assert first_record["latency_budget_ok"] is True
     assert first_record["token_budget_ok"] is True
     assert first_record["answer_token_estimate"] == 18
+    assert first_record["problem_structure"] == "authoritative_lookup"
+    assert first_record["claim_type"] == "fact"
+    assert first_record["answerability_status"] == "met"
+    assert first_record["evidence_slot_coverage"] == [
+        {
+            "slot_id": "primary_evidence",
+            "required": True,
+            "filled": True,
+            "evidence_ids": ["policy-1"],
+        }
+    ]
     assert first_record["retrieval_trace"] == [
         {
             "source_id": "policy_official_registry",

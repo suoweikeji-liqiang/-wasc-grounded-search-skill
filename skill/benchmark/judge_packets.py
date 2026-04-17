@@ -33,6 +33,12 @@ def _build_runtime_payload(runtime_trace: object) -> dict[str, Any]:
         "synthesis_elapsed_ms": getattr(runtime_trace, "synthesis_elapsed_ms", 0),
         "provider_total_tokens": getattr(runtime_trace, "provider_total_tokens", None),
         "failure_reason": getattr(runtime_trace, "failure_reason", None),
+        "problem_structure": getattr(runtime_trace, "problem_structure", "underspecified"),
+        "claim_type": getattr(runtime_trace, "claim_type", "fact"),
+        "answerability_status": getattr(runtime_trace, "answerability_status", "unmet"),
+        "evidence_slot_coverage": list(
+            getattr(runtime_trace, "evidence_slot_coverage", [])
+        ),
         "retrieval_trace": list(getattr(runtime_trace, "retrieval_trace", [])),
     }
 

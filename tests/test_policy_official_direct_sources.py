@@ -85,6 +85,34 @@ def test_us_agency_direct_source_matches_fda_inspection_classification_query() -
     assert "fda.gov" in hits[0]["url"]
 
 
+def test_us_agency_direct_source_drops_unrelated_ftc_catalog_hit_for_rule_name_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FTC junk fees disclosure rule",
+            max_results=5,
+        )
+    )
+
+    assert hits == []
+
+
+def test_us_agency_direct_source_preserves_true_noncompete_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FTC noncompete rule senior executives official",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["title"] == "Non-Compete Clause Rule"
+    assert hits[0]["authority"] == "Federal Trade Commission"
+
+
 def test_uk_direct_source_matches_ofcom_illegal_harms_codes_query() -> None:
     from skill.retrieval.live.clients.policy_uk_legislation import search_uk_legislation
 
@@ -508,3 +536,56 @@ def test_policy_registry_live_adapter_uses_us_agency_direct_source_when_discover
     assert len(hits) == 1
     assert hits[0].authority == "U.S. Food and Drug Administration"
     assert hits[0].jurisdiction == "US"
+
+
+def test_policy_registry_live_adapter_drops_weak_us_agency_fallback_when_federal_register_times_out(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+    from skill.retrieval.live.clients.policy_us_agencies import (
+        search_us_policy_agencies as actual_search_us_policy_agencies,
+    )
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "FTC junk fees disclosure rule"
+        assert max_results == 5
+        return []
+
+    async def _timeout_search_federal_register(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "FTC junk fees disclosure rule"
+        assert max_results == 5
+        raise TimeoutError
+
+    async def _empty_search_open_web_policy(
+        *,
+        query: str,
+        config,
+    ) -> list[dict[str, object]]:
+        assert query == "FTC junk fees disclosure rule"
+        del config
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_federal_register", _timeout_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", actual_search_us_policy_agencies)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(adapter.search_live("FTC junk fees disclosure rule"))
+
+    assert hits == []

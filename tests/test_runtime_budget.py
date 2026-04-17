@@ -80,6 +80,10 @@ def test_runtime_trace_and_answer_execution_result_publish_required_fields() -> 
         "provider_prompt_tokens",
         "provider_completion_tokens",
         "provider_total_tokens",
+        "problem_structure",
+        "claim_type",
+        "answerability_status",
+        "evidence_slot_coverage",
         "retrieval_trace",
     }
-    assert result_fields == {"response", "runtime_trace"}
+    assert result_fields == {"response", "runtime_trace", "artifacts"}

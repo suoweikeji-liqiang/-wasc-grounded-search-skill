@@ -368,14 +368,33 @@ _ACADEMIC_LIST_INTENT_MARKERS = frozenset(
         "\u6709\u54ea\u4e9b",
     }
 )
-_COVERAGE_FRONTIER_VARIANT_PRIORITY: dict[str, int] = {
-    "cross_domain_fragment_focus": 0,
-    "document_focus": 1,
-    "document_concept_focus": 2,
-    "industry_focus": 3,
-    "industry_trend": 4,
-    "industry_share": 5,
-    "core_focus": 6,
+_COVERAGE_FRONTIER_VARIANT_PRIORITY: dict[str, dict[str, int]] = {
+    "industry": {
+        "cross_domain_fragment_focus": 0,
+        "document_focus": 1,
+        "document_concept_focus": 2,
+        "industry_focus": 3,
+        "industry_trend": 4,
+        "industry_share": 5,
+        "core_focus": 6,
+    },
+    "academic": {
+        "cross_domain_fragment_focus": 0,
+        "academic_phrase_locked": 1,
+        "academic_source_hint": 2,
+        "academic_topic_focus": 3,
+        "academic_lookup": 4,
+        "academic_evidence_type_focus": 5,
+        "academic_benchmark": 6,
+        "academic_focus": 7,
+    },
+    "policy": {
+        "cross_domain_fragment_focus": 0,
+        "policy_focus": 1,
+        "policy_change": 2,
+        "policy_effective_date": 3,
+        "core_focus": 4,
+    },
 }
 _ACADEMIC_EVIDENCE_LEVEL_PRIORITY = {
     "peer_reviewed": 3,
@@ -882,16 +901,17 @@ def _choose_coverage_frontier_variant(
     query: str,
     *,
     source_route: str,
+    target_route: str,
 ) -> tuple[str, str] | None:
-    if source_route != "policy":
+    if source_route == target_route:
         return None
 
     variants = build_query_variants(
         query=query,
         route_label="mixed",
-        primary_route="policy",
-        supplemental_route="industry",
-        target_route="industry",
+        primary_route=source_route,  # type: ignore[arg-type]
+        supplemental_route=target_route,  # type: ignore[arg-type]
+        target_route=target_route,  # type: ignore[arg-type]
         variant_limit=5,
     )
     candidates = [
@@ -901,10 +921,11 @@ def _choose_coverage_frontier_variant(
     ]
     if not candidates:
         return None
+    priorities = _COVERAGE_FRONTIER_VARIANT_PRIORITY.get(target_route, {})
     selected = min(
         candidates,
         key=lambda variant: (
-            _COVERAGE_FRONTIER_VARIANT_PRIORITY.get(variant.reason_code, 99),
+            priorities.get(variant.reason_code, 99),
             len(variant.query),
             variant.query,
         ),
@@ -1090,37 +1111,69 @@ def _combine_ranked_matches(
     return tuple(combined)
 
 
+def _coverage_frontier_target_route(
+    retrieval_response: RetrieveResponse,
+) -> str | None:
+    if retrieval_response.route_label == "mixed":
+        return retrieval_response.supplemental_route
+    if (
+        retrieval_response.primary_route == "policy"
+        and retrieval_response.supplemental_route is None
+    ):
+        return "industry"
+    return None
+
+
 def _should_activate_coverage_frontier(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
     *,
     query: str,
 ) -> bool:
-    if retrieval_response.route_label == "mixed":
-        return False
-    if retrieval_response.primary_route != "policy":
-        return False
-    if retrieval_response.supplemental_route is not None:
-        return False
-    if retrieval_response.status != "success" or retrieval_response.failure_reason is not None:
-        return False
-    if retrieval_response.gaps or not canonical_evidence:
+    if not canonical_evidence:
         return False
     if not _is_cross_domain_effect_query(query):
+        return False
+    target_route = _coverage_frontier_target_route(retrieval_response)
+    if target_route is None:
+        return False
+    if retrieval_response.route_label == "mixed":
+        if retrieval_response.status not in {"success", "partial"}:
+            return False
+    elif (
+        retrieval_response.primary_route != "policy"
+        or retrieval_response.supplemental_route is not None
+        or retrieval_response.status != "success"
+        or retrieval_response.failure_reason is not None
+        or retrieval_response.gaps
+    ):
         return False
 
     query_terms = _content_terms(query)
     primary_matches = _top_route_matches(
         query,
         canonical_evidence,
-        domain="policy",
+        domain=retrieval_response.primary_route,
         route_role="primary",
         limit=1,
     )
-    return bool(
+    if not (
         primary_matches
         and primary_matches[0][2] >= min(2, len(query_terms))
+    ):
+        return False
+
+    if retrieval_response.route_label != "mixed":
+        return True
+
+    supplemental_matches = _top_route_matches(
+        query,
+        canonical_evidence,
+        domain=target_route,
+        route_role="supplemental",
+        limit=1,
     )
+    return not supplemental_matches
 
 
 def _coverage_frontier_trace_entry(
@@ -1629,7 +1682,7 @@ async def _maybe_apply_same_route_enrichment(
     )
 
 
-async def _maybe_apply_coverage_frontier_policy(
+async def _maybe_apply_coverage_frontier(
     *,
     query: str,
     retrieval_response: RetrieveResponse,
@@ -1652,9 +1705,14 @@ async def _maybe_apply_coverage_frontier_policy(
     ):
         return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
 
+    target_route = _coverage_frontier_target_route(retrieval_response)
+    if target_route is None:
+        return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
+
     selected_variant = _choose_coverage_frontier_variant(
         query,
         source_route=retrieval_response.primary_route,
+        target_route=target_route,
     )
     if selected_variant is None:
         return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
@@ -1688,6 +1746,7 @@ async def _maybe_apply_coverage_frontier_policy(
             source_route=retrieval_response.primary_route,
             probe_query=probe_query,
         )
+        if candidate.target_route == target_route
     )
     if not frontier_candidates:
         return retrieval_response, canonical_evidence, retrieval_trace, 0.0, None
@@ -4023,10 +4082,126 @@ def _build_answer_response(
     )
 
 
+def _fallback_slot_evidence_ids(
+    *,
+    slot_id: str,
+    plan,
+    response: AnswerResponse,
+) -> list[str]:
+    source_ids = [source.evidence_id for source in response.sources]
+    if not source_ids:
+        return []
+    if slot_id == "supplemental_evidence":
+        if plan.supplemental_route is None or len(source_ids) < 2:
+            return []
+        return source_ids[1:]
+    return source_ids
+
+
+def _slot_evidence_ids(
+    *,
+    slot_id: str,
+    plan,
+    canonical_evidence: tuple[CanonicalEvidence, ...] | None,
+    response: AnswerResponse,
+) -> list[str]:
+    if not canonical_evidence:
+        return _fallback_slot_evidence_ids(
+            slot_id=slot_id,
+            plan=plan,
+            response=response,
+        )
+
+    if slot_id == "primary_evidence":
+        return [
+            record.evidence_id
+            for record in canonical_evidence
+            if record.route_role == "primary"
+            or (
+                record.route_role not in {"primary", "supplemental"}
+                and record.domain == plan.primary_route
+            )
+        ]
+    if slot_id == "supplemental_evidence":
+        return [
+            record.evidence_id
+            for record in canonical_evidence
+            if record.route_role == "supplemental"
+            or (
+                plan.supplemental_route is not None
+                and record.domain == plan.supplemental_route
+                and record.route_role != "primary"
+            )
+        ]
+    if slot_id == "time_range":
+        return [
+            record.evidence_id
+            for record in canonical_evidence
+            if record.publication_date or record.effective_date or record.year is not None
+        ]
+    if slot_id == "source_quality":
+        return [
+            record.evidence_id
+            for record in canonical_evidence
+            if record.authority
+            or record.evidence_level
+            or record.doi
+            or record.arxiv_id
+            or record.first_author
+            or any(raw_record.credibility_tier for raw_record in record.raw_records)
+        ]
+    return []
+
+
+def _compute_evidence_slot_coverage(
+    *,
+    plan,
+    canonical_evidence: tuple[CanonicalEvidence, ...] | None,
+    response: AnswerResponse,
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "slot_id": slot_id,
+            "required": True,
+            "filled": bool(evidence_ids := _slot_evidence_ids(
+                slot_id=slot_id,
+                plan=plan,
+                canonical_evidence=canonical_evidence,
+                response=response,
+            )),
+            "evidence_ids": evidence_ids,
+        }
+        for slot_id in plan.required_evidence_slots
+    )
+
+
+def _derive_answerability_status(
+    *,
+    response: AnswerResponse,
+    evidence_slot_coverage: tuple[dict[str, object], ...],
+) -> str:
+    if response.answer_status == "retrieval_failure":
+        return "unmet"
+    if (
+        response.answer_status == "grounded_success"
+        and response.retrieval_status == "success"
+        and response.failure_reason is None
+        and not response.gaps
+        and evidence_slot_coverage
+        and all(bool(item.get("filled")) for item in evidence_slot_coverage)
+    ):
+        return "met"
+    if any(bool(item.get("filled")) for item in evidence_slot_coverage):
+        return "partial"
+    return "unmet"
+
+
 def _build_runtime_trace(
     *,
+    plan,
     request_id: str,
     response: AnswerResponse,
+    canonical_evidence: tuple[CanonicalEvidence, ...] | None,
     retrieval_elapsed_seconds: float,
     synthesis_elapsed_seconds: float,
     evidence_token_estimate: int,
@@ -4051,6 +4226,15 @@ def _build_runtime_trace(
             or answer_token_estimate <= runtime_budget.answer_token_budget
         )
     )
+    evidence_slot_coverage = _compute_evidence_slot_coverage(
+        plan=plan,
+        canonical_evidence=canonical_evidence,
+        response=response,
+    )
+    answerability_status = _derive_answerability_status(
+        response=response,
+        evidence_slot_coverage=evidence_slot_coverage,
+    )
     return RuntimeTrace(
         request_id=request_id,
         route_label=response.route_label,
@@ -4068,6 +4252,10 @@ def _build_runtime_trace(
         provider_prompt_tokens=provider_prompt_tokens,
         provider_completion_tokens=provider_completion_tokens,
         provider_total_tokens=provider_total_tokens,
+        problem_structure=plan.problem_structure,
+        claim_type=plan.claim_type,
+        answerability_status=answerability_status,
+        evidence_slot_coverage=evidence_slot_coverage,
         retrieval_trace=retrieval_trace,
     )
 
@@ -4158,6 +4346,7 @@ def _build_answer_artifacts(
 
 def _build_answer_execution_result(
     *,
+    plan,
     request_id: str,
     response: AnswerResponse,
     retrieval_response: RetrieveResponse | None,
@@ -4182,8 +4371,10 @@ def _build_answer_execution_result(
     return AnswerExecutionResult(
         response=response,
         runtime_trace=_build_runtime_trace(
+            plan=plan,
             request_id=request_id,
             response=response,
+            canonical_evidence=canonical_evidence,
             retrieval_elapsed_seconds=retrieval_elapsed_seconds,
             synthesis_elapsed_seconds=synthesis_elapsed_seconds,
             evidence_token_estimate=evidence_token_estimate,
@@ -4320,6 +4511,7 @@ async def _execute_answer_pipeline_body(
     ):
         response = cached_entry.response
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=None,
@@ -4363,6 +4555,7 @@ async def _execute_answer_pipeline_body(
             )
             answer_token_estimate = _estimate_response_tokens(response)
             return _build_answer_execution_result(
+                plan=retrieval_plan,
                 request_id=request_id,
                 response=response,
                 retrieval_response=retrieval_response,
@@ -4381,6 +4574,7 @@ async def _execute_answer_pipeline_body(
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4440,6 +4634,7 @@ async def _execute_answer_pipeline_body(
                     retrieval_trace=retrieval_trace,
                 )
                 return _build_answer_execution_result(
+                    plan=retrieval_plan,
                     request_id=request_id,
                     response=response,
                     retrieval_response=retrieval_response,
@@ -4491,7 +4686,7 @@ async def _execute_answer_pipeline_body(
             retrieval_trace,
             supplemental_probe_elapsed_seconds,
             coverage_frontier_response,
-        ) = await _maybe_apply_coverage_frontier_policy(
+        ) = await _maybe_apply_coverage_frontier(
             query=query,
             retrieval_response=retrieval_response,
             canonical_evidence=canonical_evidence,
@@ -4507,6 +4702,7 @@ async def _execute_answer_pipeline_body(
             response = coverage_frontier_response
             answer_token_estimate = _estimate_response_tokens(response)
             return _build_answer_execution_result(
+                plan=retrieval_plan,
                 request_id=request_id,
                 response=response,
                 retrieval_response=retrieval_response,
@@ -4537,6 +4733,7 @@ async def _execute_answer_pipeline_body(
             retrieval_trace=retrieval_trace,
         )
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4567,6 +4764,7 @@ async def _execute_answer_pipeline_body(
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4599,6 +4797,7 @@ async def _execute_answer_pipeline_body(
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4624,6 +4823,7 @@ async def _execute_answer_pipeline_body(
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4672,6 +4872,7 @@ async def _execute_answer_pipeline_body(
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4702,6 +4903,7 @@ async def _execute_answer_pipeline_body(
         synthesis_elapsed_seconds = time.perf_counter() - synthesis_started_at
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
+            plan=retrieval_plan,
             request_id=request_id,
             response=response,
             retrieval_response=retrieval_response,
@@ -4752,6 +4954,7 @@ async def _execute_answer_pipeline_body(
         )
 
     return _build_answer_execution_result(
+        plan=retrieval_plan,
         request_id=request_id,
         response=response,
         retrieval_response=retrieval_response,

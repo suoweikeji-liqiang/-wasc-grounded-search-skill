@@ -18,6 +18,11 @@ from skill.config.routes import (
     SHORT_QUERY_TOKEN_THRESHOLD,
 )
 from skill.orchestrator.normalize import normalize_query_text, query_tokens
+from skill.orchestrator.query_traits import (
+    ClaimType,
+    ProblemStructure,
+    derive_answerability_profile,
+)
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
 ConcreteRoute = Literal["policy", "industry", "academic"]
@@ -30,6 +35,8 @@ class ClassificationResult:
     supplemental_route: ConcreteRoute | None
     reason_code: str
     scores: Mapping[str, int]
+    problem_structure: ProblemStructure | None = None
+    claim_type: ClaimType | None = None
 
 
 _MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyType(
@@ -265,6 +272,33 @@ def _mixed_supplemental_route(
     return second_route if scores[second_route] > 0 else None
 
 
+def _build_classification_result(
+    *,
+    query: str,
+    route_label: RouteLabel,
+    primary_route: ConcreteRoute,
+    supplemental_route: ConcreteRoute | None,
+    reason_code: str,
+    scores: Mapping[str, int],
+) -> ClassificationResult:
+    profile = derive_answerability_profile(
+        query,
+        route_label=route_label,
+        primary_route=primary_route,
+        supplemental_route=supplemental_route,
+        reason_code=reason_code,
+    )
+    return ClassificationResult(
+        route_label=route_label,
+        primary_route=primary_route,
+        supplemental_route=supplemental_route,
+        reason_code=reason_code,
+        scores=scores,
+        problem_structure=profile.problem_structure,
+        claim_type=profile.claim_type,
+    )
+
+
 def classify_query(query: str) -> ClassificationResult:
     normalized_query = normalize_query_text(query)
     tokens = query_tokens(normalized_query)
@@ -274,7 +308,8 @@ def classify_query(query: str) -> ClassificationResult:
 
     if _is_explicit_cross_domain(normalized_query, scores):
         supplemental_route: ConcreteRoute = ranked[1]
-        return ClassificationResult(
+        return _build_classification_result(
+            query=query,
             route_label="mixed",
             primary_route=primary_route,
             supplemental_route=supplemental_route,
@@ -287,7 +322,8 @@ def classify_query(query: str) -> ClassificationResult:
         or len(tokens) < SHORT_QUERY_TOKEN_THRESHOLD
     )
     if is_short_query:
-        return ClassificationResult(
+        return _build_classification_result(
+            query=query,
             route_label="mixed",
             primary_route=primary_route,
             supplemental_route=_mixed_supplemental_route(ranked, scores),
@@ -300,14 +336,16 @@ def classify_query(query: str) -> ClassificationResult:
 
     if top_score <= LOW_SIGNAL_SCORE_THRESHOLD:
         if top_score > 0 and second_score == 0:
-            return ClassificationResult(
+            return _build_classification_result(
+                query=query,
                 route_label=primary_route,
                 primary_route=primary_route,
                 supplemental_route=None,
                 reason_code=f"{primary_route}_weak_hit",
                 scores=scores,
             )
-        return ClassificationResult(
+        return _build_classification_result(
+            query=query,
             route_label="mixed",
             primary_route=primary_route,
             supplemental_route=_mixed_supplemental_route(ranked, scores),
@@ -316,7 +354,8 @@ def classify_query(query: str) -> ClassificationResult:
         )
 
     if _is_policy_academic_research_path_ambiguity(normalized_query, ranked, scores):
-        return ClassificationResult(
+        return _build_classification_result(
+            query=query,
             route_label="mixed",
             primary_route=primary_route,
             supplemental_route=_mixed_supplemental_route(ranked, scores),
@@ -325,7 +364,8 @@ def classify_query(query: str) -> ClassificationResult:
         )
 
     if top_score - second_score <= 1 and second_score > 0:
-        return ClassificationResult(
+        return _build_classification_result(
+            query=query,
             route_label="mixed",
             primary_route=primary_route,
             supplemental_route=_mixed_supplemental_route(ranked, scores),
@@ -333,7 +373,8 @@ def classify_query(query: str) -> ClassificationResult:
             scores=scores,
         )
 
-    return ClassificationResult(
+    return _build_classification_result(
+        query=query,
         route_label=primary_route,
         primary_route=primary_route,
         supplemental_route=None,

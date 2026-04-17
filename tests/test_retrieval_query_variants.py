@@ -236,6 +236,25 @@ def test_build_query_variants_adds_structural_cross_domain_fragments_for_mixed_q
     )
 
 
+def test_build_query_variants_adds_structural_policy_fragment_for_policy_first_cross_domain_queries() -> None:
+    query = "FTC junk fees disclosure rule and impact on ticketing platform checkout flow update"
+
+    variants = build_query_variants(
+        query=query,
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        target_route="policy",
+        variant_limit=5,
+    )
+
+    assert any(
+        item.reason_code == "cross_domain_fragment_focus"
+        and item.query == "ftc junk fees disclosure rule"
+        for item in variants
+    )
+
+
 def test_build_query_variants_adds_structural_document_focus_for_filing_queries() -> None:
     query = "Visa 2025 Form 10-K payments volume processed transactions definitions"
 
@@ -1131,6 +1150,79 @@ def test_run_retrieval_mixed_supplemental_industry_falls_through_after_cjk_gloss
     assert observed_queries[:3] == [query, gloss_query, fallback_query]
     assert outcome.status == "success"
     assert outcome.results[0].title == "autonomous-driving-market-impact"
+
+
+def test_run_retrieval_policy_first_cross_domain_uses_policy_fragment_variant() -> None:
+    query = "FTC junk fees disclosure rule and impact on ticketing platform checkout flow update"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="policy",
+            primary_route="policy",
+            supplemental_route=None,
+            reason_code="policy_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 0},
+        ),
+        query=query,
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.2,
+        overall_deadline_seconds=0.5,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="policy",
+        primary_route="policy",
+        supplemental_route=None,
+        target_route="policy",
+        variant_limit=5,
+    )
+    fragment_query = next(
+        (
+            item.query
+            for item in variants
+            if item.reason_code == "cross_domain_fragment_focus"
+        ),
+        None,
+    )
+
+    assert fragment_query == "ftc junk fees disclosure rule"
+
+    observed_queries: list[str] = []
+
+    async def _policy_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            return []
+        if candidate_query == fragment_query:
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="FTC junk fees disclosure rule",
+                    url="https://www.ftc.gov/legal-library/browse/rules/junk-fees-disclosure-rule",
+                    snippet="The FTC junk fees disclosure rule requires all-in pricing disclosure before checkout.",
+                    authority="Federal Trade Commission",
+                    publication_date="2024-12-17",
+                )
+            ]
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _policy_adapter},
+        )
+    )
+
+    assert observed_queries[:2] == [query, fragment_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "FTC junk fees disclosure rule"
 
 
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:

@@ -5,7 +5,7 @@ milestone_name: Initial MVP
 current_phase_name: none
 status: completed
 stopped_at: v1.0 archived; next step is planning the next milestone
-last_updated: "2026-04-13T05:42:28.9483222Z"
+last_updated: "2026-04-16T14:51:10.2793184Z"
 last_activity: 2026-04-13 -- v1.0 archived with advisory debt carried forward
 progress:
   total_phases: 5
@@ -92,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-16T13:43:49.114Z
-Stopped at: Handoff written after routing simplification discussion; retained academic overlap/dedupe and partial mixed fast-path, rejected heavier mixed first-hop routing and four-class router framing.
+Last session: 2026-04-16T14:51:10.2793184Z
+Stopped at: Session resumed; proceeding from the retained post-phase5 handoff to inspect mixed-case failures (`gen2-mixed-04`, `gen2-mixed-05`, `gen2-mixed-10`) for a cheap post-primary supplemental probe.
 Resume file: .planning/.continue-here.md

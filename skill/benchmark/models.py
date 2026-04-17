@@ -32,6 +32,10 @@ class BenchmarkRunRecord(BaseModel):
     provider_prompt_tokens: int | None = Field(default=None, ge=0)
     provider_completion_tokens: int | None = Field(default=None, ge=0)
     provider_total_tokens: int | None = Field(default=None, ge=0)
+    problem_structure: str = Field(default="underspecified", min_length=1)
+    claim_type: str = Field(default="fact", min_length=1)
+    answerability_status: str = Field(default="unmet", min_length=1)
+    evidence_slot_coverage: list[dict[str, object]] = Field(default_factory=list)
     retrieval_trace: list[dict[str, object]] = Field(default_factory=list)
 
 

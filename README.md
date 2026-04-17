@@ -268,8 +268,8 @@ The `/answer` path reads these runtime budget environment variables:
 
 Defaults in code:
 
-- request deadline: `8.0` seconds
-- synthesis deadline: `2.0` seconds
+- request deadline: `10.0` seconds
+- synthesis deadline: `3.0` seconds
 - answer token budget: `1200`
 
 Live retrieval also reads:
@@ -289,11 +289,15 @@ Live retrieval also reads:
 
 ## Competition Fit
 
-This project is aligned to the WASC competition constraints captured in the local competition brief file included in the repository:
+This project is aligned to the WASC competition constraints captured in:
+
+- [`./比赛.txt`](./比赛.txt)
+- [`./docs/competition-rules-2026-04-17.md`](./docs/competition-rules-2026-04-17.md)
 
 - grounded retrieval with live coverage for unknown policy, academic, and industry queries
-- support for policy, industry, and academic tasks
+- support for policy, industry, academic, and mixed tasks
 - structured, judge-readable output
+- official top latency bucket at average `<= 10s`
 - repeatability over repeated benchmark runs
 - compatibility with MiniMax-based live answer generation
 

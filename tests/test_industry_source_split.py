@@ -50,6 +50,12 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
     assert [step.source.source_id for step in general_industry_plan.first_wave_sources] == [
         "industry_web_discovery",
     ]
+    assert general_industry_plan.problem_structure == "industry_trend"
+    assert general_industry_plan.claim_type == "trend"
+    assert general_industry_plan.required_evidence_slots == (
+        "primary_evidence",
+        "time_range",
+    )
     assert (
         general_industry_plan.overall_deadline_seconds
         - general_industry_plan.per_source_timeout_seconds
@@ -82,6 +88,13 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
         "policy_official_registry",
         "industry_news_rss",
     ]
+    assert mixed_plan.problem_structure == "cross_domain_synthesis"
+    assert mixed_plan.claim_type == "impact"
+    assert mixed_plan.required_evidence_slots == (
+        "primary_evidence",
+        "supplemental_evidence",
+        "source_quality",
+    )
     assert all(
         step.source.is_supplemental
         for step in mixed_plan.first_wave_sources[1:]

@@ -618,13 +618,21 @@ async def search_live(query: str) -> list[RetrievalHit]:
     is_us_query = _is_us_policy_query(query)
     prefer_direct_sources = _prefer_direct_policy_sources(query)
     registry_task = asyncio.create_task(search_policy_registry(query=query, max_results=5))
-    open_web_task = asyncio.create_task(_search_open_web_policy(query=query, config=config))
+    open_web_task: asyncio.Task[list[dict[str, Any]]] | None = None
+    if not is_us_query:
+        open_web_task = asyncio.create_task(_search_open_web_policy(query=query, config=config))
     direct_task = asyncio.create_task(_search_direct_policy_sources(query=query))
     federal_task = (
         asyncio.create_task(search_federal_register(query=query, max_results=5))
         if is_us_query
         else None
     )
+
+    def _ensure_open_web_task() -> asyncio.Task[list[dict[str, Any]]]:
+        nonlocal open_web_task
+        if open_web_task is None:
+            open_web_task = asyncio.create_task(_search_open_web_policy(query=query, config=config))
+        return open_web_task
 
     try:
         try:
@@ -677,7 +685,7 @@ async def search_live(query: str) -> list[RetrievalHit]:
                 return [_to_hit(item) for item in ranked_direct_records]
 
         try:
-            ranked_open_web_records = await open_web_task
+            ranked_open_web_records = await _ensure_open_web_task()
         except Exception:
             ranked_open_web_records = []
 

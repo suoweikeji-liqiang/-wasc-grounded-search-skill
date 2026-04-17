@@ -881,6 +881,40 @@ def _policy_cross_domain_primary_only_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _mixed_cross_domain_primary_only_retrieve_response() -> RetrieveResponse:
+    response = _policy_cross_domain_primary_only_retrieve_response()
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route=response.primary_route,
+        supplemental_route="industry",
+        browser_automation=response.browser_automation,
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=response.results,
+        canonical_evidence=response.canonical_evidence,
+        evidence_clipped=response.evidence_clipped,
+        evidence_pruned=response.evidence_pruned,
+    )
+
+
+def _mixed_cross_domain_primary_only_partial_retrieve_response() -> RetrieveResponse:
+    response = _mixed_cross_domain_primary_only_retrieve_response()
+    return RetrieveResponse(
+        route_label=response.route_label,
+        primary_route=response.primary_route,
+        supplemental_route=response.supplemental_route,
+        browser_automation=response.browser_automation,
+        status="partial",
+        failure_reason="timeout",
+        gaps=["industry_news_rss"],
+        results=response.results,
+        canonical_evidence=response.canonical_evidence,
+        evidence_clipped=response.evidence_clipped,
+        evidence_pruned=response.evidence_pruned,
+    )
+
+
 _COVERAGE_FRONTIER_POLICY_QUERY = (
     "FTC junk fees disclosure rule and impact on ticketing platform "
     "checkout flow update"
@@ -3138,6 +3172,195 @@ def test_execute_answer_pipeline_with_trace_coverage_frontier_deepen_one_aligned
         and entry.get("selected_url") != "https://example.com/payroll-migration-update"
         and entry.get("selected_evidence_id") != "industry-frontier-payroll"
         for entry in deepen_entries
+    )
+
+
+def test_execute_answer_pipeline_with_trace_builds_mixed_slot_probe_after_primary_success_when_supplemental_slot_missing(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    observed_queries: list[str] = []
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_cross_domain_primary_only_retrieve_response()
+
+    async def _industry_web_discovery_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        return [_aligned_industry_ticketing_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "mixed primary-only success should recover complementary evidence before synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert observed_queries == ["ticketing platform checkout flow update"]
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "success"
+    assert result.response.supplemental_route == "industry"
+    assert {source.title for source in result.response.sources} == {
+        "FTC junk fees disclosure rule",
+        "Ticketing platform checkout flow update",
+    }
+    assert result.runtime_trace.answerability_status == "met"
+    coverage = {
+        item["slot_id"]: item for item in result.runtime_trace.evidence_slot_coverage
+    }
+    assert coverage["primary_evidence"]["filled"] is True
+    assert coverage["supplemental_evidence"]["filled"] is True
+    assert coverage["source_quality"]["filled"] is True
+    assert any(
+        entry["source_id"] == "industry_web_discovery"
+        and entry["stage"] == "coverage_frontier_probe"
+        and entry["hit_count"] == 1
+        for entry in result.runtime_trace.retrieval_trace
+    )
+
+
+def test_execute_answer_pipeline_with_trace_builds_mixed_slot_probe_after_primary_partial_when_supplemental_slot_missing(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_cross_domain_primary_only_partial_retrieve_response()
+
+    async def _industry_web_discovery_adapter(_: str) -> list[RetrievalHit]:
+        return [_aligned_industry_ticketing_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "mixed partial primary evidence should recover complementary support before synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.retrieval_status == "partial"
+    assert result.response.failure_reason == "timeout"
+    assert result.response.supplemental_route == "industry"
+    assert result.runtime_trace.answerability_status == "partial"
+    coverage = {
+        item["slot_id"]: item for item in result.runtime_trace.evidence_slot_coverage
+    }
+    assert coverage["primary_evidence"]["filled"] is True
+    assert coverage["supplemental_evidence"]["filled"] is True
+    assert coverage["source_quality"]["filled"] is True
+    assert any(
+        entry["source_id"] == "industry_web_discovery"
+        and entry["stage"] == "coverage_frontier_probe"
+        and entry["hit_count"] == 1
+        for entry in result.runtime_trace.retrieval_trace
+    )
+
+
+def test_execute_answer_pipeline_with_trace_mixed_slot_probe_skips_when_budget_low(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    adapter_call_count = 0
+    ANSWER_CACHE.clear()
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _mixed_cross_domain_primary_only_partial_retrieve_response()
+
+    async def _industry_web_discovery_adapter(_: str) -> list[RetrievalHit]:
+        nonlocal adapter_call_count
+        adapter_call_count += 1
+        return [_aligned_industry_ticketing_hit()]
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    model_client = _RecordingModelClient(
+        {
+            "conclusion": "Generated fallback should not be used when mixed slot probe budget is too low.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+        }
+    )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", "industry"),
+            query=_COVERAGE_FRONTIER_POLICY_QUERY,
+            adapter_registry={
+                "industry_web_discovery": _industry_web_discovery_adapter,
+            },
+            model_client=model_client,
+            runtime_budget=RuntimeBudget(request_deadline_seconds=0.75),
+        )
+    )
+
+    assert adapter_call_count == 0
+    assert model_client.call_count == 0
+    assert result.response.answer_status == "insufficient_evidence"
+    assert result.runtime_trace.answerability_status == "partial"
+    coverage = {
+        item["slot_id"]: item for item in result.runtime_trace.evidence_slot_coverage
+    }
+    assert coverage["primary_evidence"]["filled"] is True
+    assert coverage["supplemental_evidence"]["filled"] is False
+    assert not any(
+        entry["stage"] == "coverage_frontier_probe"
+        for entry in result.runtime_trace.retrieval_trace
     )
 
 
