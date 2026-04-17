@@ -1048,10 +1048,11 @@ def test_execute_answer_pipeline_with_trace_enforces_answer_token_budget(
     assert model_client.call_count == 1
     assert result.response.answer_status == "insufficient_evidence"
     assert "Climate Order 2026" in result.response.conclusion
-    assert "a complete answer still needs" in result.response.conclusion.lower()
+    assert "a complete answer would still need" in result.response.conclusion.lower()
     assert result.response.key_points
     assert result.response.sources
-    assert any(
+    assert "fully grounded synthesis" in result.response.conclusion
+    assert not any(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
     )
@@ -1184,9 +1185,8 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path(
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert (
-        'Closest retained policy match: "Ministry of Ecology and Environment policy bulletin"'
-        in result.response.conclusion
+    assert result.response.conclusion.startswith(
+        'The most relevant official policy is "Ministry of Ecology and Environment policy bulletin"'
     )
     assert "2026-03 bulletin" in result.response.conclusion
     assert "2026-04-01" in result.response.conclusion
@@ -1246,6 +1246,7 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_chi
     )
 
     assert result.response.answer_status == "grounded_success"
+    assert result.response.conclusion.startswith("最相关的官方政策是")
     assert "\u6c14\u5019\u547d\u4ee4\u4fee\u8ba2\u901a\u544a" in result.response.conclusion
     assert "2026-03 \u4fee\u8ba2\u7248" in result.response.conclusion
     assert "2026-04-01" in result.response.conclusion
@@ -1289,7 +1290,9 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_dea
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert "Closest retained policy match" in result.response.conclusion
+    assert result.response.conclusion.startswith(
+        'The most relevant official policy is "Ministry of Ecology and Environment policy bulletin"'
+    )
     assert result.runtime_trace.latency_budget_ok is True
 
 
@@ -1442,9 +1445,8 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert (
-        'Closest retained industry match: "Battery recycling market share outlook 2025"'
-        in result.response.conclusion
+    assert result.response.conclusion.startswith(
+        'The strongest retained industry source is "Battery recycling market share outlook 2025".'
     )
     assert result.response.key_points[0].model_dump() == {
         "key_point_id": "kp-1",
@@ -1464,6 +1466,51 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path(
         "url": "https://www.reuters.com/markets/battery-recycling-share-2025",
     }
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_relabels_weak_secondary_as_context(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry lookup fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share 2025",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 2
+    assert result.response.conclusion.startswith(
+        'The strongest retained industry source is "Battery recycling market share outlook 2025".'
+    )
+    assert "Supporting industry evidence also includes" not in result.response.conclusion
+    assert "Related market context also includes" in result.response.conclusion
+    assert result.response.key_points[1].statement.startswith("Related market context:")
+    assert result.response.sources[1].title == "Tesla annual battery supply update"
 
 
 def test_execute_answer_pipeline_with_trace_enriches_thin_industry_fast_path_with_bounded_same_route_support(
@@ -1672,7 +1719,9 @@ def test_execute_answer_pipeline_with_trace_enriches_thin_academic_list_query_wi
         "Grounded search evidence packing",
         "Evidence packing for grounded search under latency constraints",
     }
-    assert "Supporting academic evidence also includes" in result.response.conclusion
+    assert result.response.conclusion.startswith("相关学术论文包括")
+    assert "Additional academic work also includes" not in result.response.conclusion
+    assert "peer-reviewed" not in result.response.conclusion
     assert any(
         entry["stage"] == "coverage_frontier_probe"
         and entry["source_id"] == "academic_arxiv"
@@ -1866,11 +1915,11 @@ def test_execute_answer_pipeline_with_trace_single_source_industry_outlook_fast_
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert "Retained industry outlook evidence" in result.response.conclusion
+    assert "Available retained industry evidence points to" in result.response.conclusion
     assert "SEMI outlook for semiconductor packaging capacity" in (
         result.response.conclusion
     )
-    assert "does not include a numeric" in result.response.conclusion
+    assert "does not expose a numeric" in result.response.conclusion
     assert "second corroborating source" in result.response.conclusion
 
 
@@ -1946,8 +1995,8 @@ def test_execute_answer_pipeline_with_trace_single_source_academic_list_fast_pat
 
     assert result.response.answer_status == "grounded_success"
     assert "Grounded search evidence packing" in result.response.conclusion
-    assert "Only one retained paper matched this query" in result.response.conclusion
-    assert "broader literature coverage remains incomplete" in (
+    assert "一篇直接相关的学术论文是" in result.response.conclusion
+    assert "更广的文献覆盖仍不完整" in (
         result.response.conclusion
     )
 
@@ -1987,8 +2036,9 @@ def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_pa
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert "Current evidence points to" in result.response.conclusion
+    assert "Current sources support" in result.response.conclusion
     assert "SEMI outlook for semiconductor packaging capacity" in result.response.conclusion
+    assert "numeric forecast" in result.response.conclusion
     assert "retrieval gaps" not in result.response.conclusion.lower()
     assert "industry_news_rss" not in result.response.conclusion
     assert "Confirmed from retained evidence" not in result.response.conclusion
@@ -2134,7 +2184,9 @@ def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_s
     )
 
     assert result.response.answer_status == "grounded_success"
-    assert 'Closest retained industry match: "RFC 9700"' in result.response.conclusion
+    assert result.response.conclusion.startswith(
+        'The strongest retained industry source is "RFC 9700".'
+    )
     assert result.response.key_points[0].model_dump() == {
         "key_point_id": "kp-1",
         "statement": "RFC 9700 removes the implicit grant and resource owner password credentials grant from OAuth 2.1.",
@@ -2184,6 +2236,8 @@ def test_execute_answer_pipeline_with_trace_uses_mixed_cross_domain_fast_path(
     )
 
     assert result.response.answer_status == "grounded_success"
+    assert "Retained cross-domain" not in result.response.conclusion
+    assert result.response.conclusion.startswith("Current sources indicate")
     assert (
         "State Council autonomous driving pilot regulation"
         in result.response.conclusion
@@ -2288,14 +2342,16 @@ def test_execute_answer_pipeline_with_trace_budget_enforced_mixed_partial_uses_u
     )
 
     assert result.response.answer_status == "insufficient_evidence"
-    assert "Current evidence points to" in result.response.conclusion
+    assert result.response.conclusion.startswith("基于当前来源，可以确认：")
     assert "BYD autonomous driving supplier investment update" in result.response.conclusion
+    assert "供应链投资、支出类别或时间节奏" in result.response.conclusion
     assert "industry_web_discovery" not in result.response.conclusion
     assert "retrieval gaps" not in result.response.conclusion.lower()
     assert "Confirmed from retained evidence" not in result.response.conclusion
     assert len(result.response.key_points) == 2
     assert len(result.response.sources) == 2
-    assert any(
+    assert "\u5b8c\u6574\u5f52\u56e0\u5206\u6790" in result.response.conclusion
+    assert not any(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
     )
@@ -3323,7 +3379,8 @@ def test_answer_endpoint_stores_runtime_trace_and_omits_internal_budget_fields(
     assert response.status_code == 200
     payload = response.json()
     assert payload["answer_status"] == "insufficient_evidence"
-    assert any(
+    assert "fully grounded synthesis" in payload["conclusion"]
+    assert not any(
         note.startswith("Budget enforcement:")
         for note in payload["uncertainty_notes"]
     )

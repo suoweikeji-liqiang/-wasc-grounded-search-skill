@@ -159,7 +159,7 @@ def test_partial_insufficient_evidence_keeps_grounded_conclusion_key_points_and_
     assert result.response.answer_status == "insufficient_evidence"
     assert "Available evidence was insufficient to fully support" not in result.response.conclusion
     assert "autonomous driving pilot regulation" in result.response.conclusion
-    assert "complete answer still needs" in result.response.conclusion.lower()
+    assert "complete answer would still need" in result.response.conclusion.lower()
     assert len(result.response.key_points) == 1
     assert len(result.response.sources) == 1
     assert result.response.key_points[0].citations[0].evidence_id == "policy-1"
@@ -252,7 +252,8 @@ def test_budget_enforcement_with_canonical_evidence_still_returns_partial_facts(
     assert result.response.key_points
     assert result.response.sources
     assert "autonomous driving pilot regulation" in result.response.conclusion
-    assert any(
+    assert "fully grounded synthesis" in result.response.conclusion
+    assert not any(
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
     )
