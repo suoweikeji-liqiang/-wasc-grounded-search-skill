@@ -4199,6 +4199,52 @@ def _build_answer_execution_result(
     )
 
 
+_REQUEST_DEADLINE_GRACE_SECONDS = 1.5
+
+
+def _build_request_deadline_timeout_result(
+    *,
+    plan,
+    runtime_budget: RuntimeBudget,
+    elapsed_seconds: float,
+) -> AnswerExecutionResult:
+    # Hard cap fired before retrieval/synthesis could return. Surface a
+    # retrieval_failure with accurate timing so the harness stops waiting.
+    route_label = getattr(plan, "route_label", "unknown") or "unknown"
+    primary_route = getattr(plan, "primary_route", None)
+    supplemental_route = getattr(plan, "supplemental_route", None)
+    response = AnswerResponse(
+        answer_status="retrieval_failure",
+        retrieval_status="failure_gaps",
+        failure_reason="timeout",
+        route_label=route_label,
+        primary_route=primary_route,
+        supplemental_route=supplemental_route,
+        browser_automation="disabled",
+        conclusion="Retrieval failed before a grounded answer could be produced.",
+        key_points=[],
+        sources=[],
+        uncertainty_notes=[
+            "Request deadline exceeded while retrieval was still in progress."
+        ],
+        gaps=[],
+    )
+    return _build_answer_execution_result(
+        plan=plan,
+        request_id=uuid.uuid4().hex,
+        response=response,
+        retrieval_response=None,
+        canonical_evidence=None,
+        retrieval_elapsed_seconds=max(0.0, elapsed_seconds),
+        synthesis_elapsed_seconds=0.0,
+        evidence_token_estimate=0,
+        answer_token_estimate=0,
+        runtime_budget=runtime_budget,
+        budget_exhausted_phase="request",
+        retrieval_trace=(),
+    )
+
+
 async def execute_answer_pipeline_with_trace(
     plan,
     query: str,
@@ -4206,10 +4252,46 @@ async def execute_answer_pipeline_with_trace(
     model_client: ModelClient,
     runtime_budget: RuntimeBudget | None = None,
 ) -> AnswerExecutionResult:
-    """Compose retrieval, generation, citation validation, and runtime tracing."""
+    """Enforce request_deadline_seconds as a hard cap around the pipeline body."""
     budget = runtime_budget or RuntimeBudget.from_env()
-    request_id = uuid.uuid4().hex
+    hard_cap_seconds = (
+        max(budget.request_deadline_seconds, 0.1)
+        + _REQUEST_DEADLINE_GRACE_SECONDS
+    )
     started_at = time.perf_counter()
+    try:
+        return await asyncio.wait_for(
+            _execute_answer_pipeline_body(
+                plan=plan,
+                query=query,
+                adapter_registry=adapter_registry,
+                model_client=model_client,
+                runtime_budget=budget,
+                started_at=started_at,
+            ),
+            timeout=hard_cap_seconds,
+        )
+    except asyncio.TimeoutError:
+        elapsed_seconds = time.perf_counter() - started_at
+        return _build_request_deadline_timeout_result(
+            plan=plan,
+            runtime_budget=budget,
+            elapsed_seconds=elapsed_seconds,
+        )
+
+
+async def _execute_answer_pipeline_body(
+    *,
+    plan,
+    query: str,
+    adapter_registry: Mapping[str, Adapter],
+    model_client: ModelClient,
+    runtime_budget: RuntimeBudget,
+    started_at: float,
+) -> AnswerExecutionResult:
+    """Compose retrieval, generation, citation validation, and runtime tracing."""
+    budget = runtime_budget
+    request_id = uuid.uuid4().hex
     retrieval_deadline_seconds = budget.retrieval_deadline_seconds
     if (
         plan.route_label == "industry"
