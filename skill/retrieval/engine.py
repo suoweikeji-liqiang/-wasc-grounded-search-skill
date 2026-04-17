@@ -85,6 +85,7 @@ _INDUSTRY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "cowos",
 )
 _INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO = 0.5
+_MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO = 0.33
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "cross_domain_fragment_focus": 6,
     "document_focus": 4,
@@ -916,15 +917,26 @@ def _variant_timeout_seconds(
     timeout_seconds = remaining
     if (
         len(variants) > 1
-        and plan.route_label == "industry"
-        and plan.primary_route == "industry"
-        and step.source.route == "industry"
-        and not step.source.is_supplemental
+        and _is_primary_industry_variant_retry_context(step=step, plan=plan)
         and variant.reason_code == "industry_cjk_gloss"
     ):
         timeout_seconds = min(
             timeout_seconds,
             max(0.0, plan.per_source_timeout_seconds * _INDUSTRY_GLOSS_VARIANT_TIMEOUT_RATIO),
+        )
+    elif (
+        len(variants) > 1
+        and _is_mixed_supplemental_industry_retry_context(step=step, plan=plan)
+        and variant.reason_code in {"original", "industry_cjk_gloss"}
+        and _has_later_variant(variant=variant, variants=variants)
+    ):
+        timeout_seconds = min(
+            timeout_seconds,
+            max(
+                0.0,
+                plan.per_source_timeout_seconds
+                * _MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO,
+            ),
         )
     return timeout_seconds
 
@@ -938,16 +950,56 @@ def _should_continue_after_variant_failure(
     failure_reason: RetrievalFailureReason,
     remaining: float,
 ) -> bool:
+    if not (remaining > 0 and len(variants) > 1 and failure_reason == "timeout"):
+        return False
+    if _is_primary_industry_variant_retry_context(step=step, plan=plan):
+        return (
+            variant.reason_code == "industry_cjk_gloss"
+            and _has_later_variant(variant=variant, variants=variants)
+        )
+    if _is_mixed_supplemental_industry_retry_context(step=step, plan=plan):
+        return (
+            variant.reason_code in {"original", "industry_cjk_gloss"}
+            and _has_later_variant(variant=variant, variants=variants)
+        )
+    return False
+
+
+def _is_primary_industry_variant_retry_context(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+) -> bool:
     return (
-        remaining > 0
-        and len(variants) > 1
-        and failure_reason == "timeout"
-        and plan.route_label == "industry"
+        plan.route_label == "industry"
         and plan.primary_route == "industry"
         and step.source.route == "industry"
         and not step.source.is_supplemental
-        and variant.reason_code == "industry_cjk_gloss"
     )
+
+
+def _is_mixed_supplemental_industry_retry_context(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+) -> bool:
+    return (
+        plan.route_label == "mixed"
+        and plan.supplemental_route == "industry"
+        and step.source.route == "industry"
+        and step.source.is_supplemental
+    )
+
+
+def _has_later_variant(
+    *,
+    variant: QueryVariant,
+    variants: tuple[QueryVariant, ...],
+) -> bool:
+    for index, candidate in enumerate(variants):
+        if candidate == variant:
+            return index < len(variants) - 1
+    return False
 
 
 async def _run_source_step(

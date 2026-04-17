@@ -905,6 +905,165 @@ def test_run_retrieval_falls_through_after_cjk_gloss_timeout_to_later_industry_v
     assert outcome.results[0].title == "battery-recycling-trend-query"
 
 
+def test_run_retrieval_mixed_supplemental_industry_tries_cjk_gloss_after_original_timeout() -> None:
+    query = "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        ),
+        query=query,
+    )
+    first_step = next(
+        step
+        for step in base_plan.first_wave_sources
+        if step.source.source_id == "industry_web_discovery"
+    )
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.09,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        target_route="industry",
+        variant_limit=5,
+    )
+    gloss_query = next(
+        (item.query for item in variants if item.reason_code == "industry_cjk_gloss"),
+        None,
+    )
+
+    assert gloss_query == "autonomous driving pilot regulation industry investment impact"
+
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            await asyncio.sleep(0.2)
+            return []
+        if candidate_query == gloss_query:
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="autonomous-driving-investment-impact",
+                    url="https://example.com/autonomous-driving-investment-impact",
+                    snippet="Autonomous driving pilot regulation impact on supplier investment.",
+                    credibility_tier="trusted_news",
+                )
+            ]
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert observed_queries[:2] == [query, gloss_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "autonomous-driving-investment-impact"
+
+
+def test_run_retrieval_mixed_supplemental_industry_falls_through_after_cjk_gloss_timeout() -> None:
+    query = "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_keywords",
+            scores={"policy": 4, "academic": 0, "industry": 4},
+        ),
+        query=query,
+    )
+    first_step = next(
+        step
+        for step in base_plan.first_wave_sources
+        if step.source.source_id == "industry_web_discovery"
+    )
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=0.09,
+        overall_deadline_seconds=0.2,
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+    variants = build_query_variants(
+        query=query,
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route="industry",
+        target_route="industry",
+        variant_limit=5,
+    )
+    gloss_query = next(
+        (item.query for item in variants if item.reason_code == "industry_cjk_gloss"),
+        None,
+    )
+    fallback_query = next(
+        (
+            item.query
+            for item in variants
+            if item.reason_code not in {"original", "industry_cjk_gloss"}
+        ),
+        None,
+    )
+
+    assert gloss_query == "autonomous driving pilot regulation industry investment impact"
+    assert fallback_query == (
+        "\u81ea\u52a8\u9a7e\u9a76\u8bd5\u70b9\u76d1\u7ba1\u53d8\u5316\u5bf9\u4ea7\u4e1a\u6295\u8d44\u5f71\u54cd \u5e02\u573a"
+    )
+
+    observed_queries: list[str] = []
+
+    async def _industry_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            return []
+        if candidate_query == gloss_query:
+            await asyncio.sleep(0.2)
+            return []
+        if candidate_query == fallback_query:
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="autonomous-driving-market-impact",
+                    url="https://example.com/autonomous-driving-market-impact",
+                    snippet="Market-oriented follow-up query recovered a grounded industry hit.",
+                    credibility_tier="trusted_news",
+                )
+            ]
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _industry_adapter},
+        )
+    )
+
+    assert observed_queries[:3] == [query, gloss_query, fallback_query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "autonomous-driving-market-impact"
+
+
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:
     plan = build_retrieval_plan(
         ClassificationResult(
