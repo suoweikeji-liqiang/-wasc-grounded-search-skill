@@ -2581,6 +2581,20 @@ def test_execute_answer_pipeline_with_trace_budget_enforced_mixed_partial_uses_u
         note.startswith("Budget enforcement:")
         for note in result.response.uncertainty_notes
     )
+    retrieval_gap_notes = [
+        note
+        for note in result.response.uncertainty_notes
+        if note.startswith("Retrieval gaps:")
+    ]
+    assert retrieval_gap_notes
+    assert not any(
+        "industry_web_discovery" in note
+        for note in retrieval_gap_notes
+    )
+    assert any(
+        "industry discovery" in note.lower()
+        for note in retrieval_gap_notes
+    )
     assert any(
         note.startswith("Retrieval gaps:")
         for note in result.response.uncertainty_notes

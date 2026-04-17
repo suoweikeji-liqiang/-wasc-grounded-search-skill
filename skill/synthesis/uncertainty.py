@@ -4,6 +4,24 @@ from __future__ import annotations
 
 from skill.evidence.models import CanonicalEvidence
 
+_RETRIEVAL_GAP_LABELS = {
+    "academic_arxiv": "arXiv coverage",
+    "academic_asta_mcp": "scholarly index coverage",
+    "academic_semantic_scholar": "Semantic Scholar coverage",
+    "industry_news_rss": "industry news coverage",
+    "industry_official_or_filings": "official or filing coverage",
+    "industry_web_discovery": "industry discovery coverage",
+    "policy_official_registry": "official policy registry coverage",
+    "policy_official_web_allowlist_fallback": "official policy web coverage",
+}
+
+
+def _user_facing_gap_label(gap: str) -> str:
+    label = _RETRIEVAL_GAP_LABELS.get(gap)
+    if label is not None:
+        return label
+    return gap.replace("_", " ")
+
 
 def build_uncertainty_notes(
     *,
@@ -58,7 +76,10 @@ def build_uncertainty_notes(
         notes.append(f"Evidence clipped: {', '.join(details)}.")
 
     if retrieval_status != "success" and gaps:
-        notes.append(f"Retrieval gaps: {'; '.join(gaps)}")
+        notes.append(
+            "Retrieval gaps: "
+            + "; ".join(_user_facing_gap_label(gap) for gap in gaps)
+        )
 
     if any(
         (
