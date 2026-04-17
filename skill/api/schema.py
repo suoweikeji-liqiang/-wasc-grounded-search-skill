@@ -127,6 +127,7 @@ class RetrieveCanonicalEvidenceItem(BaseModel):
     canonical_title: str = Field(min_length=1)
     canonical_url: str = Field(min_length=1)
     route_role: RouteRole
+    credibility_tier: str | None = None
     authority: str | None = None
     jurisdiction: str | None = None
     jurisdiction_status: PolicyJurisdictionStatus | None = None

@@ -502,6 +502,100 @@ def _industry_cross_lingual_partial_with_weak_secondary_retrieve_response() -> R
     )
 
 
+def _industry_low_value_report_context_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-low-value-context-1",
+                "domain": "industry",
+                "canonical_title": "Reuters battery recycling market share outlook 2025",
+                "canonical_url": "https://www.reuters.com/markets/battery-recycling-share-2025",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Trusted news estimate of battery recycling market-share shifts in 2025.",
+                        "source_record_id": "industry-low-value-context-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-low-value-context-2",
+                "domain": "industry",
+                "canonical_title": "Battery recycling market size, share | Growth [2034]",
+                "canonical_url": "https://www.fortunebusinessinsights.com/industry-reports/battery-recycling-market-2034",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Market report projects long-range battery recycling market size and share growth through 2034.",
+                        "source_record_id": "industry-low-value-context-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _industry_low_value_report_only_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-low-value-only-1",
+                "domain": "industry",
+                "canonical_title": "Battery recycling market size, share | Growth [2034]",
+                "canonical_url": "https://www.fortunebusinessinsights.com/industry-reports/battery-recycling-market-2034",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Market report projects long-range battery recycling market size and share growth through 2034.",
+                        "source_record_id": "industry-low-value-only-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+            {
+                "evidence_id": "industry-low-value-only-2",
+                "domain": "industry",
+                "canonical_title": "Cross-Border EV Battery Recycling Corridors | Future Market Insights",
+                "canonical_url": "https://www.futuremarketinsights.com/reports/ev-battery-recycling-market",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": "Market report outlines battery recycling demand scenarios and corridor growth assumptions.",
+                        "source_record_id": "industry-low-value-only-2-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _industry_filing_fast_path_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="industry",
@@ -1567,6 +1661,51 @@ def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_relabels_w
     assert result.response.sources[1].title == "Tesla annual battery supply update"
 
 
+def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_drops_low_value_report_context(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_low_value_report_context_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "industry lookup fast path should skip grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share forecast",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert len(result.response.sources) == 1
+    assert result.response.sources[0].title == "Reuters battery recycling market share outlook 2025"
+    assert "Related market context also includes" not in result.response.conclusion
+    assert "Battery recycling market size, share | Growth [2034]" not in result.response.conclusion
+    assert not any(
+        source.title == "Battery recycling market size, share | Growth [2034]"
+        for source in result.response.sources
+    )
+
+
 def test_execute_answer_pipeline_with_trace_enriches_thin_industry_fast_path_with_bounded_same_route_support(
     monkeypatch,
 ) -> None:
@@ -2325,6 +2464,58 @@ def test_execute_answer_pipeline_with_trace_uses_industry_partial_lookup_fast_pa
     assert result.response.key_points
     assert result.response.sources
     assert result.runtime_trace.latency_budget_ok is True
+
+
+def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_rejects_low_value_report_only_evidence(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.cache import ANSWER_CACHE
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_low_value_report_only_retrieve_response()
+
+    ANSWER_CACHE.clear()
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError(
+                "low-value report-only industry evidence should be rejected before grounded synthesis"
+            )
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="battery recycling market share forecast",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(
+                request_deadline_seconds=3.0,
+                retrieval_deadline_seconds=3.0,
+                synthesis_deadline_seconds=0.0,
+            ),
+        )
+    )
+
+    assert result.response.answer_status == "insufficient_evidence"
+    assert "The strongest direct industry source is" not in result.response.conclusion
+    assert "Battery recycling market size, share | Growth [2034]" not in result.response.conclusion
+    assert "Cross-Border EV Battery Recycling Corridors | Future Market Insights" not in result.response.conclusion
+    assert not result.response.sources
+    assert not result.response.key_points
+    assert any(
+        note.startswith("Answer scope:")
+        for note in result.response.uncertainty_notes
+    )
 
 
 def test_execute_answer_pipeline_with_trace_relevance_gated_industry_partial_excludes_weak_secondary_evidence(

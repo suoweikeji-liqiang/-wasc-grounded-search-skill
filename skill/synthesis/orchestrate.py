@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
+from urllib.parse import urlsplit
 
 from skill.api.schema import AnswerResponse, RetrieveCanonicalEvidenceItem, RetrieveResponse
 from skill.config.retrieval import (
@@ -438,6 +439,65 @@ _INDUSTRY_CONTEXT_GENERIC_TERMS = frozenset(
         "行业",
     }
 )
+_LOW_VALUE_INDUSTRY_SOURCE_DOMAINS = frozenset(
+    {
+        "www.openpr.com",
+        "openpr.com",
+        "www.prnewswire.com",
+        "prnewswire.com",
+        "www.businesswire.com",
+        "businesswire.com",
+        "www.globenewswire.com",
+        "globenewswire.com",
+        "www.accessnewswire.com",
+        "accessnewswire.com",
+        "www.fortunebusinessinsights.com",
+        "fortunebusinessinsights.com",
+        "www.marketsandmarkets.com",
+        "marketsandmarkets.com",
+        "www.researchandmarkets.com",
+        "researchandmarkets.com",
+        "www.grandviewresearch.com",
+        "grandviewresearch.com",
+        "www.precedenceresearch.com",
+        "precedenceresearch.com",
+        "www.marketresearchfuture.com",
+        "marketresearchfuture.com",
+        "www.imarcgroup.com",
+        "imarcgroup.com",
+        "www.futuremarketinsights.com",
+        "futuremarketinsights.com",
+        "www.verifiedmarketresearch.com",
+        "verifiedmarketresearch.com",
+    }
+)
+_LOW_VALUE_INDUSTRY_PATH_MARKERS = (
+    "/industry-reports/",
+    "/market-reports/",
+    "/market-report/",
+)
+_LOW_VALUE_INDUSTRY_TEXT_MARKERS = (
+    "market size",
+    "industry report",
+    "market report",
+    "fortune business insights",
+    "future market insights",
+    "marketsandmarkets",
+    "markets and markets",
+    "research and markets",
+    "researchandmarkets",
+    "grand view research",
+    "grandviewresearch",
+    "precedence research",
+    "market research future",
+    "verified market research",
+    "imarc group",
+    "openpr",
+    "pr newswire",
+    "business wire",
+    "globe newswire",
+    "access newswire",
+)
 _DATE_LITERAL_RE = re.compile(r"20\d{2}-\d{2}-\d{2}")
 _YEAR_LITERAL_RE = re.compile(r"20\d{2}")
 _VERSION_LITERAL_RE = re.compile(r"version [^.;,)]+", re.IGNORECASE)
@@ -517,6 +577,79 @@ def _industry_thematic_overlap(query: str, record: CanonicalEvidence) -> int:
     for slice_ in record.retained_slices:
         record_terms.update(_industry_context_terms(slice_.text))
     return len(query_terms & record_terms)
+
+
+def _industry_record_credibility_tier(record: CanonicalEvidence) -> str | None:
+    for raw_record in record.raw_records:
+        if raw_record.credibility_tier is not None:
+            return raw_record.credibility_tier
+    return None
+
+
+def _is_low_value_industry_report_record(record: CanonicalEvidence) -> bool:
+    if record.domain != "industry":
+        return False
+
+    parsed_url = urlsplit(record.canonical_url)
+    host = (parsed_url.hostname or "").lower()
+    path = parsed_url.path.lower()
+    title_text = normalize_query_text(record.canonical_title)
+    combined_text = normalize_query_text(
+        " ".join(
+            [
+                record.canonical_title,
+                *[slice_.text for slice_ in record.retained_slices],
+            ]
+        )
+    )
+    credibility_tier = _industry_record_credibility_tier(record)
+
+    if host in _LOW_VALUE_INDUSTRY_SOURCE_DOMAINS:
+        return True
+    if any(marker in path for marker in _LOW_VALUE_INDUSTRY_PATH_MARKERS):
+        return True
+    if any(marker in title_text for marker in _LOW_VALUE_INDUSTRY_TEXT_MARKERS):
+        return True
+    if credibility_tier == "general_web" and any(
+        marker in combined_text for marker in _LOW_VALUE_INDUSTRY_TEXT_MARKERS
+    ):
+        return True
+    return False
+
+
+def _should_filter_low_value_industry_record(
+    query: str,
+    record: CanonicalEvidence,
+) -> bool:
+    if record.domain != "industry":
+        return False
+    if not (
+        _is_industry_lookup_query(query)
+        or derive_query_traits(query).has_trend_intent
+    ):
+        return False
+    return _is_low_value_industry_report_record(record)
+
+
+def _industry_lookup_has_only_low_value_matches(
+    query: str,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> bool:
+    aligned_records = [
+        record
+        for record in canonical_evidence
+        if record.domain == "industry"
+        and record.route_role == "primary"
+        and record.retained_slices
+        and (
+            _partial_match_alignment_score(query, record) > 0
+            or _industry_thematic_overlap(query, record) > 0
+        )
+    ]
+    return bool(aligned_records) and all(
+        _should_filter_low_value_industry_record(query, record)
+        for record in aligned_records
+    )
 
 
 def _best_slice_overlap(
@@ -1239,6 +1372,11 @@ def _build_same_route_industry_enrichment_response(
         supplemental_matches,
         limit=2,
     )
+    combined_matches = tuple(
+        match
+        for match in combined_matches
+        if not _should_filter_low_value_industry_record(query, match[0])
+    )
     query_terms = _content_terms(query)
     if (
         len(combined_matches) <= 1
@@ -1906,7 +2044,7 @@ def _rehydrate_canonical_evidence(
         title=item.canonical_title,
         url=item.canonical_url,
         snippet=snippet,
-        credibility_tier=None,
+        credibility_tier=item.credibility_tier,
         authority=item.authority,
         jurisdiction=item.jurisdiction,
         publication_date=item.publication_date,
@@ -1923,7 +2061,7 @@ def _rehydrate_canonical_evidence(
         title=raw_hit.title,
         url=raw_hit.url,
         snippet=raw_hit.snippet,
-        credibility_tier=raw_hit.credibility_tier,
+        credibility_tier=item.credibility_tier,
         route_role=item.route_role,
         token_estimate=_estimate_tokens(raw_hit.snippet),
         raw_hit=raw_hit,
@@ -2107,6 +2245,8 @@ def _partition_industry_supporting_matches(
 
     for match in supporting_matches:
         record, _, _ = match
+        if _should_filter_low_value_industry_record(query, record):
+            continue
         if _should_surface_additional_partial_match(
             query,
             record,
@@ -2124,6 +2264,27 @@ def _partition_industry_supporting_matches(
     return tuple(direct_matches), contextual_match
 
 
+def _key_point_references_filtered_industry_record(
+    key_point: dict[str, object],
+    evidence_by_id: dict[str, CanonicalEvidence],
+    *,
+    query: str,
+) -> bool:
+    citations = key_point.get("citations", [])
+    if not isinstance(citations, list):
+        return False
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        evidence_id = str(citation.get("evidence_id", ""))
+        record = evidence_by_id.get(evidence_id)
+        if record is None:
+            continue
+        if _should_filter_low_value_industry_record(query, record):
+            return True
+    return False
+
+
 def _select_partial_evidence_matches(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -2139,6 +2300,8 @@ def _select_partial_evidence_matches(
         slice_: EvidenceSlice | None,
     ) -> None:
         if record is None or slice_ is None:
+            return
+        if _should_filter_low_value_industry_record(query, record):
             return
         if record.evidence_id in seen_evidence_ids:
             return
@@ -2652,7 +2815,16 @@ def _build_partial_response_payload(
     citation_issues: tuple[str, ...] = (),
     reason: str | None = None,
 ) -> tuple[str, list[dict[str, object]], list[dict[str, str]]]:
-    key_points = list(validated_key_points or [])
+    evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
+    key_points = [
+        key_point
+        for key_point in list(validated_key_points or [])
+        if not _key_point_references_filtered_industry_record(
+            key_point,
+            evidence_by_id,
+            query=query,
+        )
+    ]
     matches = _select_partial_evidence_matches(
         retrieval_response,
         canonical_evidence,
@@ -2687,7 +2859,6 @@ def _build_partial_response_payload(
             )
             cited_evidence_ids.add(record.evidence_id)
 
-    evidence_by_id = {record.evidence_id: record for record in canonical_evidence}
     cited_evidence_ids = [
         str(citation.get("evidence_id"))
         for key_point in key_points
@@ -2700,7 +2871,14 @@ def _build_partial_response_payload(
         evidence_by_id,
     )
     if not sources:
-        for record in canonical_evidence[:2]:
+        fallback_records = [record for record, _ in matches]
+        if not fallback_records:
+            fallback_records = [
+                record
+                for record in canonical_evidence
+                if not _should_filter_low_value_industry_record(query, record)
+            ]
+        for record in fallback_records[:2]:
             sources.append(
                 {
                     "evidence_id": record.evidence_id,
@@ -3655,6 +3833,11 @@ def _build_local_answer_candidate(
         route_role="primary",
         limit=2,
     )
+    industry_matches = tuple(
+        match
+        for match in industry_matches
+        if not _should_filter_low_value_industry_record(query, match[0])
+    )
     supporting_industry_matches = industry_matches[1:] if len(industry_matches) > 1 else ()
     if (
         retrieval_response.route_label != "mixed"
@@ -4271,6 +4454,36 @@ async def execute_answer_pipeline_with_trace(
             answer_token_estimate=answer_token_estimate,
             retrieval_trace=retrieval_trace,
         )
+        return _build_answer_execution_result(
+            request_id=request_id,
+            response=response,
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=retrieval_trace,
+        )
+
+    if (
+        retrieval_response.route_label != "mixed"
+        and retrieval_response.primary_route == "industry"
+        and _is_industry_lookup_query(query)
+        and canonical_evidence
+        and _industry_lookup_has_only_low_value_matches(
+            query,
+            canonical_evidence,
+        )
+    ):
+        response = _build_relevance_gated_response(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
             request_id=request_id,
             response=response,

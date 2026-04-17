@@ -329,6 +329,7 @@ def _shape_canonical_evidence(
             canonical_title=record.canonical_title,
             canonical_url=record.canonical_url,
             route_role=record.route_role,
+            credibility_tier=record.raw_records[0].credibility_tier,
             authority=record.authority,
             jurisdiction=record.jurisdiction,
             jurisdiction_status=record.jurisdiction_status,
