@@ -146,7 +146,9 @@ def test_industry_news_rss_requires_article_body_before_returning_evidence(
 ) -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
 
-    async def _fake_search_multi_engine(**_: object) -> list[SearchCandidate]:
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        if tuple(kwargs["engines"]) != ("google_news_rss",):
+            return []
         return [
             SearchCandidate(
                 engine="google_news_rss",
@@ -160,8 +162,12 @@ def test_industry_news_rss_requires_article_body_before_returning_evidence(
     async def _empty_page_text(**_: object) -> str:
         return ""
 
+    async def _empty_ddgs_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
     monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
     monkeypatch.setattr(adapter, "fetch_page_text", _empty_page_text)
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _empty_ddgs_backup)
 
     hits = asyncio.run(
         adapter.search_news_rss_live("IATA 2025 cargo demand forecast CTK growth official")

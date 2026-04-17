@@ -620,6 +620,127 @@ def test_industry_news_rss_live_limits_google_news_candidates_to_top_two(
     assert observed_max_results == [2]
 
 
+def test_industry_news_rss_live_uses_raw_google_news_urls_for_multiple_homepage_only_candidates(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        if tuple(kwargs["engines"]) == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="锂离子电池回收市场规模、份额及预测 [2034] - Fortune Business Insights",
+                    url="https://news.google.com/rss/articles/example-fbi-liion",
+                    snippet="Fortune Business Insights | Mon, 30 Mar 2026 07:00:00 GMT",
+                    source_url="https://www.fortunebusinessinsights.com",
+                ),
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="铅酸电池回收市场规模、份额|成长[2034] - Fortune Business Insights",
+                    url="https://news.google.com/rss/articles/example-fbi-leadacid",
+                    snippet="Fortune Business Insights | Mon, 30 Mar 2026 07:00:00 GMT",
+                    source_url="https://www.fortunebusinessinsights.com",
+                ),
+            ]
+        raise AssertionError("publisher search should not run for multiple raw news candidates")
+
+    async def _unexpected_resolve_google_news_article_url(_: str) -> str | None:
+        raise AssertionError("google news resolver should not run for multiple raw news candidates")
+
+    async def _slow_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(1.0)
+        return []
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("raw google news fallback should not fetch page text")
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _unexpected_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _slow_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_news_rss_live("动力电池回收市场份额预测"),
+            timeout=0.05,
+        )
+    )
+
+    assert len(hits) == 2
+    assert hits[0].url == "https://news.google.com/rss/articles/example-fbi-liion"
+    assert hits[1].url == "https://news.google.com/rss/articles/example-fbi-leadacid"
+    assert "份额及预测" in hits[0].snippet
+
+
+def test_industry_news_rss_live_uses_ddgs_backup_when_google_news_grounding_is_slow(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        engines = tuple(kwargs["engines"])
+        query = str(kwargs["query"])
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="Battery industry update 2026",
+                    url="https://news.google.com/rss/articles/example-reuters",
+                    snippet="Thin RSS snippet only.",
+                    source_url="https://publisher.example.com",
+                )
+            ]
+        if query == 'site:publisher.example.com "Battery industry update 2026"':
+            await asyncio.sleep(1.0)
+            return []
+        return []
+
+    async def _fake_resolve_google_news_article_url(_: str) -> str | None:
+        return None
+
+    async def _fake_ddgs_news_backup(**_: object) -> list[dict[str, str]]:
+        await asyncio.sleep(0.01)
+        return [
+            {
+                "title": "Battery recycling market share outlook 2026",
+                "url": "https://www.reuters.com/markets/battery-recycling-share-2026",
+                "snippet": "Trusted news estimate of battery recycling market-share shifts in 2026.",
+                "_tier": "trusted_news",
+                "_engine": "ddgs_news_backup",
+            }
+        ]
+
+    async def _fake_fetch_page_text(**_: object) -> str:
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _fake_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fake_ddgs_news_backup)
+    monkeypatch.setattr(adapter, "fetch_page_text", _fake_fetch_page_text)
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_news_rss_live("battery recycling market share forecast 2026"),
+            timeout=0.2,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].url == "https://www.reuters.com/markets/battery-recycling-share-2026"
+    assert "market-share shifts in 2026" in hits[0].snippet.lower()
+
+
 def test_industry_web_discovery_live_limits_google_news_parallel_recall_to_top_one(
     monkeypatch,
 ) -> None:
@@ -945,6 +1066,72 @@ def test_industry_web_discovery_live_does_not_wait_for_slow_google_news_url_reso
     assert len(hits) == 1
     assert hits[0].url.endswith("/semiconductor-industry-outlook.html")
     assert "advanced packaging capacity staying tight" in hits[0].snippet.lower()
+
+
+def test_industry_news_rss_live_cancels_promptly_without_waiting_for_slow_google_news_cleanup(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+    from skill.retrieval.live.clients.search_discovery import SearchCandidate
+
+    resolve_cancelled = asyncio.Event()
+    publisher_cancelled = asyncio.Event()
+
+    async def _fake_search_multi_engine(**kwargs: object) -> list[SearchCandidate]:
+        query = str(kwargs["query"])
+        engines = tuple(kwargs["engines"])
+        if engines == ("google_news_rss",):
+            return [
+                SearchCandidate(
+                    engine="google_news_rss",
+                    title="2026 Global Semiconductor Industry Outlook - Deloitte",
+                    url="https://news.google.com/rss/articles/example-deloitte",
+                    snippet="Deloitte | Thu, 05 Feb 2026 08:00:00 GMT",
+                    source_url="https://www.deloitte.com",
+                )
+            ]
+        if query == 'site:deloitte.com "Global Semiconductor Industry Outlook"':
+            try:
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                publisher_cancelled.set()
+                await asyncio.sleep(0.2)
+                raise
+        return []
+
+    async def _slow_resolve_google_news_article_url(_: str) -> str | None:
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            resolve_cancelled.set()
+            await asyncio.sleep(0.2)
+            raise
+        return None
+
+    async def _fast_empty_ddgs_backup(**_: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _fake_search_multi_engine)
+    monkeypatch.setattr(
+        adapter.google_news_client,
+        "resolve_google_news_article_url",
+        _slow_resolve_google_news_article_url,
+    )
+    monkeypatch.setattr(adapter, "_search_ddgs_news_backup", _fast_empty_ddgs_backup)
+
+    started_at = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            asyncio.wait_for(
+                adapter.search_news_rss_live("advanced packaging capacity outlook 2026"),
+                timeout=0.05,
+            )
+        )
+    elapsed = time.perf_counter() - started_at
+
+    assert resolve_cancelled.is_set()
+    assert publisher_cancelled.is_set()
+    assert elapsed < 0.18
 
 
 def test_industry_web_discovery_live_keeps_waiting_when_early_rss_candidate_cannot_be_grounded(

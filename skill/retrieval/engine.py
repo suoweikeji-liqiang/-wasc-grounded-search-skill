@@ -920,14 +920,12 @@ def _variant_timeout_seconds(
         and _is_primary_industry_variant_retry_context(step=step, plan=plan)
         and _has_industry_cjk_gloss_variant(variants)
         and variant.reason_code in {"original", "industry_cjk_gloss"}
-        and _has_later_variant(variant=variant, variants=variants)
     ):
         timeout_seconds = min(
             timeout_seconds,
             max(
                 0.0,
-                plan.per_source_timeout_seconds
-                / min(_INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS, len(variants)),
+                plan.per_source_timeout_seconds / _INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS,
             ),
         )
     elif (

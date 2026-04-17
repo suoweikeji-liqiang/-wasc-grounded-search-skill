@@ -5,9 +5,9 @@ from dataclasses import replace
 
 from skill.orchestrator.intent import ClassificationResult
 from skill.orchestrator.retrieval_plan import build_retrieval_plan
-from skill.retrieval.engine import run_retrieval
+from skill.retrieval.engine import _variant_timeout_seconds, run_retrieval
 from skill.retrieval.models import RetrievalHit
-from skill.retrieval.query_variants import build_query_variants
+from skill.retrieval.query_variants import QueryVariant, build_query_variants
 
 
 def test_build_query_variants_caps_policy_expansion_and_dedupes() -> None:
@@ -1209,3 +1209,46 @@ def test_build_retrieval_plan_partitions_mixed_budget_for_discovery_and_deep_fet
     assert mixed_plan.mixed_deep_deadline_seconds == 5.0
     assert mixed_plan.mixed_shortlist_top_k == 4
     assert mixed_plan.mixed_pooled_enabled is True
+
+
+def test_variant_timeout_seconds_caps_primary_industry_cjk_original_and_gloss_to_preserve_fallback_budget() -> None:
+    plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_keywords",
+            scores={"policy": 0, "academic": 0, "industry": 5},
+        ),
+        query="动力电池回收市场份额预测",
+    )
+    web_step = next(
+        step
+        for step in plan.first_wave_sources
+        if step.source.source_id == "industry_web_discovery"
+    )
+    variants = (
+        QueryVariant(query="动力电池回收市场份额预测", reason_code="original"),
+        QueryVariant(
+            query="ev battery recycling market share forecast",
+            reason_code="industry_cjk_gloss",
+        ),
+    )
+
+    original_timeout = _variant_timeout_seconds(
+        step=web_step,
+        plan=plan,
+        variant=variants[0],
+        variants=variants,
+        remaining=plan.per_source_timeout_seconds,
+    )
+    gloss_timeout = _variant_timeout_seconds(
+        step=web_step,
+        plan=plan,
+        variant=variants[1],
+        variants=variants,
+        remaining=plan.per_source_timeout_seconds - original_timeout,
+    )
+
+    assert original_timeout <= plan.per_source_timeout_seconds / 3 + 1e-6
+    assert gloss_timeout <= plan.per_source_timeout_seconds / 3 + 1e-6

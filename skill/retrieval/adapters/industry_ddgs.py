@@ -408,6 +408,8 @@ def _official_search_queries(query: str) -> tuple[str, ...]:
 
 def _candidate_payloads_from_search_results(
     candidates: list[object],
+    *,
+    preserve_google_news_url_for_homepage_candidates: bool = False,
 ) -> list[dict[str, str]]:
     payloads: list[dict[str, str]] = []
     for candidate in candidates:
@@ -421,16 +423,30 @@ def _candidate_payloads_from_search_results(
         grounding_strategy = str(
             getattr(candidate, "google_news_grounding_strategy", "")
         )
+        prefer_source_url = (
+            engine == "google_news_rss"
+            and source_url
+            and not (
+                preserve_google_news_url_for_homepage_candidates
+                and _is_homepage_url(str(source_url))
+            )
+        )
+        payload_snippet = str(snippet)
+        if (
+            preserve_google_news_url_for_homepage_candidates
+            and engine == "google_news_rss"
+            and source_url
+            and _is_homepage_url(str(source_url))
+        ):
+            payload_snippet = f"{str(title)} {payload_snippet}".strip()
         preferred_url = (
-            str(source_url)
-            if engine == "google_news_rss" and source_url
-            else str(url)
+            str(source_url) if prefer_source_url else str(url)
         )
         tier_url = str(source_url) if source_url else preferred_url
         payload = {
             "title": str(title),
             "url": preferred_url,
-            "snippet": str(snippet),
+            "snippet": payload_snippet,
             "_tier": _tier_for_url(tier_url),
             "_engine": engine,
         }
@@ -786,7 +802,7 @@ async def _resolve_google_news_candidates(
             return_exceptions=True,
         )
     except asyncio.CancelledError:
-        await _cancel_search_tasks(list(resolution_tasks))
+        _cancel_search_tasks_detached(list(resolution_tasks))
         raise
 
     resolved_by_url: dict[str, str] = {}
@@ -853,7 +869,7 @@ async def _search_google_news_publisher_candidates(
     try:
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
     except asyncio.CancelledError:
-        await _cancel_search_tasks(search_tasks)
+        _cancel_search_tasks_detached(search_tasks)
         raise
 
     recovered_candidates: list[SearchCandidate] = []
@@ -959,7 +975,7 @@ async def _resolve_google_news_article_candidates(
                 ]
             )
             if article_candidates:
-                await _cancel_search_tasks(list(pending_tasks))
+                _cancel_search_tasks_detached(list(pending_tasks))
                 return article_candidates
 
         return _dedupe_article_candidates(
@@ -970,7 +986,7 @@ async def _resolve_google_news_article_candidates(
             ]
         )
     except asyncio.CancelledError:
-        await _cancel_search_tasks([resolution_task, publisher_task])
+        _cancel_search_tasks_detached([resolution_task, publisher_task])
         raise
 
 
@@ -1910,24 +1926,124 @@ async def search_news_rss_live(query: str) -> list[RetrievalHit]:
         if fixture_hits:
             return fixture_hits[:3]
 
+    ddgs_backup_task = asyncio.create_task(
+        _search_ddgs_news_backup(
+            query=query,
+            max_results=_GOOGLE_NEWS_FALLBACK_CANDIDATE_LIMIT,
+        )
+    )
+    candidate_payloads: list[dict[str, str]] = []
+
     try:
         news_candidates = await search_multi_engine(
             query=query,
             engines=("google_news_rss",),
             max_results=_GOOGLE_NEWS_FALLBACK_CANDIDATE_LIMIT,
         )
+    except asyncio.CancelledError:
+        _cancel_search_tasks_detached([ddgs_backup_task])
+        raise
     except Exception:
         news_candidates = []
     else:
-        news_candidates = await _resolve_google_news_article_candidates(
-            query=query,
-            candidates=list(news_candidates),
-            config=config,
-        )
+        try:
+            requires_slow_grounding = bool(news_candidates) and not any(
+                _article_like_source_candidate(candidate) is not None
+                for candidate in news_candidates
+            )
+            if requires_slow_grounding and len(news_candidates) > 1:
+                # Multiple homepage-only Google News titles already provide fallback
+                # signal; keep the raw article URLs instead of paying slow grounding
+                # costs in the lightweight news lane.
+                candidate_payloads = _candidate_payloads_from_search_results(
+                    list(news_candidates),
+                    preserve_google_news_url_for_homepage_candidates=True,
+                )
+                _cancel_search_tasks_detached([ddgs_backup_task])
+                news_candidates = []
+            elif requires_slow_grounding:
+                resolve_task = asyncio.create_task(
+                    _resolve_google_news_article_candidates(
+                        query=query,
+                        candidates=list(news_candidates),
+                        config=config,
+                    )
+                )
+                try:
+                    done, pending = await asyncio.wait(
+                        {resolve_task, ddgs_backup_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                except asyncio.CancelledError:
+                    _cancel_search_tasks_detached([resolve_task, ddgs_backup_task])
+                    raise
+                if ddgs_backup_task in done:
+                    try:
+                        ddgs_backup_payloads = ddgs_backup_task.result()
+                    except Exception:
+                        ddgs_backup_payloads = []
+                    if ddgs_backup_payloads:
+                        candidate_payloads = _dedupe_candidate_payloads(ddgs_backup_payloads)
+                        _cancel_search_tasks_detached([resolve_task])
+                        news_candidates = []
+                    else:
+                        news_candidates = await resolve_task
+                else:
+                    news_candidates = resolve_task.result()
+                    if ddgs_backup_task.done():
+                        try:
+                            ddgs_backup_payloads = ddgs_backup_task.result()
+                        except Exception:
+                            ddgs_backup_payloads = []
+                        if ddgs_backup_payloads:
+                            candidate_payloads = _dedupe_candidate_payloads(
+                                [
+                                    *_candidate_payloads_from_search_results(list(news_candidates)),
+                                    *ddgs_backup_payloads,
+                                ]
+                            )
+                    else:
+                        _cancel_search_tasks_detached([ddgs_backup_task])
+            else:
+                news_candidates = await _resolve_google_news_article_candidates(
+                    query=query,
+                    candidates=list(news_candidates),
+                    config=config,
+                )
+        except asyncio.CancelledError:
+            _cancel_search_tasks_detached([ddgs_backup_task])
+            raise
 
-    candidate_payloads = _candidate_payloads_from_search_results(list(news_candidates))
-    for payload in candidate_payloads:
-        payload["_force_fetch"] = "1"
+    if not candidate_payloads:
+        candidate_payloads = _candidate_payloads_from_search_results(list(news_candidates))
+    if candidate_payloads:
+        if ddgs_backup_task.done():
+            try:
+                ddgs_backup_payloads = ddgs_backup_task.result()
+            except Exception:
+                ddgs_backup_payloads = []
+            candidate_payloads = _dedupe_candidate_payloads(
+                [*candidate_payloads, *ddgs_backup_payloads]
+            )
+        else:
+            _cancel_search_tasks_detached([ddgs_backup_task])
+    else:
+        try:
+            ddgs_backup_payloads = await ddgs_backup_task
+        except asyncio.CancelledError:
+            _cancel_search_tasks_detached([ddgs_backup_task])
+            raise
+        candidate_payloads = _dedupe_candidate_payloads(ddgs_backup_payloads)
+    if any(
+        payload.get("_engine") == "google_news_rss"
+        and payload.get("_google_news_grounding_strategy") == "resolved_article_url"
+        for payload in candidate_payloads
+    ):
+        for payload in candidate_payloads:
+            if payload.get("_engine") == "google_news_rss":
+                payload["_force_fetch"] = "1"
+    else:
+        _cancel_search_tasks_detached([ddgs_backup_task])
     candidate_payloads = _dedupe_candidate_payloads(candidate_payloads)
     return await _rank_payloads_to_hits(
         query=query,
