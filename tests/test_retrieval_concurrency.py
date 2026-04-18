@@ -128,8 +128,6 @@ def test_primary_academic_plan_prefers_arxiv_ordering_only_for_explicit_europe_p
         "academic_semantic_scholar",
         "academic_asta_mcp",
     ]
-
-
 def test_mixed_route_uses_full_primary_plus_split_industry_supplemental_sources() -> None:
     classification = ClassificationResult(
         route_label="mixed",

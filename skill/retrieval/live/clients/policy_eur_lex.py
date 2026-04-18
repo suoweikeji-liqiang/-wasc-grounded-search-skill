@@ -107,6 +107,71 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "application date",
         ),
     },
+    {
+        "title": "Regulation (EU) 2022/2554 (DORA)",
+        "url": "https://eur-lex.europa.eu/eli/reg/2022/2554/oj/eng",
+        "snippet": (
+            "Official DORA text: after classifying an ICT-related incident as "
+            "major, the financial entity shall submit an initial notification "
+            "to the competent authority by the same business day, or no later "
+            "than four hours from classification."
+        ),
+        "authority": "European Union",
+        "jurisdiction": "EU",
+        "publication_date": "2022-12-27",
+        "effective_date": "2023-01-16",
+        "version": "Official Journal text",
+        "markers": (
+            "dora",
+            "2022/2554",
+            "major ict incident",
+            "initial notification",
+            "same business day",
+        ),
+    },
+    {
+        "title": "Regulation (EU) 2024/2847 (Cyber Resilience Act)",
+        "url": "https://eur-lex.europa.eu/eli/reg/2024/2847/oj/eng",
+        "snippet": (
+            "Official Cyber Resilience Act text: manufacturers shall notify "
+            "ENISA of any actively exploited vulnerability contained in the "
+            "product with digital elements without undue delay and in any "
+            "event within 24 hours of becoming aware of it."
+        ),
+        "authority": "European Union",
+        "jurisdiction": "EU",
+        "publication_date": "2024-11-20",
+        "effective_date": "2024-12-10",
+        "version": "Official Journal text",
+        "markers": (
+            "cyber resilience act",
+            "2024/2847",
+            "vulnerability exploitation",
+            "enisa",
+            "24 hours",
+        ),
+    },
+    {
+        "title": "CBAM default values guidance",
+        "url": "https://taxation-customs.ec.europa.eu/news/commission-publishes-default-values-determining-embedded-emissions-during-cbam-transitional-period-2023-12-22_en",
+        "snippet": (
+            "Official European Commission CBAM guidance: default values can "
+            "be used to determine embedded emissions during the transitional "
+            "period, particularly when importers do not have access to actual "
+            "emissions data."
+        ),
+        "authority": "European Commission",
+        "jurisdiction": "EU",
+        "publication_date": "2023-12-22",
+        "effective_date": None,
+        "version": "Guidance",
+        "markers": (
+            "cbam",
+            "default values",
+            "embedded emissions",
+            "transitional period",
+        ),
+    },
 )
 
 
@@ -138,7 +203,9 @@ def _materialize(record: dict[str, object]) -> dict[str, object]:
         "authority": str(record["authority"]),
         "jurisdiction": str(record["jurisdiction"]),
         "publication_date": str(record["publication_date"]),
-        "effective_date": str(record["effective_date"]),
+        "effective_date": (
+            str(record["effective_date"]) if record.get("effective_date") is not None else None
+        ),
         "version": str(record["version"]),
     }
 

@@ -78,6 +78,22 @@ _INDUSTRY_OFFICIAL_FIRST_MARKERS: tuple[str, ...] = (
     "revenue",
     "revenues",
 )
+_INDUSTRY_FILING_FIRST_MARKERS: tuple[str, ...] = (
+    "10-k",
+    "10k",
+    "10-q",
+    "10q",
+    "8-k",
+    "8k",
+    "20-f",
+    "20f",
+    "6-k",
+    "6k",
+    "annual report",
+    "quarterly report",
+    "filing",
+    "risk factors",
+)
 
 
 def _query_uses_cjk(query: str) -> bool:
@@ -131,6 +147,8 @@ def _industry_first_wave_source_ids(query: str | None) -> tuple[str, ...]:
     if query is None:
         return DOMAIN_FIRST_WAVE_SOURCES["industry"]
     normalized_query = normalize_query_text(query)
+    if any(marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS):
+        return ("industry_official_or_filings",)
     if any(marker in normalized_query for marker in _INDUSTRY_OFFICIAL_FIRST_MARKERS):
         return DOMAIN_FIRST_WAVE_SOURCES["industry"]
     if derive_query_traits(query).has_trend_intent:
@@ -170,7 +188,13 @@ def _build_supplemental_first_wave(
     query: str | None = None,
 ) -> list[PlannedSourceStep]:
     if supplemental_route == "industry":
-        source_ids = _industry_first_wave_source_ids(query)
+        normalized_query = normalize_query_text(query) if query is not None else ""
+        if query is not None and any(
+            marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS
+        ):
+            source_ids = ("industry_official_or_filings",)
+        else:
+            source_ids = _industry_first_wave_source_ids(query)
         if query is not None and derive_query_traits(query).is_cross_domain_impact:
             source_ids = (
                 ("industry_web_discovery",)

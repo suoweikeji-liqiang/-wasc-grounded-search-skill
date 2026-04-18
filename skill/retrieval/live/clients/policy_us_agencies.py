@@ -13,11 +13,16 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "fcc",
     "epa",
     "ftc",
+    "doj",
     "cisa",
     "circia",
     "pccp",
     "pfas",
+    "cercla",
     "noncompete",
+    "negative option",
+    "click-to-cancel",
+    "data security program",
     "laboratory developed tests",
     "cyber trust mark",
 )
@@ -92,6 +97,7 @@ _GENERIC_AGENCY_TOKENS: frozenset[str] = frozenset(
         "epa",
         "ftc",
         "cisa",
+        "doj",
         "us",
     }
 )
@@ -185,6 +191,28 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "markers": ("ftc", "noncompete", "non-compete", "senior executives"),
     },
     {
+        "title": "Negative Option Rule",
+        "url": "https://www.federalregister.gov/documents/2024/11/15/2024-25534/negative-option-rule",
+        "snippet": (
+            "Official Federal Register text: the proposed Rule would have "
+            "required sellers to provide annual reminders to consumers of the "
+            "negative option feature, but that provision was omitted in the "
+            "final rule."
+        ),
+        "authority": "Federal Trade Commission",
+        "jurisdiction": "US",
+        "publication_date": "2024-11-15",
+        "effective_date": None,
+        "version": "Rule 2024-25534",
+        "markers": (
+            "ftc",
+            "negative option",
+            "click-to-cancel",
+            "annual reminder",
+            "annual reminders",
+        ),
+    },
+    {
         "title": "Cyber Incident Reporting for Critical Infrastructure Act of 2022 (CIRCIA)",
         "url": "https://www.cisa.gov/resources-tools/resources/cyber-incident-reporting-critical-infrastructure-act-2022-circia",
         "snippet": (
@@ -197,6 +225,50 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "effective_date": None,
         "version": "Notice of proposed rulemaking resources",
         "markers": ("cisa", "circia", "reporting deadlines", "ransom payments"),
+    },
+    {
+        "title": "Designation of PFOA and PFOS as hazardous substances under CERCLA release reporting requirements",
+        "url": "https://www.epa.gov/epcra/designation-pfoa-and-pfos-hazardous-substances-under-cercla-release-reporting-requirements",
+        "snippet": (
+            "Official EPA PFAS CERCLA release reporting guidance: EPA "
+            "established the default reportable quantity of one pound for "
+            "releases of PFOA or PFOS, including their salts and structural "
+            "isomers."
+        ),
+        "authority": "Environmental Protection Agency",
+        "jurisdiction": "US",
+        "publication_date": "2024-04-17",
+        "effective_date": None,
+        "version": "Release reporting guidance",
+        "markers": (
+            "epa",
+            "pfas",
+            "cercla",
+            "reportable quantity",
+            "pfoa",
+            "pfos",
+        ),
+    },
+    {
+        "title": "Data Security Program",
+        "url": "https://www.justice.gov/nsd/data-security",
+        "snippet": (
+            "Official DOJ Data Security Program overview: the program covers "
+            "prohibited transactions and restricted transactions involving "
+            "bulk sensitive personal data and government-related data."
+        ),
+        "authority": "Department of Justice",
+        "jurisdiction": "US",
+        "publication_date": "2025-04-11",
+        "effective_date": "2025-04-08",
+        "version": "Program overview",
+        "markers": (
+            "doj",
+            "data security program",
+            "prohibited transactions",
+            "bulk sensitive personal data",
+            "government-related data",
+        ),
     },
 )
 

@@ -196,3 +196,34 @@ def test_summarize_judge_scores_cli_reads_json_files_and_writes_summary(
     assert payload["dimensions"]["completeness"]["average_score"] == 10.0
     assert payload["dimensions"]["accuracy"]["average_score"] == 19.0
     assert payload["dimensions"]["usability"]["average_score"] == 8.0
+
+
+def test_load_judge_scores_accepts_utf8_bom_prefixed_json(tmp_path) -> None:
+    from skill.benchmark.judge_score_report import load_judge_scores
+
+    scores_dir = tmp_path / "judge-scores"
+    scores_dir.mkdir()
+    (scores_dir / "judge-1.json").write_text(
+        "\ufeff"
+        + json.dumps(
+            [
+                {
+                    "case_id": "policy-01",
+                    "dimension": "accuracy",
+                    "score": 18,
+                    "rationale": "well grounded",
+                    "positives": ["direct citation"],
+                    "negatives": [],
+                }
+            ],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    entries = load_judge_scores(scores_dir)
+
+    assert len(entries) == 1
+    assert entries[0]["case_id"] == "policy-01"
+    assert entries[0]["dimension"] == "accuracy"

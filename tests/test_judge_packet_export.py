@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -242,6 +244,8 @@ def test_export_judge_packets_cli_writes_index_and_packets(monkeypatch, tmp_path
             str(manifest_path),
             "--output-dir",
             str(tmp_path),
+            "--max-parallel",
+            "3",
         ],
     )
 
@@ -249,6 +253,7 @@ def test_export_judge_packets_cli_writes_index_and_packets(monkeypatch, tmp_path
 
     assert observed["cases_path"] == manifest_path
     assert observed["output_dir"] == tmp_path
+    assert observed["max_parallel"] == 3
     assert (tmp_path / "judge-packets-index.json").exists()
     assert (tmp_path / "judge-packets" / "policy-01.json").exists()
 
@@ -369,6 +374,99 @@ def test_export_judge_packets_supports_fresh_process_worker_output(
     assert index_payload["packets"][0]["elapsed_ms"] == 42
 
 
+def test_export_judge_packets_fresh_process_supports_bounded_parallelism_and_preserves_order(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import skill.benchmark.judge_packets as judge_packets
+
+    from skill.benchmark.judge_packets import export_judge_packets
+
+    cases = [
+        BenchmarkCase(case_id="policy-01", query="latest climate order version"),
+        BenchmarkCase(case_id="policy-02", query="latest methane registry update"),
+    ]
+    lock = threading.Lock()
+    observed_completion_order: list[str] = []
+    active_calls = 0
+    max_active_calls = 0
+
+    def _fake_export_case_fresh_process(
+        *,
+        case: BenchmarkCase,
+        app_import_path: str,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        nonlocal active_calls, max_active_calls
+        with lock:
+            active_calls += 1
+            max_active_calls = max(max_active_calls, active_calls)
+        time.sleep(0.05 if case.case_id == "policy-01" else 0.01)
+        with lock:
+            observed_completion_order.append(case.case_id)
+            active_calls -= 1
+        return {
+            "case_id": case.case_id,
+            "query": case.query,
+            "retrieve": {
+                "status": "success",
+                "failure_reason": None,
+                "gaps": [],
+                "canonical_evidence": [],
+                "evidence_clipped": False,
+                "evidence_pruned": False,
+            },
+            "answer": {
+                "answer_status": "grounded_success",
+                "retrieval_status": "success",
+                "conclusion": f"Grounded answer for {case.case_id}.",
+                "key_points": [],
+                "sources": [],
+                "uncertainty_notes": [],
+                "gaps": [],
+            },
+            "runtime": {
+                "elapsed_ms": 42,
+                "retrieval_elapsed_ms": 41,
+                "synthesis_elapsed_ms": 1,
+                "provider_total_tokens": None,
+                "failure_reason": None,
+                "retrieval_trace": [],
+            },
+        }
+
+    monkeypatch.setattr(
+        judge_packets,
+        "_export_case_fresh_process",
+        _fake_export_case_fresh_process,
+    )
+
+    index_payload = export_judge_packets(
+        app=None,
+        cases=cases,
+        output_dir=tmp_path,
+        fresh_process=True,
+        app_import_path="skill.api.entry:app",
+        max_parallel=2,
+    )
+
+    assert max_active_calls == 2
+    assert observed_completion_order == ["policy-02", "policy-01"]
+    assert index_payload["packet_paths"] == [
+        "judge-packets/policy-01.json",
+        "judge-packets/policy-02.json",
+    ]
+    assert [entry["case_id"] for entry in index_payload["packets"]] == [
+        "policy-01",
+        "policy-02",
+    ]
+    bundle_payload = json.loads((tmp_path / "judge-bundle-minimal.json").read_text(encoding="utf-8"))
+    assert [packet["case_id"] for packet in bundle_payload["packets"]] == [
+        "policy-01",
+        "policy-02",
+    ]
+
+
 def test_export_judge_packets_fresh_process_timeout_writes_failure_packet(
     monkeypatch,
     tmp_path,
@@ -467,6 +565,43 @@ def test_export_judge_packets_fresh_process_timeout_recovers_partial_worker_stdo
     )
     assert packet == worker_packet
     assert index_payload["packets"][0]["answer_status"] == "grounded_success"
+
+
+def test_export_judge_packets_fresh_process_worker_error_writes_failure_packet(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import skill.benchmark.judge_packets as judge_packets
+
+    from skill.benchmark.judge_packets import export_judge_packets
+
+    def _fake_run(*args: object, **kwargs: object) -> object:
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd="python -m skill.benchmark.judge_packet_worker",
+            stderr="ValueError: MiniMaxTextClient requires a non-empty api_key",
+        )
+
+    monkeypatch.setattr(judge_packets.subprocess, "run", _fake_run)
+    cases = [BenchmarkCase(case_id="mixed-01", query="autonomous driving policy impact on industry")]
+
+    index_payload = export_judge_packets(
+        app=None,
+        cases=cases,
+        output_dir=tmp_path,
+        fresh_process=True,
+        app_import_path="skill.api.entry:app",
+    )
+
+    packet = json.loads(
+        (tmp_path / "judge-packets" / "mixed-01.json").read_text(encoding="utf-8")
+    )
+    assert packet["case_id"] == "mixed-01"
+    assert packet["retrieve"]["status"] == "failure_gaps"
+    assert packet["answer"]["answer_status"] == "retrieval_failure"
+    assert packet["runtime"]["failure_reason"] == "worker_error"
+    assert packet["runtime"]["elapsed_ms"] == 0
+    assert index_payload["packets"][0]["answer_status"] == "retrieval_failure"
 
 
 def test_judge_packet_worker_prints_packet_before_testclient_exit(

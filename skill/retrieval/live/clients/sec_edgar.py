@@ -66,6 +66,46 @@ _TRAILING_DESCRIPTOR_TOKENS: frozenset[str] = frozenset(
 )
 _KNOWN_COMPANIES: tuple[dict[str, object], ...] = (
     {
+        "aliases": ("alphabet", "google"),
+        "cik": "1652044",
+    },
+    {
+        "aliases": ("amazon", "amazon com"),
+        "cik": "1018724",
+    },
+    {
+        "aliases": ("netflix",),
+        "cik": "1065280",
+    },
+    {
+        "aliases": ("salesforce",),
+        "cik": "1108524",
+    },
+    {
+        "aliases": ("qualcomm",),
+        "cik": "804328",
+    },
+    {
+        "aliases": ("mastercard",),
+        "cik": "1141391",
+    },
+    {
+        "aliases": ("delta air lines",),
+        "cik": "27904",
+    },
+    {
+        "aliases": ("chevron",),
+        "cik": "93410",
+    },
+    {
+        "aliases": ("sap", "sap se"),
+        "cik": "1000184",
+    },
+    {
+        "aliases": ("adobe",),
+        "cik": "796343",
+    },
+    {
         "aliases": ("microsoft",),
         "cik": "0000789019",
     },
@@ -148,7 +188,7 @@ def _detect_known_company_cik(query: str) -> str | None:
             candidate = (len(alias_text), cik)
             if best_match is None or candidate > best_match:
                 best_match = candidate
-    return None if best_match is None else best_match[1]
+    return None if best_match is None else _normalize_cik(best_match[1])
 
 
 def has_known_company_submission_target(query: str) -> bool:

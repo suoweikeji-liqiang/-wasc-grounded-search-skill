@@ -312,10 +312,16 @@ def _is_us_policy_query(query: str) -> bool:
 def _prefer_direct_policy_sources(query: str) -> bool:
     normalized = query.lower()
     markers = (
+        "dora",
+        "major ict incident",
+        "initial notification",
         "eur-lex",
         "ai act",
         "nis2",
         "data act",
+        "cbam",
+        "default values",
+        "cyber resilience act",
         "dma",
         "digital markets act",
         "fcc",
@@ -337,6 +343,12 @@ def _prefer_direct_policy_sources(query: str) -> bool:
         "beneficial ownership",
         "corporate transparency act",
         "boi",
+        "pfas",
+        "cercla",
+        "reportable quantity",
+        "negative option",
+        "click-to-cancel",
+        "data security program",
         "online safety act",
         "legislation.gov.uk",
         "ofcom",
@@ -635,8 +647,32 @@ async def search_live(query: str) -> list[RetrievalHit]:
         return open_web_task
 
     try:
+        registry_records: list[dict[str, Any]] | None = None
+        ranked_direct_records: list[dict[str, Any]] | None = None
+        if prefer_direct_sources:
+            done, _pending = await asyncio.wait(
+                {registry_task, direct_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if direct_task in done:
+                try:
+                    ranked_direct_records = direct_task.result()
+                except Exception:
+                    ranked_direct_records = []
+                if ranked_direct_records:
+                    _cancel_if_pending(registry_task)
+                    _cancel_if_pending(federal_task)
+                    _cancel_if_pending(open_web_task)
+                    return [_to_hit(item) for item in ranked_direct_records]
+            if registry_task in done:
+                try:
+                    registry_records = registry_task.result()
+                except Exception:
+                    registry_records = []
+
         try:
-            registry_records = await registry_task
+            if registry_records is None:
+                registry_records = await registry_task
         except Exception:
             registry_records = []
         ranked_registry_records = _rank_structured_records(
@@ -651,10 +687,11 @@ async def search_live(query: str) -> list[RetrievalHit]:
             return [_to_hit(item) for item in ranked_registry_records]
 
         if prefer_direct_sources:
-            try:
-                ranked_direct_records = await direct_task
-            except Exception:
-                ranked_direct_records = []
+            if ranked_direct_records is None:
+                try:
+                    ranked_direct_records = await direct_task
+                except Exception:
+                    ranked_direct_records = []
             if ranked_direct_records:
                 _cancel_if_pending(federal_task)
                 _cancel_if_pending(open_web_task)

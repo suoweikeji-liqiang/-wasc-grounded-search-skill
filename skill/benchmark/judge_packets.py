@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import re
 import subprocess
@@ -127,6 +128,38 @@ def _build_timeout_packet(*, case: BenchmarkCase, timeout_seconds: float) -> dic
     }
 
 
+def _build_worker_error_packet(*, case: BenchmarkCase) -> dict[str, Any]:
+    return {
+        "case_id": case.case_id,
+        "query": case.query,
+        "retrieve": {
+            "status": "failure_gaps",
+            "failure_reason": "worker_error",
+            "gaps": [],
+            "canonical_evidence": [],
+            "evidence_clipped": False,
+            "evidence_pruned": False,
+        },
+        "answer": {
+            "answer_status": "retrieval_failure",
+            "retrieval_status": "failure_gaps",
+            "conclusion": "Judge packet export failed before a grounded answer could be produced.",
+            "key_points": [],
+            "sources": [],
+            "uncertainty_notes": [],
+            "gaps": [],
+        },
+        "runtime": {
+            "elapsed_ms": 0,
+            "retrieval_elapsed_ms": 0,
+            "synthesis_elapsed_ms": 0,
+            "provider_total_tokens": None,
+            "failure_reason": "worker_error",
+            "retrieval_trace": [],
+        },
+    }
+
+
 def _coerce_timeout_output(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="ignore")
@@ -186,6 +219,14 @@ def _export_case_fresh_process(
             except (IndexError, json.JSONDecodeError):
                 pass
         return _build_timeout_packet(case=case, timeout_seconds=timeout_seconds)
+    except subprocess.CalledProcessError as exc:
+        partial_output = _coerce_timeout_output(getattr(exc, "stdout", None))
+        if partial_output.strip():
+            try:
+                return _parse_worker_packet_output(partial_output)
+            except (IndexError, json.JSONDecodeError):
+                pass
+        return _build_worker_error_packet(case=case)
 
     return _parse_worker_packet_output(completed.stdout)
 
@@ -199,6 +240,7 @@ def export_judge_packets(
     fresh_process: bool = False,
     app_import_path: str = "skill.api.entry:app",
     per_case_timeout_seconds: float = _FRESH_PROCESS_TIMEOUT_SECONDS,
+    max_parallel: int = 1,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     packet_dir = output_dir / "judge-packets"
@@ -210,12 +252,28 @@ def export_judge_packets(
     packets_bundle: list[dict[str, Any]] = []
 
     if fresh_process:
-        for case in cases:
-            packet = _export_case_fresh_process(
-                case=case,
-                app_import_path=app_import_path,
-                timeout_seconds=per_case_timeout_seconds,
-            )
+        ordered_cases = list(cases)
+        if max_parallel <= 1 or len(ordered_cases) <= 1:
+            packets = [
+                _export_case_fresh_process(
+                    case=case,
+                    app_import_path=app_import_path,
+                    timeout_seconds=per_case_timeout_seconds,
+                )
+                for case in ordered_cases
+            ]
+        else:
+            def _export_case(case: BenchmarkCase) -> dict[str, Any]:
+                return _export_case_fresh_process(
+                    case=case,
+                    app_import_path=app_import_path,
+                    timeout_seconds=per_case_timeout_seconds,
+                )
+
+            with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+                packets = list(executor.map(_export_case, ordered_cases))
+
+        for case, packet in zip(ordered_cases, packets):
             packet_filename = f"{_safe_filename(case.case_id)}.json"
             packet_path = packet_dir / packet_filename
             _write_json(packet_path, packet)

@@ -2666,6 +2666,155 @@ def test_industry_live_adapter_known_company_filing_path_skips_generic_search_wh
     assert observed["sec_search_called"] is False
 
 
+def test_industry_live_adapter_known_company_filing_path_covers_qualcomm_gen3_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed = {
+        "web_search_called": False,
+        "sec_search_called": False,
+    }
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        observed["web_search_called"] = True
+        return []
+
+    async def _unexpected_search_sec_filings(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        observed["sec_search_called"] = True
+        return []
+
+    async def _fast_search_sec_company_submissions(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        assert query == "Qualcomm 2025 annual report QCT QTL revenue definitions official"
+        assert max_results == 3
+        return [
+            {
+                "title": "QUALCOMM INC/DE Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/804328/000080432826000012/qcom-20250928.htm",
+                "snippet": "Official SEC filing 10-K filed 2025-11-05 report period 2025-09-28 QCT QTL revenue definitions.",
+                "credibility_tier": "company_official",
+            }
+        ]
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("strong company submissions hit should return without page fetch")
+
+    async def _empty_company_ir_candidates(**_: object) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(adapter, "search_sec_filings", _unexpected_search_sec_filings)
+    monkeypatch.setattr(
+        adapter,
+        "search_sec_company_submissions",
+        _fast_search_sec_company_submissions,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_search_known_company_ir_page_candidates",
+        _empty_company_ir_candidates,
+    )
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+
+    hits = asyncio.run(
+        adapter.search_live(
+            "Qualcomm 2025 annual report QCT QTL revenue definitions official"
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "QUALCOMM INC/DE Form 10-K filing"
+    assert observed["web_search_called"] is False
+    assert observed["sec_search_called"] is False
+
+
+def test_industry_official_or_filings_live_returns_top_sec_hit_without_waiting_for_slower_secondary_excerpt_fetches(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    observed = {
+        "search_multi_engine_called": False,
+        "excerpt_urls": [],
+    }
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        observed["search_multi_engine_called"] = True
+        await asyncio.sleep(10)
+        return []
+
+    async def _fast_search_sec_company_submissions(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        assert query == "Qualcomm 2025 annual report QCT QTL revenue definitions official"
+        assert max_results == 3
+        return [
+            {
+                "title": "QUALCOMM INC/DE Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/804328/000080432826000012/qcom-20250928.htm",
+                "snippet": "Official SEC filing 10-K filed 2025-11-05 report period 2025-09-28",
+                "credibility_tier": "company_official",
+            },
+            {
+                "title": "QUALCOMM INC/DE Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/804328/000080432825000078/qcom-20240929.htm",
+                "snippet": "Official SEC filing 10-K filed 2024-11-06 report period 2024-09-29",
+                "credibility_tier": "company_official",
+            },
+        ]
+
+    async def _unexpected_search_sec_filings(**_: object) -> list[dict[str, object]]:
+        raise AssertionError("known-company path should not fall back to generic SEC search")
+
+    async def _fake_fetch_query_aligned_page_text(**kwargs: object) -> str:
+        url = str(kwargs["url"])
+        observed["excerpt_urls"].append(url)
+        if url.endswith("qcom-20250928.htm"):
+            return "QCT revenues and QTL revenues are presented as distinct reportable business definitions."
+        await asyncio.sleep(10)
+        return ""
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(
+        adapter,
+        "search_sec_company_submissions",
+        _fast_search_sec_company_submissions,
+    )
+    monkeypatch.setattr(adapter, "search_sec_filings", _unexpected_search_sec_filings)
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _fake_fetch_query_aligned_page_text,
+    )
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_official_or_filings_live(
+                "Qualcomm 2025 annual report QCT QTL revenue definitions official"
+            ),
+            timeout=1.0,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "QUALCOMM INC/DE Form 10-K filing"
+    assert "QCT revenues" in hits[0].snippet
+    assert observed["search_multi_engine_called"] is False
+    assert observed["excerpt_urls"] == [
+        "https://www.sec.gov/Archives/edgar/data/804328/000080432826000012/qcom-20250928.htm"
+    ]
+
+
 def test_industry_live_adapter_falls_back_to_sec_search_when_company_submissions_timeout(
     monkeypatch,
 ) -> None:

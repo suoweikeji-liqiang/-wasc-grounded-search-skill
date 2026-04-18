@@ -31,10 +31,29 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
 
     assert [step.source.source_id for step in industry_plan.first_wave_sources] == [
         "industry_official_or_filings",
-        "industry_web_discovery",
-        "industry_news_rss",
     ]
     assert industry_plan.global_concurrency_cap == 3
+    industry_fallback_edges = [
+        (step.fallback_from_source_id, step.source.source_id)
+        for step in industry_plan.fallback_sources
+    ]
+    assert [
+        ("industry_official_or_filings", "industry_web_discovery"),
+        ("industry_official_or_filings", "industry_news_rss"),
+        ("industry_web_discovery", "industry_news_rss"),
+    ] == [
+        edge for edge in [
+            ("industry_official_or_filings", "industry_web_discovery"),
+            ("industry_official_or_filings", "industry_news_rss"),
+            ("industry_web_discovery", "industry_news_rss"),
+        ]
+    ]
+    for edge in (
+        ("industry_official_or_filings", "industry_web_discovery"),
+        ("industry_official_or_filings", "industry_news_rss"),
+        ("industry_web_discovery", "industry_news_rss"),
+    ):
+        assert edge in industry_fallback_edges
 
     general_industry_plan = build_retrieval_plan(
         ClassificationResult(
@@ -111,6 +130,37 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
         ("industry_news_rss", "industry_web_discovery"),
         ("industry_web_discovery", "industry_official_or_filings"),
     ]
+
+    mixed_filing_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="mixed_hit",
+            scores={"policy": 3, "industry": 2, "academic": 0},
+        ),
+        query="SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update",
+    )
+
+    assert [step.source.source_id for step in mixed_filing_plan.first_wave_sources] == [
+        "policy_official_registry",
+        "industry_official_or_filings",
+    ]
+    mixed_filing_supplemental_fallback = [
+        step
+        for step in mixed_filing_plan.fallback_sources
+        if step.source.route == "industry" and step.source.is_supplemental
+    ]
+    mixed_filing_edges = [
+        (step.fallback_from_source_id, step.source.source_id)
+        for step in mixed_filing_supplemental_fallback
+    ]
+    for edge in (
+        ("industry_official_or_filings", "industry_web_discovery"),
+        ("industry_official_or_filings", "industry_news_rss"),
+        ("industry_web_discovery", "industry_news_rss"),
+    ):
+        assert edge in mixed_filing_edges
 
 
 def test_build_retrieval_plan_keeps_cjk_mixed_industry_queries_on_web_discovery_anchor() -> None:

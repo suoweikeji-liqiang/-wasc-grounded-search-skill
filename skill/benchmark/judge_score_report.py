@@ -42,7 +42,7 @@ def _normalize_entries(payload: object) -> list[dict[str, Any]]:
 def load_judge_scores(scores_dir: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for path in sorted(scores_dir.glob("*.json")):
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
         entries.extend(_normalize_entries(payload))
     return entries
 

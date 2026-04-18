@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import subprocess
 import sys
@@ -122,6 +123,27 @@ def _run_case_fresh_process(
             provider_total_tokens=None,
             retrieval_trace=[],
         )
+    except subprocess.CalledProcessError:
+        route_label = case.expected_route or "unknown"
+        return BenchmarkRunRecord(
+            case_id=case.case_id,
+            run_index=run_index,
+            query=case.query,
+            route_label=route_label,
+            answer_status="retrieval_failure",
+            retrieval_status="failure_gaps",
+            success=False,
+            elapsed_ms=0,
+            evidence_token_estimate=0,
+            answer_token_estimate=0,
+            latency_budget_ok=False,
+            token_budget_ok=True,
+            failure_reason="worker_error",
+            provider_prompt_tokens=None,
+            provider_completion_tokens=None,
+            provider_total_tokens=None,
+            retrieval_trace=[],
+        )
     payload = completed.stdout.strip().splitlines()[-1]
     return BenchmarkRunRecord.model_validate_json(payload)
 
@@ -134,6 +156,7 @@ def run_benchmark_suite(
     output_dir: Path,
     fresh_process: bool = False,
     app_import_path: str | None = None,
+    max_parallel: int = 1,
 ) -> list[BenchmarkRunRecord]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -141,8 +164,13 @@ def run_benchmark_suite(
     if fresh_process:
         if not app_import_path:
             raise ValueError("fresh_process benchmark mode requires app_import_path")
-        for case in cases:
-            for run_index in range(1, runs + 1):
+        attempts = [
+            (case, run_index)
+            for case in cases
+            for run_index in range(1, runs + 1)
+        ]
+        if max_parallel <= 1 or len(attempts) <= 1:
+            for case, run_index in attempts:
                 records.append(
                     _run_case_fresh_process(
                         case=case,
@@ -150,6 +178,18 @@ def run_benchmark_suite(
                         app_import_path=app_import_path,
                     )
                 )
+            return records
+
+        def _run_attempt(attempt: tuple[BenchmarkCase, int]) -> BenchmarkRunRecord:
+            case, run_index = attempt
+            return _run_case_fresh_process(
+                case=case,
+                run_index=run_index,
+                app_import_path=app_import_path,
+            )
+
+        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+            records.extend(executor.map(_run_attempt, attempts))
         return records
 
     with TestClient(app) as client:

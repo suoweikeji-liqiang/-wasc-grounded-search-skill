@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 import subprocess
+import threading
+import time
 
 from fastapi import FastAPI
 
@@ -283,6 +285,81 @@ def test_run_benchmark_suite_fresh_process_runs_each_attempt_in_isolation(
     ]
 
 
+def test_run_benchmark_suite_fresh_process_supports_bounded_parallelism_and_preserves_order(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import skill.benchmark.harness as harness
+    from skill.benchmark.models import BenchmarkRunRecord
+
+    cases = harness.load_benchmark_cases(HIDDEN_SMOKE_FIXTURE_PATH)[:2]
+    lock = threading.Lock()
+    observed_completion_order: list[tuple[str, int]] = []
+    active_calls = 0
+    max_active_calls = 0
+
+    def _fake_run_case_fresh_process(
+        *,
+        case,
+        run_index: int,
+        app_import_path: str,
+    ) -> BenchmarkRunRecord:
+        nonlocal active_calls, max_active_calls
+        with lock:
+            active_calls += 1
+            max_active_calls = max(max_active_calls, active_calls)
+        time.sleep(0.05 if run_index == 1 else 0.01)
+        with lock:
+            observed_completion_order.append((case.case_id, run_index))
+            active_calls -= 1
+        return BenchmarkRunRecord(
+            case_id=case.case_id,
+            run_index=run_index,
+            query=case.query,
+            route_label=case.expected_route or "policy",
+            answer_status="grounded_success",
+            retrieval_status="success",
+            success=True,
+            elapsed_ms=95,
+            evidence_token_estimate=12,
+            answer_token_estimate=8,
+            latency_budget_ok=True,
+            token_budget_ok=True,
+            failure_reason=None,
+            provider_prompt_tokens=None,
+            provider_completion_tokens=None,
+            provider_total_tokens=None,
+            retrieval_trace=[],
+        )
+
+    monkeypatch.setattr(
+        harness,
+        "_run_case_fresh_process",
+        _fake_run_case_fresh_process,
+        raising=False,
+    )
+
+    records = harness.run_benchmark_suite(
+        app=None,
+        cases=cases,
+        runs=2,
+        output_dir=tmp_path,
+        fresh_process=True,
+        app_import_path="skill.api.entry:app",
+        max_parallel=2,
+    )
+
+    expected_order = [
+        ("smoke-policy-01", 1),
+        ("smoke-policy-01", 2),
+        ("smoke-policy-02", 1),
+        ("smoke-policy-02", 2),
+    ]
+    assert max_active_calls == 2
+    assert observed_completion_order != expected_order
+    assert [(record.case_id, record.run_index) for record in records] == expected_order
+
+
 def test_run_case_fresh_process_returns_timeout_record_when_worker_hangs(
     monkeypatch,
 ) -> None:
@@ -316,3 +393,39 @@ def test_run_case_fresh_process_returns_timeout_record_when_worker_hangs(
     assert record.failure_reason == "timeout"
     assert record.latency_budget_ok is False
     assert record.elapsed_ms == int(harness._FRESH_PROCESS_TIMEOUT_SECONDS * 1000)
+
+
+def test_run_case_fresh_process_returns_failure_record_when_worker_exits_nonzero(
+    monkeypatch,
+) -> None:
+    import skill.benchmark.harness as harness
+
+    case = harness.BenchmarkCase(
+        case_id="smoke-mixed-01",
+        query="cross-border AI policy impact on chip supply chains",
+        expected_route="mixed",
+    )
+
+    def _failing_subprocess_run(*args: object, **kwargs: object) -> object:
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["python", "-m", "skill.benchmark.worker"],
+            stderr="ValueError: MiniMaxTextClient requires a non-empty api_key",
+        )
+
+    monkeypatch.setattr(harness.subprocess, "run", _failing_subprocess_run)
+
+    record = harness._run_case_fresh_process(
+        case=case,
+        run_index=1,
+        app_import_path="skill.api.entry:app",
+    )
+
+    assert record.case_id == "smoke-mixed-01"
+    assert record.route_label == "mixed"
+    assert record.answer_status == "retrieval_failure"
+    assert record.retrieval_status == "failure_gaps"
+    assert record.success is False
+    assert record.failure_reason == "worker_error"
+    assert record.latency_budget_ok is False
+    assert record.elapsed_ms == 0

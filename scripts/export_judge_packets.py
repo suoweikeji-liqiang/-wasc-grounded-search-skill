@@ -59,6 +59,12 @@ def parse_args() -> argparse.Namespace:
         default="skill.api.entry:app",
         help="Import path for the FastAPI app when using fresh-process export",
     )
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=1,
+        help="Maximum number of fresh-process packet workers to run concurrently",
+    )
     return parser.parse_args()
 
 
@@ -75,6 +81,7 @@ def main() -> int:
         output_dir=args.output_dir,
         fresh_process=fresh_process,
         app_import_path=args.app_import_path,
+        max_parallel=args.max_parallel,
     )
     print(f"Exported {index_payload['total_cases']} judge packets to: {args.output_dir}")
     print(f"Index saved to: {args.output_dir / 'judge-packets-index.json'}")

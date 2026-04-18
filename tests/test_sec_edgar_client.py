@@ -188,3 +188,28 @@ def test_search_sec_company_submissions_uses_ticker_directory_match_for_unlisted
     assert len(records) == 1
     assert records[0]["title"] == "VISA INC. Form 10-K filing"
     assert records[0]["url"].endswith("/v-20240930.htm")
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_cik"),
+    [
+        ("Alphabet 2025 Form 10-K TAC definition official filing", "0001652044"),
+        ("Amazon 2025 Form 10-K AWS segment operating income definition official filing", "0001018724"),
+        ("Netflix 2025 annual report paid memberships definition official", "0001065280"),
+        ("Salesforce FY2026 Form 10-K current remaining performance obligation definition", "0001108524"),
+        ("Qualcomm 2025 annual report QCT QTL revenue definitions official", "0000804328"),
+        ("Mastercard 2025 Form 10-K gross dollar volume switched transactions definitions", "0001141391"),
+        ("Delta Air Lines 2025 annual report TRASM definition official", "0000027904"),
+        ("Chevron 2025 annual report proved reserves price assumptions definition official", "0000093410"),
+        ("SAP 2025 annual report current cloud backlog definition official", "0001000184"),
+        ("Adobe FY2025 annual report remaining performance obligations definition official", "0000796343"),
+    ],
+)
+def test_detect_known_company_cik_covers_gen3_public_company_filing_queries(
+    query: str,
+    expected_cik: str,
+) -> None:
+    from skill.retrieval.live.clients import sec_edgar
+
+    assert sec_edgar._detect_known_company_cik(query) == expected_cik
+    assert sec_edgar.has_known_company_submission_target(query) is True

@@ -139,6 +139,33 @@ _COMPANY_IR_QUERY_MARKERS: tuple[str, ...] = (
     "revenue",
     "revenues",
 )
+_LOW_SIGNAL_CONTENT_TOKENS: frozenset[str] = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "that",
+        "this",
+        "are",
+        "was",
+        "were",
+        "has",
+        "have",
+        "had",
+        "its",
+        "our",
+        "their",
+        "official",
+        "report",
+        "annual",
+        "filing",
+        "filed",
+        "period",
+        "form",
+    }
+)
 _KNOWN_COMPANY_IR_TARGETS: tuple[dict[str, object], ...] = (
     {
         "aliases": ("microsoft",),
@@ -313,7 +340,11 @@ def _content_tokens(text: str) -> tuple[str, ...]:
             token
             for token in query_tokens(normalized)
             if (
-                (token.isascii() and len(token) >= 4)
+                (
+                    token.isascii()
+                    and len(token) >= 3
+                    and token not in _LOW_SIGNAL_CONTENT_TOKENS
+                )
                 or (token.isdigit() and len(token) == 4)
                 or not token.isascii()
             )
@@ -2212,6 +2243,27 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
                 query=query,
                 max_results=3,
             )
+
+    if sec_records and known_company_submission_target:
+        top_record = sec_records[0]
+        if top_record.get("title") and top_record.get("url") and top_record.get("snippet"):
+            early_hits = await _rank_payloads_to_hits(
+                query=query,
+                candidate_payloads=[
+                    {
+                        "title": str(top_record["title"]),
+                        "url": str(top_record["url"]),
+                        "snippet": str(top_record["snippet"]),
+                        "_tier": str(top_record.get("credibility_tier") or "company_official"),
+                        "_force_fetch": "1",
+                    }
+                ],
+                sec_records=[],
+                config=config,
+                source_id=SOURCE_ID_OFFICIAL_OR_FILINGS,
+            )
+            if early_hits:
+                return early_hits
 
     official_query_tasks = [
         asyncio.create_task(

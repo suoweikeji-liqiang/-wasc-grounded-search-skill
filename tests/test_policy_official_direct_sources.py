@@ -113,6 +113,54 @@ def test_us_agency_direct_source_preserves_true_noncompete_query() -> None:
     assert hits[0]["authority"] == "Federal Trade Commission"
 
 
+def test_us_agency_direct_source_matches_ftc_negative_option_annual_reminder_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FTC click-to-cancel negative option rule annual reminder requirement official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["title"] == "Negative Option Rule"
+    assert "annual reminders" in hits[0]["snippet"].lower()
+    assert "omitted in the final rule" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_epa_pfas_cercla_reportable_quantity_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="EPA PFAS CERCLA hazardous substance reportable quantity official",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Environmental Protection Agency"
+    assert "one pound" in hits[0]["snippet"].lower()
+    assert "reportable quantity" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_doj_data_security_program_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="DOJ data security program prohibited transactions bulk sensitive personal data official rule",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert "justice.gov" in hits[0]["url"]
+    assert "bulk sensitive personal data" in hits[0]["snippet"].lower()
+    assert "prohibited" in hits[0]["snippet"].lower()
+
+
 def test_uk_direct_source_matches_ofcom_illegal_harms_codes_query() -> None:
     from skill.retrieval.live.clients.policy_uk_legislation import search_uk_legislation
 
@@ -149,6 +197,52 @@ def test_eur_lex_direct_source_matches_data_act_query() -> None:
     assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2023/2854/oj/eng"
     assert hits[0]["authority"] == "European Union"
     assert hits[0]["jurisdiction"] == "EU"
+
+
+def test_eur_lex_direct_source_matches_dora_major_ict_incident_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query="EU DORA major ICT incident initial notification deadline official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2022/2554/oj/eng"
+    assert "initial notification" in hits[0]["snippet"].lower()
+    assert "same business day" in hits[0]["snippet"].lower()
+
+
+def test_eur_lex_direct_source_matches_cyber_resilience_act_reporting_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query="EU Cyber Resilience Act vulnerability exploitation reporting obligation official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2024/2847/oj/eng"
+    assert "24 hours" in hits[0]["snippet"]
+
+
+def test_eur_lex_direct_source_matches_cbam_default_values_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query="CBAM default values use conditions embedded emissions official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert "default values" in hits[0]["snippet"].lower()
+    assert "embedded emissions" in hits[0]["snippet"].lower()
 
 
 def test_policy_registry_live_adapter_uses_eur_lex_direct_source_for_french_ai_act_query(
@@ -462,6 +556,76 @@ def test_policy_registry_live_adapter_uses_uk_legislation_direct_source_when_dis
     assert hits[0].url == "https://www.legislation.gov.uk/ukpga/2023/50/contents"
     assert hits[0].authority == "UK legislation"
     assert hits[0].jurisdiction == "UK"
+
+
+def test_policy_registry_live_adapter_returns_direct_us_source_without_waiting_for_slow_registry_when_query_is_direct_favored(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _slow_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "EPA PFAS CERCLA hazardous substance reportable quantity official"
+        assert max_results == 5
+        await asyncio.sleep(10)
+        return []
+
+    async def _fake_search_us_policy_agencies(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "EPA PFAS CERCLA hazardous substance reportable quantity official"
+        assert max_results == 5
+        return [
+            {
+                "title": "Designation of PFOA and PFOS as hazardous substances under CERCLA release reporting requirements",
+                "url": "https://www.epa.gov/epcra/designation-pfoa-and-pfos-hazardous-substances-under-cercla-release-reporting-requirements",
+                "snippet": "Official EPA PFAS CERCLA release reporting guidance: EPA established the default reportable quantity of one pound for releases of PFOA or PFOS, including their salts and structural isomers.",
+                "authority": "Environmental Protection Agency",
+                "jurisdiction": "US",
+                "publication_date": "2024-04-17",
+                "effective_date": None,
+                "version": "Release reporting guidance",
+            }
+        ]
+
+    async def _empty_search_federal_register(
+        **_: object,
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_search_open_web_policy(
+        **_: object,
+    ) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _slow_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _fake_search_us_policy_agencies)
+    monkeypatch.setattr(adapter, "search_federal_register", _empty_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live("EPA PFAS CERCLA hazardous substance reportable quantity official"),
+            timeout=1.0,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Environmental Protection Agency"
+    assert "one pound" in hits[0].snippet.lower()
 
 
 def test_policy_registry_live_adapter_uses_us_agency_direct_source_when_discovery_misses(
