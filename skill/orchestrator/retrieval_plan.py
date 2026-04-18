@@ -94,6 +94,22 @@ _INDUSTRY_FILING_FIRST_MARKERS: tuple[str, ...] = (
     "filing",
     "risk factors",
 )
+_INDUSTRY_STANDARDS_FIRST_MARKERS: tuple[str, ...] = (
+    "rfc",
+    "ietf",
+    "oauth",
+    "webauthn",
+    "w3c",
+    "fedcm",
+    "chips",
+    "set-cookie",
+    "cookie",
+    "http message signatures",
+    "signature-input",
+    "abnf",
+    "etsi",
+    "en 303 645",
+)
 
 
 def _query_uses_cjk(query: str) -> bool:
@@ -147,6 +163,8 @@ def _industry_first_wave_source_ids(query: str | None) -> tuple[str, ...]:
     if query is None:
         return DOMAIN_FIRST_WAVE_SOURCES["industry"]
     normalized_query = normalize_query_text(query)
+    if any(marker in normalized_query for marker in _INDUSTRY_STANDARDS_FIRST_MARKERS):
+        return ("industry_official_or_filings",)
     if any(marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS):
         return ("industry_official_or_filings",)
     if any(marker in normalized_query for marker in _INDUSTRY_OFFICIAL_FIRST_MARKERS):

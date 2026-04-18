@@ -1225,6 +1225,59 @@ def test_run_retrieval_policy_first_cross_domain_uses_policy_fragment_variant() 
     assert outcome.results[0].title == "FTC junk fees disclosure rule"
 
 
+def test_run_retrieval_stops_policy_source_after_first_success_for_direct_policy_family_query() -> None:
+    query = "EPA PFAS CERCLA hazardous substance reportable quantity official"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route=None,
+            reason_code="low_signal",
+            scores={"policy": 0, "academic": 0, "industry": 0},
+        ),
+        query=query,
+    )
+    first_step = base_plan.first_wave_sources[0]
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        global_concurrency_cap=1,
+        query_variant_budget=5,
+    )
+
+    observed_queries: list[str] = []
+
+    async def _policy_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query != query:
+            raise AssertionError("direct policy family query should stop after the original success")
+        return [
+            RetrievalHit(
+                source_id=first_step.source.source_id,
+                title="Designation of PFOA and PFOS as hazardous substances under CERCLA release reporting requirements",
+                url="https://www.epa.gov/epcra/designation-pfoa-and-pfos-hazardous-substances-under-cercla-release-reporting-requirements",
+                snippet="EPA established the default reportable quantity of one pound for releases of PFOA or PFOS.",
+                credibility_tier="official_government",
+                authority="Environmental Protection Agency",
+                jurisdiction="US",
+                publication_date="2024-04-17",
+            )
+        ]
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _policy_adapter},
+        )
+    )
+
+    assert observed_queries == [query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title.startswith("Designation of PFOA and PFOS")
+
+
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:
     plan = build_retrieval_plan(
         ClassificationResult(

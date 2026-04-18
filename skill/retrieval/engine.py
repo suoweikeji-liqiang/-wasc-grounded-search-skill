@@ -84,6 +84,20 @@ _INDUSTRY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "semiconductor packaging",
     "cowos",
 )
+_POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS: tuple[str, ...] = (
+    "dora",
+    "major ict incident",
+    "initial notification",
+    "pfas",
+    "cercla",
+    "reportable quantity",
+    "cbam",
+    "default values",
+    "cyber resilience act",
+    "data security program",
+    "negative option",
+    "click-to-cancel",
+)
 _INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS = 3
 _MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO = 0.33
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
@@ -501,12 +515,23 @@ def _stop_after_first_success(
 
     normalized_query = normalize_query_text(query)
     return (
-        plan.route_label == "industry"
-        and plan.primary_route == "industry"
-        and step.source.source_id == "industry_web_discovery"
-        and step.source.route == "industry"
-        and not step.source.is_supplemental
-        and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+        (
+            plan.route_label == "industry"
+            and plan.primary_route == "industry"
+            and step.source.source_id == "industry_web_discovery"
+            and step.source.route == "industry"
+            and not step.source.is_supplemental
+            and any(marker in normalized_query for marker in _INDUSTRY_EARLY_STOP_MARKERS)
+        )
+        or (
+            step.source.source_id == "policy_official_registry"
+            and step.source.route == "policy"
+            and not step.source.is_supplemental
+            and any(
+                marker in normalized_query
+                for marker in _POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS
+            )
+        )
     )
 
 

@@ -92,6 +92,31 @@ def test_build_retrieval_plan_splits_primary_and_mixed_industry_sources() -> Non
     )
     assert general_industry_plan.global_concurrency_cap == 3
 
+    standards_industry_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_hit",
+            scores={"policy": 0, "industry": 4, "academic": 0},
+        ),
+        query="RFC 9421 Signature-Input created parameter exact token official",
+    )
+
+    assert [step.source.source_id for step in standards_industry_plan.first_wave_sources] == [
+        "industry_official_or_filings",
+    ]
+    standards_fallback_edges = [
+        (step.fallback_from_source_id, step.source.source_id)
+        for step in standards_industry_plan.fallback_sources
+    ]
+    for edge in (
+        ("industry_official_or_filings", "industry_web_discovery"),
+        ("industry_official_or_filings", "industry_news_rss"),
+        ("industry_web_discovery", "industry_news_rss"),
+    ):
+        assert edge in standards_fallback_edges
+
     mixed_plan = build_retrieval_plan(
         ClassificationResult(
             route_label="mixed",
