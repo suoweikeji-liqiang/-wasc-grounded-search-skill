@@ -53,6 +53,10 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
             "fda",
             "fcc",
             "etsi",
+            "cybersecurity disclosure",
+            "cyber risk disclosure",
+            "incident disclosure",
+            "item 1.05",
             "cyber trust mark",
             "policy",
             "regulation",
@@ -181,9 +185,14 @@ _ENGLISH_MARKER_TABLE: Mapping[ConcreteRoute, tuple[str, ...]] = MappingProxyTyp
             "w3c",
             "oauth",
             "webauthn",
+            "fedcm",
             "abnf",
             "cookie",
             "set-cookie",
+            "partitioned",
+            "6265bis",
+            "etsi",
+            "en 303 645",
             "spec",
             "specification",
             "gpu",
@@ -201,6 +210,92 @@ _ENGLISH_EXPLICIT_CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
 _POLICY_ACADEMIC_RESEARCH_PATH_MARKERS: tuple[str, ...] = (
     "\u7814\u7a76\u8def\u5f84",
     "\u7814\u7a76\u6846\u67b6",
+)
+_INDUSTRY_FILING_INTENT_MARKERS: tuple[str, ...] = (
+    "annual report",
+    "quarterly report",
+    "10-k",
+    "10q",
+    "10-q",
+    "20-f",
+    "20f",
+    "6-k",
+    "6k",
+    "8-k",
+    "8k",
+    "form 10-k",
+    "form 10-q",
+    "form 20-f",
+    "form 6-k",
+    "company filing",
+)
+_INDUSTRY_DISCLOSURE_INTENT_MARKERS: tuple[str, ...] = (
+    "definition",
+    "definitions",
+    "remaining performance obligation",
+    "remaining performance obligations",
+    "risk factor",
+    "risk factors",
+    "segment",
+    "revenue",
+    "revenues",
+    "backlog",
+    "reserves",
+    "transactions",
+    "memberships",
+    "language",
+    "wording",
+)
+_POLICY_FILING_CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
+    "cybersecurity disclosure",
+    "cyber risk disclosure",
+    "incident disclosure",
+    "item 1.05",
+)
+_POLICY_EXPLICIT_ANCHOR_MARKERS: tuple[str, ...] = (
+    "fcc",
+    "ftc",
+    "fda",
+    "epa",
+    "doj",
+    "sec",
+    "commission",
+    "regulation",
+    "directive",
+    "rule",
+    "rules",
+    "act",
+    "law",
+    "dora",
+    "nis2",
+    "ai act",
+    "cbam",
+    "cyber resilience act",
+    "data act",
+    "ofcom",
+    "nist",
+    "fips",
+    "cybersecurity disclosure",
+    "cyber risk disclosure",
+    "incident disclosure",
+    "item 1.05",
+)
+_INDUSTRY_STANDARDS_INTENT_MARKERS: tuple[str, ...] = (
+    "rfc",
+    "ietf",
+    "w3c",
+    "webauthn",
+    "fedcm",
+    "6265bis",
+    "partitioned",
+    "http message signatures",
+    "signature-input",
+    "oauth",
+    "chips",
+    "cookie",
+    "set-cookie",
+    "etsi",
+    "en 303 645",
 )
 
 _PRECEDENCE_INDEX: Mapping[str, int] = MappingProxyType(
@@ -261,6 +356,35 @@ def _is_policy_academic_research_path_ambiguity(
         and scores["policy"] > 0
         and scores["academic"] > 0
         and any(marker in normalized_query for marker in _POLICY_ACADEMIC_RESEARCH_PATH_MARKERS)
+    )
+
+
+def _has_any_marker(normalized_query: str, markers: tuple[str, ...]) -> bool:
+    return any(_marker_in_query(normalized_query, marker) for marker in markers)
+
+
+def _should_classify_policy_filing_mixed(normalized_query: str) -> bool:
+    return _has_any_marker(
+        normalized_query,
+        _INDUSTRY_FILING_INTENT_MARKERS,
+    ) and _has_any_marker(
+        normalized_query,
+        _POLICY_FILING_CROSS_DOMAIN_MARKERS,
+    )
+
+
+def _should_prefer_industry_filing_lookup(normalized_query: str) -> bool:
+    return (
+        _has_any_marker(normalized_query, _INDUSTRY_FILING_INTENT_MARKERS)
+        and _has_any_marker(normalized_query, _INDUSTRY_DISCLOSURE_INTENT_MARKERS)
+        and not _has_any_marker(normalized_query, _POLICY_EXPLICIT_ANCHOR_MARKERS)
+    )
+
+
+def _should_prefer_industry_standards_lookup(normalized_query: str) -> bool:
+    return (
+        _has_any_marker(normalized_query, _INDUSTRY_STANDARDS_INTENT_MARKERS)
+        and not _has_any_marker(normalized_query, _POLICY_EXPLICIT_ANCHOR_MARKERS)
     )
 
 
@@ -328,6 +452,36 @@ def classify_query(query: str) -> ClassificationResult:
             primary_route=primary_route,
             supplemental_route=_mixed_supplemental_route(ranked, scores),
             reason_code="short_query",
+            scores=scores,
+        )
+
+    if _should_classify_policy_filing_mixed(normalized_query):
+        return _build_classification_result(
+            query=query,
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="policy_filing_cross_domain",
+            scores=scores,
+        )
+
+    if _should_prefer_industry_filing_lookup(normalized_query):
+        return _build_classification_result(
+            query=query,
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_filing_override",
+            scores=scores,
+        )
+
+    if _should_prefer_industry_standards_lookup(normalized_query):
+        return _build_classification_result(
+            query=query,
+            route_label="industry",
+            primary_route="industry",
+            supplemental_route=None,
+            reason_code="industry_standards_override",
             scores=scores,
         )
 

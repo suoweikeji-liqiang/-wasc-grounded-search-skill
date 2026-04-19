@@ -152,6 +152,32 @@ _CATALOG: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "title": "Regulation (EU) 2023/956 (CBAM)",
+        "url": "https://eur-lex.europa.eu/eli/reg/2023/956/oj/eng",
+        "snippet": (
+            "Official CBAM regulation text: an authorised CBAM declarant is a "
+            "person authorised by the competent authority of a Member State "
+            "before importing goods into the customs territory of the Union, "
+            "and the annual CBAM declaration includes the total embedded "
+            "emissions in imported goods."
+        ),
+        "authority": "European Union",
+        "jurisdiction": "EU",
+        "publication_date": "2023-05-16",
+        "effective_date": "2023-05-17",
+        "version": "Official Journal text",
+        "markers": (
+            "cbam",
+            "authorised cbam declarant",
+            "authorized cbam declarant",
+            "declarant cbam autorise",
+            "declarant autorise",
+            "embedded emissions",
+            "cbam declaration",
+            "emissions reporting",
+        ),
+    },
+    {
         "title": "CBAM default values guidance",
         "url": "https://taxation-customs.ec.europa.eu/news/commission-publishes-default-values-determining-embedded-emissions-during-cbam-transitional-period-2023-12-22_en",
         "snippet": (

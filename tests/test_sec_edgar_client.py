@@ -73,6 +73,8 @@ def test_has_company_submission_target_uses_sec_ticker_directory_for_fresh_compa
     async def _fake_fetch_json(**kwargs: object) -> object:
         observed_urls.append(str(kwargs["url"]))
         assert kwargs["url"] == "https://www.sec.gov/files/company_tickers.json"
+        assert kwargs["cache_scope"] == "search"
+        assert kwargs["cache_key"] == "sec-company-tickers"
         return {
             "0": {
                 "cik_str": 1403161,

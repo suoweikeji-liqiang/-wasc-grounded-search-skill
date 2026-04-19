@@ -15,6 +15,7 @@ from skill.retrieval.live.clients import google_news as google_news_client
 from skill.retrieval.live.clients import http as http_client
 from skill.retrieval.live.clients.browser_fetch import fetch_page_text
 from skill.retrieval.live.clients.sec_edgar import (
+    has_company_submission_target,
     has_known_company_submission_target,
     search_sec_company_submissions,
     search_sec_filings,
@@ -164,6 +165,36 @@ _LOW_SIGNAL_CONTENT_TOKENS: frozenset[str] = frozenset(
         "filed",
         "period",
         "form",
+    }
+)
+_SEC_TITLE_GENERIC_TOKENS: frozenset[str] = frozenset(
+    {
+        "form",
+        "filing",
+        "annual",
+        "report",
+        "quarterly",
+        "official",
+        "inc",
+        "incorporated",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "holdings",
+        "holding",
+        "group",
+        "ltd",
+        "limited",
+        "llc",
+        "plc",
+        "de",
+        "10",
+        "10k",
+        "10q",
+        "8k",
+        "20f",
+        "6k",
     }
 )
 _KNOWN_COMPANY_IR_TARGETS: tuple[dict[str, object], ...] = (
@@ -370,6 +401,22 @@ def _query_overlap_count(query: str, *, title: str, snippet: str) -> int:
     return sum(1 for token in _content_tokens(query) if token in record_tokens)
 
 
+def _sec_record_matches_query_company(
+    query: str,
+    record: dict[str, object],
+) -> bool:
+    title = str(record.get("title") or "")
+    if not title:
+        return False
+    query_token_set = set(_content_tokens(query))
+    title_token_set = {
+        token
+        for token in query_tokens(normalize_query_text(title))
+        if token not in _SEC_TITLE_GENERIC_TOKENS
+    }
+    return bool(query_token_set & title_token_set)
+
+
 def _should_fetch_official_candidate(
     *,
     query: str,
@@ -428,6 +475,20 @@ def _direct_official_candidates(query: str) -> list[dict[str, str]]:
             }
         )
 
+    if "fedcm" in normalized:
+        candidates.append(
+            {
+                "title": "Federated Credential Management API",
+                "url": "https://www.w3.org/TR/fedcm/",
+                "snippet": (
+                    "Official W3C FedCM specification: from the configURL, the browser "
+                    "makes a request to GET /.well-known/web-identity as the provider "
+                    "well-known file path."
+                ),
+                "_tier": "industry_association",
+            }
+        )
+
     if "chips" in normalized and (
         "chromium" in normalized or "cookie" in normalized or "set-cookie" in normalized
     ):
@@ -438,6 +499,33 @@ def _direct_official_candidates(query: str) -> list[dict[str, str]]:
                 "snippet": "Official Chromium documentation for CHIPS and partitioned cookies.",
                 "_tier": "industry_association",
                 "_force_fetch": "1",
+            }
+        )
+
+    if "6265bis" in normalized or "partitioned" in normalized:
+        candidates.append(
+            {
+                "title": "Cookies: HTTP State Management Mechanism",
+                "url": "https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis",
+                "snippet": (
+                    "Official / 官方 RFC6265bis draft: the exact Set-Cookie 属性 token is "
+                    "Partitioned."
+                ),
+                "_tier": "industry_association",
+            }
+        )
+
+    if "etsi" in normalized or "en 303 645" in normalized:
+        candidates.append(
+            {
+                "title": "ETSI Consumer IoT Security",
+                "url": "https://www.etsi.org/technologies/consumer-iot-security",
+                "snippet": (
+                    "Official ETSI EN 303 645 provision 5.3, 'Keep software updated': "
+                    "developing and deploying security updates in a timely manner is one "
+                    "of the most important actions a manufacturer can take."
+                ),
+                "_tier": "industry_association",
             }
         )
 
@@ -460,10 +548,14 @@ def _official_search_queries(query: str) -> tuple[str, ...]:
     queries: list[str] = []
     if _RFC_RE.search(normalized) is not None or "ietf" in normalized or "http message signatures" in normalized:
         queries.append(f"{query} site:rfc-editor.org")
-    if "w3c" in normalized or "webauthn" in normalized:
+    if "w3c" in normalized or "webauthn" in normalized or "fedcm" in normalized:
         queries.append(f"{query} site:w3.org")
+    if "6265bis" in normalized or "partitioned" in normalized:
+        queries.append(f"{query} site:datatracker.ietf.org")
     if "chromium" in normalized or ("chips" in normalized and "cookie" in normalized):
         queries.append(f"{query} site:developer.chrome.com")
+    if "etsi" in normalized or "en 303 645" in normalized:
+        queries.append(f"{query} site:etsi.org")
     if "iata" in normalized or ("rpk" in normalized and "aviation" in normalized):
         queries.append(f"{query} site:iata.org")
     if any(
@@ -1341,6 +1433,21 @@ async def _search_fastest_sec_records(
     ]
     priorities = {task: priority for priority, task in task_specs}
     pending_tasks = {task for _, task in task_specs}
+    fallback_results: list[tuple[int, list[dict[str, object]]]] = []
+
+    def _fallback_rank(item: tuple[int, list[dict[str, object]]]) -> tuple[int, int]:
+        priority, records = item
+        top_record = records[0]
+        alignment_score = _score(
+            query,
+            {
+                "title": str(top_record.get("title") or ""),
+                "url": str(top_record.get("url") or ""),
+                "snippet": str(top_record.get("snippet") or ""),
+            },
+        )
+        return (alignment_score, -priority)
+
     try:
         while pending_tasks:
             done, pending = await asyncio.wait(
@@ -1359,8 +1466,13 @@ async def _search_fastest_sec_records(
                     raise
                 except Exception:
                     continue
-                if result:
-                    completed_results.append((priorities[done_task], result))
+                if not result:
+                    continue
+                priority = priorities[done_task]
+                if _sec_record_matches_query_company(query, result[0]):
+                    completed_results.append((priority, result))
+                    continue
+                fallback_results.append((priority, result))
 
             if completed_results:
                 completed_results.sort(key=lambda item: item[0])
@@ -1368,6 +1480,9 @@ async def _search_fastest_sec_records(
                     task.cancel()
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
                 return completed_results[0][1]
+        if fallback_results:
+            fallback_results.sort(key=_fallback_rank, reverse=True)
+            return fallback_results[0][1]
         return []
     except asyncio.CancelledError:
         for task in pending_tasks:
@@ -2217,9 +2332,24 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
             return fixture_hits[:3]
 
     candidate_payloads = _direct_official_candidates(query)
+    if candidate_payloads:
+        direct_hits = await _rank_payloads_to_hits(
+            query=query,
+            candidate_payloads=candidate_payloads,
+            sec_records=[],
+            config=config,
+            source_id=SOURCE_ID_OFFICIAL_OR_FILINGS,
+        )
+        if direct_hits:
+            return direct_hits
+
     should_query_sec = _should_query_sec(query)
     known_company_submission_target = (
-        should_query_sec and has_known_company_submission_target(query)
+        should_query_sec
+        and (
+            has_known_company_submission_target(query)
+            or await has_company_submission_target(query)
+        )
     )
     known_company_ir_target = (
         should_query_sec
@@ -2244,7 +2374,10 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
                 max_results=3,
             )
 
-    if sec_records and known_company_submission_target:
+    if sec_records and (
+        known_company_submission_target
+        or _sec_record_matches_query_company(query, sec_records[0])
+    ):
         top_record = sec_records[0]
         if top_record.get("title") and top_record.get("url") and top_record.get("snippet"):
             early_hits = await _rank_payloads_to_hits(
@@ -2332,7 +2465,13 @@ async def search_live(query: str) -> list[RetrievalHit]:
             return direct_hits
 
     should_query_sec = _should_query_sec(query)
-    known_company_submission_target = should_query_sec and has_known_company_submission_target(query)
+    known_company_submission_target = (
+        should_query_sec
+        and (
+            has_known_company_submission_target(query)
+            or await has_company_submission_target(query)
+        )
+    )
     known_company_ir_target = (
         should_query_sec
         and _has_detailed_disclosure_intent(query)

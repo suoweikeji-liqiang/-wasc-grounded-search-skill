@@ -154,6 +154,11 @@ _INDUSTRY_LOOKUP_MARKERS = frozenset(
         "rfc",
         "spec",
         "specification",
+        "fedcm",
+        "well-known",
+        "partitioned",
+        "6265bis",
+        "etsi",
         "webauthn",
         "passkey",
         "discoverable",
@@ -2062,6 +2067,48 @@ def _best_policy_lookup_record(
     return best_record
 
 
+def _is_single_source_authoritative_policy_lookup(
+    query: str,
+    *,
+    retrieval_response: RetrieveResponse,
+    matched_record: CanonicalEvidence,
+    supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
+) -> bool:
+    if retrieval_response.primary_route != "policy":
+        return False
+    if retrieval_response.supplemental_route is not None:
+        return False
+    if retrieval_response.gaps:
+        return False
+    if supporting_matches:
+        return False
+    if matched_record.authority is None:
+        return False
+
+    normalized = normalize_query_text(query)
+    return any(
+        marker in normalized
+        for marker in (
+            "official",
+            "officiel",
+            "offizieller",
+            "texte officiel",
+            "definition",
+            "definitions",
+            "deadline",
+            "deadlines",
+            "requirement",
+            "requirements",
+            "obligation",
+            "obligations",
+            "reportable quantity",
+            "effective date",
+            "timeline",
+            "text",
+        )
+    )
+
+
 def _has_query_evidence_overlap(
     query: str,
     canonical_evidence: tuple[CanonicalEvidence, ...],
@@ -3861,10 +3908,23 @@ def _build_local_answer_candidate(
             matched_supplemental_slice=supplemental_route_slice,
         )
 
+    allow_policy_fast_path = (
+        _is_policy_lookup_query(query)
+        or (
+            matched_policy_record is not None
+            and _is_single_source_authoritative_policy_lookup(
+                query,
+                retrieval_response=retrieval_response,
+                matched_record=matched_policy_record,
+                supporting_matches=supporting_policy_matches,
+            )
+        )
+    )
+
     if (
-        retrieval_response.route_label != "mixed"
-        and retrieval_response.primary_route == "policy"
-        and _is_policy_lookup_query(query)
+        retrieval_response.primary_route == "policy"
+        and (retrieval_response.route_label != "mixed" or retrieval_response.supplemental_route is None)
+        and allow_policy_fast_path
         and matched_policy_record is not None
         and (
             not require_clean_runtime

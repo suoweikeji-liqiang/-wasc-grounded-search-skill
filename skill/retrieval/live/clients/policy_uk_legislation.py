@@ -10,6 +10,10 @@ _UK_MARKERS: tuple[str, ...] = (
     "uk",
     "united kingdom",
     "legislation.gov.uk",
+    "psti",
+    "product security and telecommunications infrastructure",
+    "consumer connectable product security",
+    "no default passwords",
     "online safety act",
     "ofcom",
     "illegal harms",
@@ -17,6 +21,27 @@ _UK_MARKERS: tuple[str, ...] = (
     "illegal content duties",
 )
 _CATALOG: tuple[dict[str, object], ...] = (
+    {
+        "title": "Regulations: consumer connectable product security",
+        "url": "https://www.gov.uk/guidance/regulations-consumer-connectable-product-security",
+        "snippet": (
+            "Official UK PSTI guidance: the consumer connectable product security "
+            "regime came into effect on 29 April 2024, and the security requirements "
+            "include banning universal default and easily guessable passwords."
+        ),
+        "authority": "Office for Product Safety and Standards",
+        "jurisdiction": "UK",
+        "publication_date": "2024-01-08",
+        "effective_date": "2024-04-29",
+        "version": "Guidance",
+        "markers": (
+            "psti",
+            "product security and telecommunications infrastructure",
+            "consumer connectable product security",
+            "no default passwords",
+            "29 april 2024",
+        ),
+    },
     {
         "title": "Statement: Protecting people from illegal harms online",
         "url": "https://www.ofcom.org.uk/online-safety/illegal-and-harmful-content/statement-protecting-people-from-illegal-harms-online",

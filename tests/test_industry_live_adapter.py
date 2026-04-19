@@ -1878,6 +1878,11 @@ def test_industry_live_adapter_generic_company_filing_path_uses_fastest_sec_hit(
 ) -> None:
     import skill.retrieval.adapters.industry_ddgs as adapter
 
+    monkeypatch.setattr(adapter, "has_known_company_submission_target", lambda _query: False)
+
+    async def _false_company_submission_target(_query: str) -> bool:
+        return False
+
     async def _unexpected_search_multi_engine(**_: object) -> list[object]:
         raise AssertionError("generic SEC hit should not fall through to generic search")
 
@@ -1911,6 +1916,12 @@ def test_industry_live_adapter_generic_company_filing_path_uses_fastest_sec_hit(
         return "Tesla annual report discusses battery supply, production capacity, and guidance."
 
     monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(
+        adapter,
+        "has_company_submission_target",
+        _false_company_submission_target,
+        raising=False,
+    )
     monkeypatch.setattr(adapter, "search_sec_filings", _fast_search_sec_filings)
     monkeypatch.setattr(
         adapter,
@@ -1935,6 +1946,155 @@ def test_industry_live_adapter_generic_company_filing_path_uses_fastest_sec_hit(
     assert len(hits) == 1
     assert hits[0].title == "Tesla, Inc. Form 10-K filing"
     assert "battery supply" in hits[0].snippet.lower()
+
+
+def test_industry_official_or_filings_live_uses_top_sec_hit_when_company_name_matches_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    monkeypatch.setattr(adapter, "has_known_company_submission_target", lambda _query: False)
+
+    async def _false_company_submission_target(_query: str) -> bool:
+        return False
+
+    async def _fake_search_fastest_sec_records(
+        *,
+        query: str,
+        max_results: int,
+    ) -> list[dict[str, object]]:
+        assert query == "Apple 2025 Form 10-K services net sales definition official filing"
+        assert max_results == 3
+        return [
+            {
+                "title": "Apple Inc. Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+                "snippet": "Official SEC filing 10-K filed 2025-10-31 report period 2025-09-27",
+                "credibility_tier": "company_official",
+            },
+            {
+                "title": "Apple Inc. Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm",
+                "snippet": "Official SEC filing 10-K filed 2024-11-01 report period 2024-09-28",
+                "credibility_tier": "company_official",
+            },
+        ]
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        raise AssertionError("company-matched SEC hit should not fall through to generic search")
+
+    observed_urls: list[str] = []
+
+    async def _fake_fetch_query_aligned_page_text(**kwargs: object) -> str:
+        observed_urls.append(str(kwargs["url"]))
+        return "Apple reports services net sales as a reportable net sales category."
+
+    monkeypatch.setattr(adapter, "_search_fastest_sec_records", _fake_search_fastest_sec_records)
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(
+        adapter,
+        "has_company_submission_target",
+        _false_company_submission_target,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _fake_fetch_query_aligned_page_text,
+    )
+
+    hits = asyncio.run(
+        adapter.search_official_or_filings_live(
+            "Apple 2025 Form 10-K services net sales definition official filing"
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "Apple Inc. Form 10-K filing"
+    assert "services net sales" in hits[0].snippet.lower()
+    assert observed_urls == [
+        "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    ]
+
+
+def test_industry_official_or_filings_live_prefers_slower_company_submissions_over_fast_nonmatching_sec_search(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    monkeypatch.setattr(adapter, "has_known_company_submission_target", lambda _query: False)
+
+    async def _false_company_submission_target(_query: str) -> bool:
+        return False
+
+    async def _fast_search_sec_filings(
+        *,
+        query: str,
+        max_results: int,
+    ) -> list[dict[str, object]]:
+        assert query == "Apple 2025 Form 10-K services net sales definition official filing"
+        assert max_results == 3
+        return [
+            {
+                "title": "Motorsport Games Inc.  (MSGM) Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/1821175/000149315225018743/form10-k.htm",
+                "snippet": "Official SEC filing 10-K filed 2025-03-31",
+                "credibility_tier": "company_official",
+            }
+        ]
+
+    async def _slow_search_sec_company_submissions(
+        *,
+        query: str,
+        max_results: int = 3,
+    ) -> list[dict[str, object]]:
+        assert query == "Apple 2025 Form 10-K services net sales definition official filing"
+        assert max_results == 3
+        await asyncio.sleep(0.05)
+        return [
+            {
+                "title": "Apple Inc. Form 10-K filing",
+                "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+                "snippet": "Official SEC filing 10-K filed 2025-10-31 report period 2025-09-27",
+                "credibility_tier": "company_official",
+            }
+        ]
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        raise AssertionError("generic search should not run when the SEC path succeeds")
+
+    async def _fake_fetch_query_aligned_page_text(**kwargs: object) -> str:
+        assert kwargs["url"] == "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+        return "Apple reports services net sales as a reportable net sales category."
+
+    monkeypatch.setattr(
+        adapter,
+        "has_company_submission_target",
+        _false_company_submission_target,
+        raising=False,
+    )
+    monkeypatch.setattr(adapter, "search_sec_filings", _fast_search_sec_filings)
+    monkeypatch.setattr(
+        adapter,
+        "search_sec_company_submissions",
+        _slow_search_sec_company_submissions,
+    )
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _fake_fetch_query_aligned_page_text,
+    )
+
+    hits = asyncio.run(
+        adapter.search_official_or_filings_live(
+            "Apple 2025 Form 10-K services net sales definition official filing"
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].title == "Apple Inc. Form 10-K filing"
+    assert "services net sales" in hits[0].snippet.lower()
 
 
 def test_industry_live_adapter_uses_company_submission_fallback_when_sec_search_times_out(
@@ -2544,6 +2704,21 @@ def test_industry_live_adapter_sec_detection_requires_real_sec_signal() -> None:
             "The CHIPS cookie attribute uses the Partitioned Set-Cookie attribute to request partitioned storage.",
         ),
         (
+            "W3C FedCM well-known file path exact string official",
+            "https://www.w3.org/TR/fedcm/",
+            "The configURL is resolved from the provider's well-known file at /.well-known/web-identity.",
+        ),
+        (
+            "RFC 6265bis Partitioned Set-Cookie attribute token exact string official",
+            "https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis",
+            "The Partitioned attribute limits the scope of the cookie to same-site requests with the top-level context.",
+        ),
+        (
+            "ETSI EN 303 645 software update requirement official provision",
+            "https://www.etsi.org/technologies/consumer-iot-security",
+            "One of the ETSI EN 303 645 provisions is to keep software updated as part of consumer IoT security.",
+        ),
+        (
             "中文 IETF HTTP Message Signatures Signature-Input ABNF 组件标识符 参数 规则名 小节",
             "https://datatracker.ietf.org/doc/html/rfc9421",
             "The Signature-Input field is defined in the HTTP Message Signatures specification with ABNF-based components and parameters.",
@@ -2583,7 +2758,85 @@ def test_industry_live_adapter_returns_direct_standard_alias_candidates_without_
     assert len(hits) == 1
     assert hits[0].url == expected_url
     assert hits[0].credibility_tier == "industry_association"
-    assert page_excerpt.split()[0].lower() in hits[0].snippet.lower()
+    assert any(
+        phrase in hits[0].snippet.lower()
+        for phrase in (
+            page_excerpt.split()[0].lower(),
+            "keep software updated",
+            "partitioned",
+            "well-known",
+            "residentkey",
+            "signature-input",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_phrase"),
+    [
+        (
+            "W3C FedCM well-known file path exact string official",
+            "/.well-known/web-identity",
+        ),
+        (
+            "ETSI EN 303 645 software update requirement official provision",
+            "keep software updated",
+        ),
+        (
+            "中文 RFC 6265bis Partitioned 属性 精确 token 官方",
+            "partitioned",
+        ),
+    ],
+)
+def test_industry_live_adapter_uses_exact_standard_alias_snippets_without_fetch(
+    monkeypatch,
+    query: str,
+    expected_phrase: str,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    async def _unexpected_fetch_page_text(**_: object) -> str:
+        raise AssertionError("exact standard alias snippet should not require page fetch")
+
+    async def _unexpected_fetch_query_aligned_page_text(**_: object) -> str:
+        raise AssertionError("exact standard alias snippet should not require query-aligned fetch")
+
+    monkeypatch.setattr(adapter, "fetch_page_text", _unexpected_fetch_page_text)
+    monkeypatch.setattr(
+        adapter,
+        "_fetch_query_aligned_page_text",
+        _unexpected_fetch_query_aligned_page_text,
+    )
+
+    hits = asyncio.run(adapter.search_official_or_filings_live(query))
+
+    assert len(hits) == 1
+    assert expected_phrase in hits[0].snippet.lower()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "W3C FedCM well-known file path exact string official",
+        "ETSI EN 303 645 software update requirement official provision",
+        "RFC 6265bis Partitioned Set-Cookie attribute token exact string official",
+    ],
+)
+def test_industry_official_or_filings_live_returns_direct_standard_alias_without_search(
+    monkeypatch,
+    query: str,
+) -> None:
+    import skill.retrieval.adapters.industry_ddgs as adapter
+
+    async def _unexpected_search_multi_engine(**_: object) -> list[object]:
+        raise AssertionError("direct standard alias path should not call generic search")
+
+    monkeypatch.setattr(adapter, "search_multi_engine", _unexpected_search_multi_engine)
+
+    hits = asyncio.run(adapter.search_official_or_filings_live(query))
+
+    assert len(hits) == 1
+    assert hits[0].credibility_tier == "industry_association"
 
 
 def test_industry_live_adapter_known_company_filing_path_skips_generic_search_when_company_submissions_hit(

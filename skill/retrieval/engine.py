@@ -88,15 +88,23 @@ _POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "dora",
     "major ict incident",
     "initial notification",
+    "section 524b",
     "pfas",
     "cercla",
     "reportable quantity",
     "cbam",
+    "authorised cbam declarant",
+    "declarant cbam autorise",
+    "embedded emissions reporting",
     "default values",
     "cyber resilience act",
     "data security program",
     "negative option",
     "click-to-cancel",
+    "cybersecurity disclosure",
+    "cyber risk disclosure",
+    "incident disclosure",
+    "item 1.05",
 )
 _INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS = 3
 _MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO = 0.33
@@ -527,9 +535,15 @@ def _stop_after_first_success(
             step.source.source_id == "policy_official_registry"
             and step.source.route == "policy"
             and not step.source.is_supplemental
-            and any(
-                marker in normalized_query
-                for marker in _POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS
+            and (
+                (
+                    plan.route_label == "mixed"
+                    and plan.primary_route == "policy"
+                )
+                or any(
+                    marker in normalized_query
+                    for marker in _POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS
+                )
             )
         )
     )

@@ -13,6 +13,8 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "fcc",
     "epa",
     "ftc",
+    "sec",
+    "bis",
     "doj",
     "cisa",
     "circia",
@@ -23,6 +25,17 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "negative option",
     "click-to-cancel",
     "data security program",
+    "cyber risk disclosure",
+    "cybersecurity disclosure",
+    "incident disclosure",
+    "item 1.05",
+    "advanced computing",
+    "performance density",
+    "notified advanced computing",
+    "impersonation",
+    "business impersonation",
+    "impersonation of government and businesses",
+    "civil penalties",
     "laboratory developed tests",
     "cyber trust mark",
 )
@@ -98,6 +111,8 @@ _GENERIC_AGENCY_TOKENS: frozenset[str] = frozenset(
         "ftc",
         "cisa",
         "doj",
+        "sec",
+        "bis",
         "us",
     }
 )
@@ -142,14 +157,27 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/marketing-submission-recommendations-predetermined-change-control-plan-artificial-intelligence-enabled",
         "snippet": (
             "Official FDA guidance for Predetermined Change Control Plan "
-            "(PCCP) components in AI-enabled medical devices."
+            "(PCCP) components and recommended documentation in AI-enabled "
+            "medical devices and marketing submissions; guia sobre "
+            "documentacion requerida para dispositivo medico con IA."
         ),
         "authority": "U.S. Food and Drug Administration",
         "jurisdiction": "US",
         "publication_date": "2024-12-04",
         "effective_date": None,
         "version": "Guidance",
-        "markers": ("pccp", "predetermined change control plan"),
+        "markers": (
+            "pccp",
+            "predetermined change control plan",
+            "ai-enabled medical devices",
+            "artificial intelligence",
+            "marketing submission",
+            "documentation",
+            "guia",
+            "ia",
+            "dispositivo medico",
+            "documentacion",
+        ),
     },
     {
         "title": "Compliance Program Guidance Manual 7382.845 - Inspections of Licensed Biological Therapeutic Drug Products",
@@ -194,10 +222,11 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "title": "Negative Option Rule",
         "url": "https://www.federalregister.gov/documents/2024/11/15/2024-25534/negative-option-rule",
         "snippet": (
-            "Official Federal Register text: the proposed Rule would have "
-            "required sellers to provide annual reminders to consumers of the "
-            "negative option feature, but that provision was omitted in the "
-            "final rule."
+            "Official Federal Register text for the FTC click-to-cancel rule: "
+            "the proposed Rule would have required annual reminders, but the "
+            "annual reminder provision was omitted in the final rule, which "
+            "instead focuses on disclosures, consent, and making cancellation "
+            "at least as easy as sign-up."
         ),
         "authority": "Federal Trade Commission",
         "jurisdiction": "US",
@@ -210,6 +239,30 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "click-to-cancel",
             "annual reminder",
             "annual reminders",
+            "subscription",
+            "cancellation",
+        ),
+    },
+    {
+        "title": "Trade Regulation Rule on Impersonation of Government and Businesses",
+        "url": "https://www.federalregister.gov/documents/2024/03/01/2024-04335/trade-regulation-rule-on-impersonation-of-government-and-businesses",
+        "snippet": (
+            "Official FTC final rule: the rule prohibits the impersonation of "
+            "government, businesses, and their officials or agents in interstate "
+            "commerce, and the rule enables civil penalties against violators."
+        ),
+        "authority": "Federal Trade Commission",
+        "jurisdiction": "US",
+        "publication_date": "2024-03-01",
+        "effective_date": "2024-04-01",
+        "version": "Final rule",
+        "markers": (
+            "ftc",
+            "impersonation",
+            "business impersonation",
+            "impersonation of government and businesses",
+            "businesses",
+            "civil penalties",
         ),
     },
     {
@@ -250,6 +303,29 @@ _CATALOG: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "title": "Cybersecurity in Medical Devices: Refuse To Accept Policy for Cyber Devices and Related Systems Under section 524B of the FD&C Act",
+        "url": "https://www.federalregister.gov/documents/2023/03/30/2023-06646/cybersecurity-in-medical-devices-refuse-to-accept-policy-for-cyber-devices-and-related-systems-under",
+        "snippet": (
+            "Official FDA guidance notice: section 524B describes cybersecurity "
+            "requirements for cyber devices, including a software bill of "
+            "materials (SBOM), and explains the refuse-to-accept policy for "
+            "premarket submissions."
+        ),
+        "authority": "U.S. Food and Drug Administration",
+        "jurisdiction": "US",
+        "publication_date": "2023-03-30",
+        "effective_date": None,
+        "version": "Guidance notice",
+        "markers": (
+            "fda",
+            "section 524b",
+            "cybersecurity",
+            "sbom",
+            "refuse to accept",
+            "cyber device",
+        ),
+    },
+    {
         "title": "Data Security Program",
         "url": "https://www.justice.gov/nsd/data-security",
         "snippet": (
@@ -268,6 +344,54 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "prohibited transactions",
             "bulk sensitive personal data",
             "government-related data",
+        ),
+    },
+    {
+        "title": "Cybersecurity Risk Management, Strategy, Governance, and Incident Disclosure",
+        "url": "https://www.sec.gov/rules-regulations/2023/07/s7-09-22",
+        "snippet": (
+            "Official SEC final rule materials describing cybersecurity risk "
+            "management, strategy, governance, and incident disclosure, "
+            "including Form 8-K Item 1.05 and annual report disclosure "
+            "requirements."
+        ),
+        "authority": "Securities and Exchange Commission",
+        "jurisdiction": "US",
+        "publication_date": "2023-07-26",
+        "effective_date": None,
+        "version": "Final rule",
+        "markers": (
+            "sec",
+            "cybersecurity disclosure",
+            "cyber risk disclosure",
+            "incident disclosure",
+            "item 1.05",
+            "annual report disclosure",
+            "risk management",
+            "governance",
+        ),
+    },
+    {
+        "title": "Implementation of Additional Due Diligence Measures for Advanced Computing Integrated Circuits; Amendments and Clarifications; and Extension of Comment Period",
+        "url": "https://www.federalregister.gov/documents/2025/01/16/2025-00711/implementation-of-additional-due-diligence-measures-for-advanced-computing-integrated-circuits",
+        "snippet": (
+            "Official BIS interim final rule on advanced computing integrated circuits: "
+            "the rule added reporting and notification requirements tied to advanced "
+            "computing integrated circuits, including thresholds such as total processing "
+            "performance and performance density."
+        ),
+        "authority": "Bureau of Industry and Security",
+        "jurisdiction": "US",
+        "publication_date": "2025-01-16",
+        "effective_date": "2025-01-16",
+        "version": "Interim final rule",
+        "markers": (
+            "bis",
+            "advanced computing",
+            "integrated circuits",
+            "performance density",
+            "notification requirement",
+            "notified advanced computing",
         ),
     },
 )

@@ -129,6 +129,22 @@ def test_us_agency_direct_source_matches_ftc_negative_option_annual_reminder_que
     assert "omitted in the final rule" in hits[0]["snippet"].lower()
 
 
+def test_us_agency_direct_source_matches_ftc_click_to_cancel_update_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FTC click-to-cancel rule and streaming platform subscription flow redesign update",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["title"] == "Negative Option Rule"
+    assert "click-to-cancel" in hits[0]["snippet"].lower()
+    assert "cancel" in hits[0]["snippet"].lower()
+
+
 def test_us_agency_direct_source_matches_epa_pfas_cercla_reportable_quantity_query() -> None:
     from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
 
@@ -161,6 +177,86 @@ def test_us_agency_direct_source_matches_doj_data_security_program_query() -> No
     assert "prohibited" in hits[0]["snippet"].lower()
 
 
+def test_us_agency_direct_source_matches_fda_section_524b_sbom_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FDA section 524B cybersecurity SBOM requirement official guidance",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "U.S. Food and Drug Administration"
+    assert "section 524b" in hits[0]["snippet"].lower()
+    assert "sbom" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_spanish_fda_pccp_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="ES guia FDA PCCP IA dispositivo medico documentacion requerida oficial",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["title"].startswith("Predetermined Change Control Plan")
+    assert "documentation" in hits[0]["snippet"].lower()
+    assert "medical devices" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_sec_cyber_risk_disclosure_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Securities and Exchange Commission"
+    assert "item 1.05" in hits[0]["snippet"].lower()
+    assert "incident disclosure" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_bis_advanced_computing_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="BIS advanced computing rule performance density notification requirement official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Bureau of Industry and Security"
+    assert "performance density" in hits[0]["snippet"].lower()
+    assert "notification" in hits[0]["snippet"].lower()
+
+
+def test_us_agency_direct_source_matches_ftc_impersonation_query() -> None:
+    from skill.retrieval.live.clients.policy_us_agencies import search_us_policy_agencies
+
+    hits = asyncio.run(
+        search_us_policy_agencies(
+            query="FTC impersonation rule business-to-business scope civil penalties official text",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["title"] == "Trade Regulation Rule on Impersonation of Government and Businesses"
+    assert "businesses" in hits[0]["snippet"].lower()
+    assert "civil penalties" in hits[0]["snippet"].lower()
+
+
 def test_uk_direct_source_matches_ofcom_illegal_harms_codes_query() -> None:
     from skill.retrieval.live.clients.policy_uk_legislation import search_uk_legislation
 
@@ -178,6 +274,23 @@ def test_uk_direct_source_matches_ofcom_illegal_harms_codes_query() -> None:
     assert hits[0]["authority"] == "Ofcom"
     assert hits[0]["jurisdiction"] == "UK"
     assert hits[0]["url"].startswith("https://www.ofcom.org.uk/")
+
+
+def test_uk_direct_source_matches_psti_no_default_passwords_query() -> None:
+    from skill.retrieval.live.clients.policy_uk_legislation import search_uk_legislation
+
+    hits = asyncio.run(
+        search_uk_legislation(
+            query="UK PSTI Act no default passwords compliance date official guidance",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["authority"] == "Office for Product Safety and Standards"
+    assert hits[0]["jurisdiction"] == "UK"
+    assert "29 april 2024" in hits[0]["snippet"].lower()
+    assert "guessable passwords" in hits[0]["snippet"].lower()
 
 
 def test_eur_lex_direct_source_matches_data_act_query() -> None:
@@ -242,6 +355,22 @@ def test_eur_lex_direct_source_matches_cbam_default_values_query() -> None:
 
     assert hits
     assert "default values" in hits[0]["snippet"].lower()
+    assert "embedded emissions" in hits[0]["snippet"].lower()
+
+
+def test_eur_lex_direct_source_matches_cbam_authorised_declarant_query() -> None:
+    from skill.retrieval.live.clients.policy_eur_lex import search_eur_lex
+
+    hits = asyncio.run(
+        search_eur_lex(
+            query="FR declarant CBAM autorise definition texte officiel",
+            max_results=5,
+        )
+    )
+
+    assert hits
+    assert hits[0]["url"] == "https://eur-lex.europa.eu/eli/reg/2023/956/oj/eng"
+    assert "authorised cbam declarant" in hits[0]["snippet"].lower()
     assert "embedded emissions" in hits[0]["snippet"].lower()
 
 
@@ -626,6 +755,274 @@ def test_policy_registry_live_adapter_returns_direct_us_source_without_waiting_f
     assert len(hits) == 1
     assert hits[0].authority == "Environmental Protection Agency"
     assert "one pound" in hits[0].snippet.lower()
+
+
+def test_policy_registry_live_adapter_returns_direct_sec_source_for_cyber_disclosure_query(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _slow_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update"
+        assert max_results == 5
+        await asyncio.sleep(10)
+        return []
+
+    async def _fake_search_us_policy_agencies(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update"
+        assert max_results == 5
+        return [
+            {
+                "title": "Cybersecurity Risk Management, Strategy, Governance, and Incident Disclosure",
+                "url": "https://www.sec.gov/rules-regulations/2023/07/s7-09-22",
+                "snippet": "Official SEC final rule materials describing cybersecurity risk management, strategy, governance, and incident disclosure, including Form 8-K Item 1.05 and annual report disclosure requirements.",
+                "authority": "Securities and Exchange Commission",
+                "jurisdiction": "US",
+                "publication_date": "2023-07-26",
+                "effective_date": None,
+                "version": "Final rule",
+            }
+        ]
+
+    async def _empty_search_federal_register(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_search_open_web_policy(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _slow_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _fake_search_us_policy_agencies)
+    monkeypatch.setattr(adapter, "search_federal_register", _empty_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live(
+                "SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update"
+            ),
+            timeout=1.0,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Securities and Exchange Commission"
+    assert "item 1.05" in hits[0].snippet.lower()
+
+
+def test_policy_registry_live_adapter_returns_direct_bis_source_when_query_is_direct_favored(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _slow_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "BIS advanced computing rule performance density notification requirement official text"
+        assert max_results == 5
+        await asyncio.sleep(10)
+        return []
+
+    async def _fake_search_us_policy_agencies(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "BIS advanced computing rule performance density notification requirement official text"
+        assert max_results == 5
+        return [
+            {
+                "title": "Implementation of Additional Due Diligence Measures for Advanced Computing Integrated Circuits; Amendments and Clarifications; and Extension of Comment Period",
+                "url": "https://www.federalregister.gov/documents/2025/01/16/2025-00711/implementation-of-additional-due-diligence-measures-for-advanced-computing-integrated-circuits",
+                "snippet": "Official BIS interim final rule on advanced computing integrated circuits: the rule added reporting and notification requirements tied to advanced computing integrated circuits, including thresholds such as total processing performance and performance density.",
+                "authority": "Bureau of Industry and Security",
+                "jurisdiction": "US",
+                "publication_date": "2025-01-16",
+                "effective_date": "2025-01-16",
+                "version": "Interim final rule",
+            }
+        ]
+
+    async def _empty_search_federal_register(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_search_open_web_policy(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _slow_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _fake_search_us_policy_agencies)
+    monkeypatch.setattr(adapter, "search_federal_register", _empty_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live(
+                "BIS advanced computing rule performance density notification requirement official text"
+            ),
+            timeout=1.0,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Bureau of Industry and Security"
+    assert "performance density" in hits[0].snippet.lower()
+
+
+def test_policy_registry_live_adapter_returns_direct_ftc_impersonation_source_when_query_is_direct_favored(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _slow_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "FTC impersonation rule business-to-business scope civil penalties official text"
+        assert max_results == 5
+        await asyncio.sleep(10)
+        return []
+
+    async def _fake_search_us_policy_agencies(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "FTC impersonation rule business-to-business scope civil penalties official text"
+        assert max_results == 5
+        return [
+            {
+                "title": "Trade Regulation Rule on Impersonation of Government and Businesses",
+                "url": "https://www.federalregister.gov/documents/2024/03/01/2024-04335/trade-regulation-rule-on-impersonation-of-government-and-businesses",
+                "snippet": "Official FTC final rule: the rule prohibits the impersonation of government, businesses, and their officials or agents in interstate commerce, and the rule enables civil penalties against violators.",
+                "authority": "Federal Trade Commission",
+                "jurisdiction": "US",
+                "publication_date": "2024-03-01",
+                "effective_date": "2024-04-01",
+                "version": "Final rule",
+            }
+        ]
+
+    async def _empty_search_federal_register(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_search_open_web_policy(**_: object) -> list[dict[str, object]]:
+        return []
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _slow_search_policy_registry)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _fake_search_us_policy_agencies)
+    monkeypatch.setattr(adapter, "search_federal_register", _empty_search_federal_register)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        asyncio.wait_for(
+            adapter.search_live(
+                "FTC impersonation rule business-to-business scope civil penalties official text"
+            ),
+            timeout=1.0,
+        )
+    )
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Federal Trade Commission"
+    assert "civil penalties" in hits[0].snippet.lower()
+
+
+def test_policy_registry_live_adapter_uses_psti_direct_source_when_discovery_misses(
+    monkeypatch,
+) -> None:
+    import skill.retrieval.adapters.policy_official_registry as adapter
+
+    async def _empty_search_policy_registry(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "UK PSTI Act no default passwords compliance date official guidance"
+        assert max_results == 5
+        return []
+
+    async def _empty_search_open_web_policy(
+        *,
+        query: str,
+        config,
+    ) -> list[dict[str, object]]:
+        assert query == "UK PSTI Act no default passwords compliance date official guidance"
+        del config
+        return []
+
+    async def _fake_search_uk_legislation(
+        *,
+        query: str,
+        max_results: int = 5,
+    ) -> list[dict[str, object]]:
+        assert query == "UK PSTI Act no default passwords compliance date official guidance"
+        assert max_results == 5
+        return [
+            {
+                "title": "Regulations: consumer connectable product security",
+                "url": "https://www.gov.uk/guidance/regulations-consumer-connectable-product-security",
+                "snippet": "Official UK PSTI guidance: the consumer connectable product security regime came into effect on 29 April 2024, and the security requirements include banning universal default and easily guessable passwords.",
+                "authority": "Office for Product Safety and Standards",
+                "jurisdiction": "UK",
+                "publication_date": "2024-01-08",
+                "effective_date": "2024-04-29",
+                "version": "Guidance",
+            }
+        ]
+
+    async def _empty_direct(**_: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(adapter, "search_policy_registry", _empty_search_policy_registry)
+    monkeypatch.setattr(adapter, "_search_open_web_policy", _empty_search_open_web_policy)
+    monkeypatch.setattr(adapter, "search_uk_legislation", _fake_search_uk_legislation)
+    monkeypatch.setattr(adapter, "search_eur_lex", _empty_direct)
+    monkeypatch.setattr(adapter, "search_nist_publications", _empty_direct)
+    monkeypatch.setattr(adapter, "search_fincen_policy", _empty_direct)
+    monkeypatch.setattr(adapter, "search_us_policy_agencies", _empty_direct)
+    monkeypatch.setattr(adapter, "_rank_fixture_records", lambda **_: [])
+
+    hits = asyncio.run(
+        adapter.search_live("UK PSTI Act no default passwords compliance date official guidance")
+    )
+
+    assert len(hits) == 1
+    assert hits[0].authority == "Office for Product Safety and Standards"
+    assert "29 april 2024" in hits[0].snippet.lower()
 
 
 def test_policy_registry_live_adapter_uses_us_agency_direct_source_when_discovery_misses(

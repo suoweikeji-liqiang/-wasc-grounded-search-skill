@@ -168,6 +168,28 @@ def test_classify_query_hidden_like_low_signal_and_cross_domain_failures_route_c
     assert multilingual_policy.supplemental_route is None
 
 
+def test_classify_query_prefers_industry_for_filing_disclosure_queries_without_regulatory_anchor() -> None:
+    result = classify_query(
+        "Adobe FY2025 annual report remaining performance obligations definition official"
+    )
+
+    assert result.route_label == "industry"
+    assert result.primary_route == "industry"
+    assert result.supplemental_route is None
+    assert result.reason_code == "industry_filing_override"
+
+
+def test_classify_query_routes_sec_cyber_disclosure_plus_company_wording_as_mixed() -> None:
+    result = classify_query(
+        "SEC annual cyber risk disclosure expectations and company 10-K risk factor wording update"
+    )
+
+    assert result.route_label == "mixed"
+    assert result.primary_route == "policy"
+    assert result.supplemental_route == "industry"
+    assert result.reason_code == "policy_filing_cross_domain"
+
+
 def test_classify_query_keeps_strong_policy_queries_concrete_despite_trailing_cross_checks() -> None:
     ai_act = classify_query(
         "EU AI Act GPAI transparency documentation obligations official text and Commission guidance cross-check with industry model card AI Act readiness"

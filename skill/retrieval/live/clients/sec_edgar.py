@@ -312,6 +312,8 @@ async def _load_company_ticker_directory() -> tuple[dict[str, object], ...]:
         url=_COMPANY_TICKERS_ENDPOINT,
         headers={"User-Agent": _SEC_CONTACT_USER_AGENT},
         timeout=4.0,
+        cache_scope="search",
+        cache_key=_COMPANY_TICKERS_CACHE_KEY,
     )
     parsed = _parse_company_ticker_payload(payload)
     _COMPANY_TICKERS_CACHE.set(

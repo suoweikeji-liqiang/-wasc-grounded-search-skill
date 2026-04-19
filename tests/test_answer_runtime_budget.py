@@ -172,6 +172,50 @@ def _policy_ai_act_fast_path_retrieve_response() -> RetrieveResponse:
     )
 
 
+def _policy_pfas_reportable_quantity_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="mixed",
+        primary_route="policy",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "policy-pfas-1",
+                "domain": "policy",
+                "canonical_title": "Designation of PFOA and PFOS as hazardous substances under CERCLA release reporting requirements",
+                "canonical_url": "https://www.epa.gov/epcra/designation-pfoa-and-pfos-hazardous-substances-under-cercla-release-reporting-requirements",
+                "route_role": "primary",
+                "authority": "Environmental Protection Agency",
+                "jurisdiction": "US",
+                "jurisdiction_status": "observed",
+                "publication_date": "2024-04-17",
+                "effective_date": None,
+                "version": "Release reporting guidance",
+                "version_status": "observed",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official EPA PFAS CERCLA release reporting guidance: "
+                            "EPA established the default reportable quantity of one "
+                            "pound for releases of PFOA or PFOS, including their "
+                            "salts and structural isomers."
+                        ),
+                        "source_record_id": "policy-pfas-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
 def _policy_ofcom_fast_path_retrieve_response() -> RetrieveResponse:
     return RetrieveResponse(
         route_label="policy",
@@ -496,6 +540,79 @@ def _industry_cross_lingual_partial_with_weak_secondary_retrieve_response() -> R
                 ],
                 "linked_variants": [],
             },
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _industry_fedcm_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-fedcm-1",
+                "domain": "industry",
+                "canonical_title": "Federated Credential Management API",
+                "canonical_url": "https://www.w3.org/TR/fedcm/",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official W3C FedCM specification: from the configURL, "
+                            "the browser makes a request to GET /.well-known/web-identity "
+                            "as the provider well-known file path."
+                        ),
+                        "source_record_id": "industry-fedcm-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
+        ],
+        evidence_clipped=False,
+        evidence_pruned=False,
+    )
+
+
+def _industry_etsi_fast_path_retrieve_response() -> RetrieveResponse:
+    return RetrieveResponse(
+        route_label="industry",
+        primary_route="industry",
+        supplemental_route=None,
+        browser_automation="disabled",
+        status="success",
+        failure_reason=None,
+        gaps=[],
+        results=[],
+        canonical_evidence=[
+            {
+                "evidence_id": "industry-etsi-1",
+                "domain": "industry",
+                "canonical_title": "ETSI Consumer IoT Security",
+                "canonical_url": "https://www.etsi.org/technologies/consumer-iot-security",
+                "route_role": "primary",
+                "retained_slices": [
+                    {
+                        "text": (
+                            "Official ETSI EN 303 645 provision 5.3, 'Keep software "
+                            "updated': developing and deploying security updates in a "
+                            "timely manner is one of the most important actions a "
+                            "manufacturer can take."
+                        ),
+                        "source_record_id": "industry-etsi-1-slice-1",
+                        "source_span": "snippet",
+                    }
+                ],
+                "linked_variants": [],
+            }
         ],
         evidence_clipped=False,
         evidence_pruned=False,
@@ -1514,6 +1631,81 @@ def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_fre
     assert "Reglement UE 2024 1689" in result.response.conclusion
 
 
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_non_english_official_text_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_ai_act_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("non-English policy lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("policy", "policy", None),
+            query="DE AI Act Deepfake Kennzeichnungspflicht offizieller Text",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "AI Act" in result.response.conclusion
+
+
+def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_when_mixed_label_has_only_policy_evidence(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _policy_pfas_reportable_quantity_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("single-source policy lookup should use the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("mixed", "policy", None),
+            query="EPA PFAS CERCLA hazardous substance reportable quantity official",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert result.response.sources[0].title == (
+        "Designation of PFOA and PFOS as hazardous substances under CERCLA release reporting requirements"
+    )
+    assert "one pound" in result.response.key_points[0].statement.lower()
+
+
 def test_execute_answer_pipeline_with_trace_uses_policy_lookup_fast_path_for_ofcom_codes_query(
     monkeypatch,
 ) -> None:
@@ -1738,6 +1930,78 @@ def test_execute_answer_pipeline_with_trace_industry_lookup_fast_path_drops_low_
         source.title == "Battery recycling market size, share | Growth [2034]"
         for source in result.response.sources
     )
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_fedcm_exact_path_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_fedcm_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("FedCM exact-path lookup should stay on the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="W3C FedCM well-known file path exact string official",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "/.well-known/web-identity" in result.response.key_points[0].statement
+
+
+def test_execute_answer_pipeline_with_trace_uses_industry_lookup_fast_path_for_etsi_provision_query(
+    monkeypatch,
+) -> None:
+    import skill.synthesis.orchestrate as synthesis_orchestrate
+    from skill.orchestrator.budget import RuntimeBudget
+    from skill.synthesis.orchestrate import execute_answer_pipeline_with_trace
+
+    async def _fake_execute_retrieval_pipeline(**_: object) -> RetrieveResponse:
+        return _industry_etsi_fast_path_retrieve_response()
+
+    monkeypatch.setattr(
+        synthesis_orchestrate,
+        "execute_retrieval_pipeline",
+        _fake_execute_retrieval_pipeline,
+    )
+
+    class _NeverCalledModelClient:
+        def generate_text(
+            self, prompt: str, timeout_seconds: float | None = None
+        ) -> str:
+            raise AssertionError("ETSI provision lookup should stay on the local fast path")
+
+    result = asyncio.run(
+        execute_answer_pipeline_with_trace(
+            plan=_build_plan("industry", "industry", None),
+            query="ETSI EN 303 645 software update requirement official provision",
+            adapter_registry={},
+            model_client=_NeverCalledModelClient(),
+            runtime_budget=RuntimeBudget(),
+        )
+    )
+
+    assert result.response.answer_status == "grounded_success"
+    assert "Keep software updated" in result.response.key_points[0].statement
 
 
 def test_execute_answer_pipeline_with_trace_enriches_thin_industry_fast_path_with_bounded_same_route_support(

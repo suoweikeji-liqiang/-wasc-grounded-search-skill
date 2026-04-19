@@ -1278,6 +1278,73 @@ def test_run_retrieval_stops_policy_source_after_first_success_for_direct_policy
     assert outcome.results[0].title.startswith("Designation of PFOA and PFOS")
 
 
+def test_run_retrieval_stops_mixed_policy_primary_source_after_first_success() -> None:
+    query = "UK PSTI default password ban and smart camera manufacturer security update commitment"
+    base_plan = build_retrieval_plan(
+        ClassificationResult(
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="forced_probe",
+            scores={"policy": 3, "academic": 0, "industry": 2},
+        ),
+        query=query,
+    )
+    first_step = next(
+        step
+        for step in base_plan.first_wave_sources
+        if step.source.source_id == "policy_official_registry"
+    )
+    plan = replace(
+        base_plan,
+        first_wave_sources=(first_step,),
+        fallback_sources=(),
+        per_source_timeout_seconds=4.0,
+        overall_deadline_seconds=8.0,
+        mixed_discovery_deadline_seconds=2.5,
+        global_concurrency_cap=1,
+        mixed_pooled_enabled=False,
+    )
+
+    observed_queries: list[str] = []
+
+    async def _policy_adapter(candidate_query: str) -> list[RetrievalHit]:
+        observed_queries.append(candidate_query)
+        if candidate_query == query:
+            await asyncio.sleep(0.2)
+            return [
+                RetrievalHit(
+                    source_id=first_step.source.source_id,
+                    title="Regulations: consumer connectable product security",
+                    url="https://www.gov.uk/guidance/regulations-consumer-connectable-product-security",
+                    snippet=(
+                        "Official UK PSTI guidance says the regime came into effect "
+                        "on 29 April 2024 and bans default passwords."
+                    ),
+                    credibility_tier="official_government",
+                    authority="Office for Product Safety and Standards",
+                    jurisdiction="UK",
+                    publication_date="2024-01-08",
+                    effective_date="2024-04-29",
+                    version="Guidance",
+                )
+            ]
+        await asyncio.sleep(1.4)
+        return []
+
+    outcome = asyncio.run(
+        run_retrieval(
+            plan=plan,
+            query=query,
+            adapter_registry={first_step.source.source_id: _policy_adapter},
+        )
+    )
+
+    assert observed_queries == [query]
+    assert outcome.status == "success"
+    assert outcome.results[0].title == "Regulations: consumer connectable product security"
+
+
 def test_build_retrieval_plan_extends_time_budget_for_primary_industry_queries() -> None:
     plan = build_retrieval_plan(
         ClassificationResult(
