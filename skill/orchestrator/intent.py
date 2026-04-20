@@ -252,6 +252,41 @@ _POLICY_FILING_CROSS_DOMAIN_MARKERS: tuple[str, ...] = (
     "incident disclosure",
     "item 1.05",
 )
+_POLICY_FILING_AUTHORITATIVE_MARKERS: tuple[str, ...] = (
+    "exact",
+    "timing",
+    "official",
+    "official text",
+    "definition",
+    "definitions",
+    "four business days",
+    "language",
+)
+_POLICY_FILING_ADAPTATION_MARKERS: tuple[str, ...] = (
+    "impact on",
+    "effect on",
+    "update",
+    "updates",
+    "playbook",
+    "rollout",
+    "roadmap",
+    "readiness",
+)
+_PARALLEL_CONJUNCTION_MARKERS: tuple[str, ...] = (
+    " and ",
+    " & ",
+    "以及",
+    "及",
+    "和",
+)
+_INDUSTRY_PARALLEL_UPDATE_MARKERS: tuple[str, ...] = (
+    "platform",
+    "subscription",
+    "checkout",
+    "creator",
+    "flow",
+    "redesign",
+)
 _POLICY_EXPLICIT_ANCHOR_MARKERS: tuple[str, ...] = (
     "fcc",
     "ftc",
@@ -373,6 +408,15 @@ def _should_classify_policy_filing_mixed(normalized_query: str) -> bool:
     )
 
 
+def _should_keep_policy_filing_lookup_concrete(normalized_query: str) -> bool:
+    return (
+        _has_any_marker(normalized_query, _INDUSTRY_FILING_INTENT_MARKERS)
+        and _has_any_marker(normalized_query, _POLICY_FILING_CROSS_DOMAIN_MARKERS)
+        and _has_any_marker(normalized_query, _POLICY_FILING_AUTHORITATIVE_MARKERS)
+        and not _has_any_marker(normalized_query, _POLICY_FILING_ADAPTATION_MARKERS)
+    )
+
+
 def _should_prefer_industry_filing_lookup(normalized_query: str) -> bool:
     return (
         _has_any_marker(normalized_query, _INDUSTRY_FILING_INTENT_MARKERS)
@@ -385,6 +429,18 @@ def _should_prefer_industry_standards_lookup(normalized_query: str) -> bool:
     return (
         _has_any_marker(normalized_query, _INDUSTRY_STANDARDS_INTENT_MARKERS)
         and not _has_any_marker(normalized_query, _POLICY_EXPLICIT_ANCHOR_MARKERS)
+    )
+
+
+def _has_parallel_conjunction(normalized_query: str) -> bool:
+    return any(marker in normalized_query for marker in _PARALLEL_CONJUNCTION_MARKERS)
+
+
+def _should_classify_policy_industry_parallel_update_mixed(normalized_query: str) -> bool:
+    return (
+        _has_parallel_conjunction(normalized_query)
+        and _has_any_marker(normalized_query, _POLICY_EXPLICIT_ANCHOR_MARKERS)
+        and _has_any_marker(normalized_query, _INDUSTRY_PARALLEL_UPDATE_MARKERS)
     )
 
 
@@ -456,6 +512,15 @@ def classify_query(query: str) -> ClassificationResult:
         )
 
     if _should_classify_policy_filing_mixed(normalized_query):
+        if _should_keep_policy_filing_lookup_concrete(normalized_query):
+            return _build_classification_result(
+                query=query,
+                route_label="policy",
+                primary_route="policy",
+                supplemental_route=None,
+                reason_code="policy_filing_authoritative_lookup",
+                scores=scores,
+            )
         return _build_classification_result(
             query=query,
             route_label="mixed",
@@ -482,6 +547,16 @@ def classify_query(query: str) -> ClassificationResult:
             primary_route="industry",
             supplemental_route=None,
             reason_code="industry_standards_override",
+            scores=scores,
+        )
+
+    if _should_classify_policy_industry_parallel_update_mixed(normalized_query):
+        return _build_classification_result(
+            query=query,
+            route_label="mixed",
+            primary_route="policy",
+            supplemental_route="industry",
+            reason_code="policy_industry_parallel_update",
             scores=scores,
         )
 

@@ -23,6 +23,7 @@ from skill.orchestrator.query_traits import (
     derive_answerability_profile,
     derive_query_traits,
 )
+from skill.retrieval.live.clients.sec_edgar import has_known_company_submission_target
 from skill.retrieval.models import RetrievalFailureReason
 
 RouteLabel = Literal["policy", "industry", "academic", "mixed"]
@@ -44,12 +45,13 @@ _ALLOWED_SOURCE_IDS: frozenset[str] = frozenset(
         if target is not None
     }
 )
-_PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS = 8.0
-_PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS = 9.0
+_PRIMARY_INDUSTRY_PER_SOURCE_TIMEOUT_SECONDS = 9.0
+_PRIMARY_INDUSTRY_OVERALL_DEADLINE_SECONDS = 10.0
 _PRIMARY_INDUSTRY_DISCOVERY_ONLY_PER_SOURCE_TIMEOUT_SECONDS = 6.5
 _PRIMARY_INDUSTRY_GLOBAL_CONCURRENCY_CAP = 3
 _MIXED_OVERALL_DEADLINE_SECONDS = 8.0
 _MIXED_DISCOVERY_DEADLINE_SECONDS = 2.5
+_MIXED_PARALLEL_UPDATE_DISCOVERY_DEADLINE_SECONDS = 3.5
 _MIXED_DEEP_DEADLINE_SECONDS = 5.0
 _MIXED_SHORTLIST_TOP_K = 4
 _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET = 5
@@ -110,10 +112,30 @@ _INDUSTRY_STANDARDS_FIRST_MARKERS: tuple[str, ...] = (
     "etsi",
     "en 303 645",
 )
+_GENERIC_INDUSTRY_ACTOR_MARKERS: tuple[str, ...] = (
+    "company",
+    "issuer",
+    "vendor",
+    "maker",
+    "producer",
+    "operator",
+    "platform",
+)
 
 
 def _query_uses_cjk(query: str) -> bool:
     return any(not character.isascii() for character in query)
+
+
+def _is_generic_actor_filing_query(query: str | None) -> bool:
+    if query is None:
+        return False
+    normalized_query = normalize_query_text(query)
+    return (
+        any(marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS)
+        and any(marker in normalized_query for marker in _GENERIC_INDUSTRY_ACTOR_MARKERS)
+        and not has_known_company_submission_target(query)
+    )
 
 
 @dataclass(frozen=True)
@@ -207,8 +229,12 @@ def _build_supplemental_first_wave(
 ) -> list[PlannedSourceStep]:
     if supplemental_route == "industry":
         normalized_query = normalize_query_text(query) if query is not None else ""
-        if query is not None and any(
-            marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS
+        prefers_discovery_anchor_for_generic_filing_query = _is_generic_actor_filing_query(query)
+        if prefers_discovery_anchor_for_generic_filing_query:
+            source_ids = ("industry_news_rss",)
+        elif (
+            query is not None
+            and any(marker in normalized_query for marker in _INDUSTRY_FILING_FIRST_MARKERS)
         ):
             source_ids = ("industry_official_or_filings",)
         else:
@@ -451,8 +477,13 @@ def build_retrieval_plan(
         classification.route_label == "mixed"
         and supplemental_route == "industry"
         and query is not None
-        and derive_query_traits(query).is_cross_domain_impact
-        and not _query_uses_cjk(query)
+        and (
+            (
+                derive_query_traits(query).is_cross_domain_impact
+                and not _query_uses_cjk(query)
+            )
+            or _is_generic_actor_filing_query(query)
+        )
     ):
         fallback = tuple(
             step
@@ -475,6 +506,21 @@ def build_retrieval_plan(
     elif classification.route_label == "mixed":
         overall_deadline_seconds = _MIXED_OVERALL_DEADLINE_SECONDS
         query_variant_budget = _GENERALIZATION_SENSITIVE_QUERY_VARIANT_BUDGET
+    mixed_discovery_deadline_seconds = (
+        _MIXED_DISCOVERY_DEADLINE_SECONDS
+        if classification.route_label == "mixed"
+        else None
+    )
+    if (
+        classification.route_label == "mixed"
+        and classification.primary_route == "policy"
+        and supplemental_route == "industry"
+        and classification.reason_code == "policy_industry_parallel_update"
+    ):
+        mixed_discovery_deadline_seconds = (
+            _MIXED_PARALLEL_UPDATE_DISCOVERY_DEADLINE_SECONDS
+        )
+        global_concurrency_cap = 1
     return RetrievalPlan(
         route_label=classification.route_label,
         primary_route=classification.primary_route,
@@ -488,11 +534,7 @@ def build_retrieval_plan(
         per_source_timeout_seconds=per_source_timeout_seconds,
         overall_deadline_seconds=overall_deadline_seconds,
         global_concurrency_cap=global_concurrency_cap,
-        mixed_discovery_deadline_seconds=(
-            _MIXED_DISCOVERY_DEADLINE_SECONDS
-            if classification.route_label == "mixed"
-            else None
-        ),
+        mixed_discovery_deadline_seconds=mixed_discovery_deadline_seconds,
         mixed_deep_deadline_seconds=(
             _MIXED_DEEP_DEADLINE_SECONDS
             if classification.route_label == "mixed"

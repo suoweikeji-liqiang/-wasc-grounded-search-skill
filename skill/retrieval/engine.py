@@ -105,9 +105,32 @@ _POLICY_DIRECT_FAMILY_EARLY_STOP_MARKERS: tuple[str, ...] = (
     "cyber risk disclosure",
     "incident disclosure",
     "item 1.05",
+    "psti",
+    "product security and telecommunications infrastructure",
+    "consumer connectable product security",
+    "default password",
+    "battery regulation",
+    "battery passport",
+    "recycled content",
+    "waste emissions charge",
+    "methane fee",
+)
+_POLICY_FRAGMENT_PRIORITY_MARKERS: tuple[str, ...] = (
+    "item 1.05",
+    "junk fees",
+    "negative option",
+    "click-to-cancel",
+    "ai act",
+    "deepfake",
+    "nis2",
+    "psti",
+    "product security and telecommunications infrastructure",
+    "consumer connectable product security",
+    "default password",
 )
 _INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS = 3
 _MIXED_SUPPLEMENTAL_INDUSTRY_VARIANT_TIMEOUT_RATIO = 0.33
+_PRIMARY_INDUSTRY_DOCUMENT_RETRY_TIMEOUT_RATIO = 0.5
 _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "cross_domain_fragment_focus": 6,
     "document_focus": 4,
@@ -119,6 +142,12 @@ _MIXED_STRUCTURAL_REASON_BONUS: dict[str, int] = {
     "academic_source_hint": 1,
     "original": 0,
 }
+_PRIMARY_INDUSTRY_DOCUMENT_RETRY_MARKERS: tuple[str, ...] = (
+    "company",
+    "issuer",
+    "vendor",
+    "platform",
+)
 
 
 def _optional_str_field(hit: Mapping[str, Any], field_name: str) -> str | None:
@@ -503,15 +532,6 @@ def _skip_academic_asta_fallback(
         for result in other_metadata_results
     )
 
-    for source_id in ("academic_semantic_scholar", "academic_arxiv"):
-        if source_id == current_source:
-            continue
-        result = first_wave_results.get(source_id)
-        if result is not None and result.status == "success" and result.hits:
-            return True
-    return False
-
-
 def _stop_after_first_success(
     *,
     step: PlannedSourceStep,
@@ -756,6 +776,18 @@ async def _run_source_variants(
         variants = _dedupe_academic_variants_by_upstream_query(variants)
     elif step.source.route == "industry":
         variants = _prioritize_industry_variants(variants)
+        variants = _prioritize_mixed_supplemental_industry_variants(
+            step=step,
+            plan=plan,
+            variants=variants,
+        )
+    elif step.source.route == "policy":
+        variants = _prioritize_policy_variants(
+            step=step,
+            plan=plan,
+            query=query,
+            variants=variants,
+        )
 
     loop = asyncio.get_running_loop()
     source_started_at = loop.time()
@@ -775,6 +807,7 @@ async def _run_source_variants(
             timeout_seconds=_variant_timeout_seconds(
                 step=step,
                 plan=plan,
+                query=query,
                 variant=variant,
                 variants=variants,
                 remaining=remaining,
@@ -820,6 +853,7 @@ async def _run_source_variants(
         if _should_continue_after_variant_failure(
             step=step,
             plan=plan,
+            query=query,
             variant=variant,
             variants=variants,
             failure_reason=failure_reason,
@@ -945,10 +979,65 @@ def _prioritize_industry_variants(
     return tuple(variant for _, variant in indexed_variants)
 
 
+def _prioritize_mixed_supplemental_industry_variants(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    variants: tuple[QueryVariant, ...],
+) -> tuple[QueryVariant, ...]:
+    if len(variants) <= 1:
+        return variants
+    if not _is_mixed_supplemental_industry_retry_context(step=step, plan=plan):
+        return variants
+    priority_by_reason = {
+        "cross_domain_fragment_focus": 0,
+        "document_focus": 1,
+        "document_concept_focus": 2,
+        "core_focus": 3,
+        "original": 4,
+    }
+    indexed_variants = list(enumerate(variants))
+    indexed_variants.sort(
+        key=lambda pair: (
+            priority_by_reason.get(pair[1].reason_code, 9),
+            _INDUSTRY_VARIANT_PRIORITY.get(pair[1].reason_code, 99),
+            pair[0],
+        )
+    )
+    return tuple(variant for _, variant in indexed_variants)
+
+
+def _prioritize_policy_variants(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+    variants: tuple[QueryVariant, ...],
+) -> tuple[QueryVariant, ...]:
+    if len(variants) <= 1:
+        return variants
+    if not _is_mixed_primary_policy_variant_retry_context(step=step, plan=plan):
+        return variants
+    normalized_query = normalize_query_text(query)
+    if not any(marker in normalized_query for marker in _POLICY_FRAGMENT_PRIORITY_MARKERS):
+        return variants
+    if not _has_policy_fragment_variant(variants):
+        return variants
+    indexed_variants = list(enumerate(variants))
+    indexed_variants.sort(
+        key=lambda pair: (
+            0 if pair[1].reason_code == "cross_domain_fragment_focus" else 1,
+            pair[0],
+        )
+    )
+    return tuple(variant for _, variant in indexed_variants)
+
+
 def _variant_timeout_seconds(
     *,
     step: PlannedSourceStep,
     plan: RetrievalPlan,
+    query: str,
     variant: QueryVariant,
     variants: tuple[QueryVariant, ...],
     remaining: float,
@@ -965,6 +1054,20 @@ def _variant_timeout_seconds(
             max(
                 0.0,
                 plan.per_source_timeout_seconds / _INDUSTRY_CJK_RETRY_TIMEOUT_SLOTS,
+            ),
+        )
+    elif (
+        len(variants) > 1
+        and _is_primary_industry_document_retry_context(step=step, plan=plan, query=query)
+        and variant.reason_code == "original"
+        and _has_primary_industry_document_retry_variant(variants)
+        and _has_later_variant(variant=variant, variants=variants)
+    ):
+        timeout_seconds = min(
+            timeout_seconds,
+            max(
+                0.0,
+                plan.per_source_timeout_seconds * _PRIMARY_INDUSTRY_DOCUMENT_RETRY_TIMEOUT_RATIO,
             ),
         )
     elif (
@@ -988,6 +1091,7 @@ def _should_continue_after_variant_failure(
     *,
     step: PlannedSourceStep,
     plan: RetrievalPlan,
+    query: str,
     variant: QueryVariant,
     variants: tuple[QueryVariant, ...],
     failure_reason: RetrievalFailureReason,
@@ -996,6 +1100,13 @@ def _should_continue_after_variant_failure(
     if not (remaining > 0 and len(variants) > 1 and failure_reason == "timeout"):
         return False
     if _is_primary_industry_variant_retry_context(step=step, plan=plan):
+        if (
+            _is_primary_industry_document_retry_context(step=step, plan=plan, query=query)
+            and variant.reason_code == "original"
+            and _has_primary_industry_document_retry_variant(variants)
+            and _has_later_variant(variant=variant, variants=variants)
+        ):
+            return True
         return (
             _has_industry_cjk_gloss_variant(variants)
             and variant.reason_code in {"original", "industry_cjk_gloss"}
@@ -1003,7 +1114,7 @@ def _should_continue_after_variant_failure(
         )
     if _is_mixed_supplemental_industry_retry_context(step=step, plan=plan):
         return (
-            variant.reason_code in {"original", "industry_cjk_gloss"}
+            variant.reason_code in {"cross_domain_fragment_focus", "original", "industry_cjk_gloss"}
             and _has_later_variant(variant=variant, variants=variants)
         )
     return False
@@ -1035,10 +1146,39 @@ def _is_mixed_supplemental_industry_retry_context(
     )
 
 
+def _is_mixed_primary_policy_variant_retry_context(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+) -> bool:
+    return (
+        plan.route_label == "mixed"
+        and plan.primary_route == "policy"
+        and step.source.source_id == "policy_official_registry"
+        and step.source.route == "policy"
+        and not step.source.is_supplemental
+    )
+
+
 def _has_industry_cjk_gloss_variant(
     variants: tuple[QueryVariant, ...],
 ) -> bool:
     return any(variant.reason_code == "industry_cjk_gloss" for variant in variants)
+
+
+def _has_primary_industry_document_retry_variant(
+    variants: tuple[QueryVariant, ...],
+) -> bool:
+    return any(
+        variant.reason_code in {"document_focus", "document_concept_focus", "core_focus"}
+        for variant in variants
+    )
+
+
+def _has_policy_fragment_variant(
+    variants: tuple[QueryVariant, ...],
+) -> bool:
+    return any(variant.reason_code == "cross_domain_fragment_focus" for variant in variants)
 
 
 def _has_later_variant(
@@ -1050,6 +1190,18 @@ def _has_later_variant(
         if candidate == variant:
             return index < len(variants) - 1
     return False
+
+
+def _is_primary_industry_document_retry_context(
+    *,
+    step: PlannedSourceStep,
+    plan: RetrievalPlan,
+    query: str,
+) -> bool:
+    if not _is_primary_industry_variant_retry_context(step=step, plan=plan):
+        return False
+    normalized_query = normalize_query_text(query)
+    return any(marker in normalized_query for marker in _PRIMARY_INDUSTRY_DOCUMENT_RETRY_MARKERS)
 
 
 async def _run_source_step(

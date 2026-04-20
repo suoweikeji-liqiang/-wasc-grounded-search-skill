@@ -87,7 +87,7 @@ def _cache_key_from_request(
 
 
 def _disk_cache(scope: CacheScope, *, config: LiveRetrievalConfig) -> FileTTLCache[object] | None:
-    if scope == "none":
+    if scope == "none" or not config.disk_cache_enabled:
         return None
     root_dir = str(Path(config.cache_dir))
     cache_key = (scope, root_dir)

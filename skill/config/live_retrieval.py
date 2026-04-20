@@ -61,6 +61,7 @@ class LiveRetrievalConfig:
     browser_enabled: bool = False
     browser_headless: bool = True
     fixture_shortcuts_enabled: bool = True
+    disk_cache_enabled: bool = False
     search_cache_ttl_seconds: int = 1800
     page_cache_ttl_seconds: int = 3600
     academic_cache_ttl_seconds: int = 86400
@@ -76,6 +77,10 @@ class LiveRetrievalConfig:
             fixture_shortcuts_enabled=_read_bool_env(
                 "WASC_LIVE_FIXTURE_SHORTCUTS_ENABLED",
                 True,
+            ),
+            disk_cache_enabled=_read_bool_env(
+                "WASC_LIVE_DISK_CACHE_ENABLED",
+                False,
             ),
             search_cache_ttl_seconds=_read_int_env(
                 "WASC_LIVE_SEARCH_CACHE_TTL_SECONDS",

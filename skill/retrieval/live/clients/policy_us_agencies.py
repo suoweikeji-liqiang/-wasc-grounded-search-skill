@@ -38,6 +38,9 @@ _US_POLICY_MARKERS: tuple[str, ...] = (
     "civil penalties",
     "laboratory developed tests",
     "cyber trust mark",
+    "waste emissions charge",
+    "methane fee",
+    "methane emissions reduction program",
 )
 _MIN_ALIGNMENT_SCORE = 7
 _GENERIC_POLICY_QUERY_TOKENS: frozenset[str] = frozenset(
@@ -266,11 +269,35 @@ _CATALOG: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "title": "Waste Emissions Charge (Methane Fee)",
+        "url": "https://www.epa.gov/inflation-reduction-act/waste-emissions-charge",
+        "snippet": (
+            "Official EPA methane fee / Waste Emissions Charge page covering "
+            "reporting timelines, prior WEC filing deadlines, and the current "
+            "status that the 2024 final rule was later disapproved under the "
+            "Congressional Review Act and is not in effect."
+        ),
+        "authority": "Environmental Protection Agency",
+        "jurisdiction": "US",
+        "publication_date": "2025-05-19",
+        "effective_date": None,
+        "version": "EPA status page",
+        "markers": (
+            "epa",
+            "waste emissions charge",
+            "methane fee",
+            "methane emissions reduction program",
+            "wec filings",
+            "reporting year",
+        ),
+    },
+    {
         "title": "Cyber Incident Reporting for Critical Infrastructure Act of 2022 (CIRCIA)",
         "url": "https://www.cisa.gov/resources-tools/resources/cyber-incident-reporting-critical-infrastructure-act-2022-circia",
         "snippet": (
-            "Official CISA CIRCIA resources on reporting timelines for covered "
-            "cyber incidents and ransomware payments."
+            "Official CISA CIRCIA resources: covered entities must report "
+            "covered cyber incidents within 72 hours and ransom payments "
+            "within 24 hours."
         ),
         "authority": "Cybersecurity and Infrastructure Security Agency",
         "jurisdiction": "US",
@@ -352,8 +379,9 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "snippet": (
             "Official SEC final rule materials describing cybersecurity risk "
             "management, strategy, governance, and incident disclosure, "
-            "including Form 8-K Item 1.05 and annual report disclosure "
-            "requirements."
+            "including Form 8-K Item 1.05, which requires material "
+            "cybersecurity incident disclosure within four business days, "
+            "plus annual report disclosure requirements."
         ),
         "authority": "Securities and Exchange Commission",
         "jurisdiction": "US",
@@ -369,6 +397,31 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "annual report disclosure",
             "risk management",
             "governance",
+        ),
+    },
+    {
+        "title": "Cybersecurity Risk Management, Strategy, Governance, and Incident Disclosure Compliance Guide",
+        "url": "https://www.sec.gov/resources-small-businesses/small-business-compliance-guides/cybersecurity-risk-management-strategy-governance-incident-disclosure",
+        "snippet": (
+            "Official SEC compliance guide: Form 8-K Item 1.05 requires domestic "
+            "registrants to disclose a material cybersecurity incident within four "
+            "business days after determining that the incident is material."
+        ),
+        "authority": "Securities and Exchange Commission",
+        "jurisdiction": "US",
+        "publication_date": "2023-08-30",
+        "effective_date": None,
+        "version": "Compliance guide",
+        "markers": (
+            "sec",
+            "cybersecurity disclosure",
+            "cyber risk disclosure",
+            "incident disclosure",
+            "item 1.05",
+            "form 8-k",
+            "four business days",
+            "compliance guide",
+            "material incident",
         ),
     },
     {

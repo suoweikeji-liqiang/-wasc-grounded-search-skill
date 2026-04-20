@@ -1529,7 +1529,17 @@ def _focus_term_overlap_count(
     if not terms or not text:
         return 0
     text_tokens = set(_content_tokens(text))
-    return sum(1 for term in terms if term in text_tokens)
+    overlap = 0
+    for term in terms:
+        if term in text_tokens:
+            overlap += 1
+            continue
+        if term.isascii() and len(term) >= 5 and term.endswith("s") and term[:-1] in text_tokens:
+            overlap += 1
+            continue
+        if term.isascii() and len(term) >= 4 and f"{term}s" in text_tokens:
+            overlap += 1
+    return overlap
 
 
 def _trim_snippet_words(
@@ -1719,6 +1729,17 @@ async def _rank_live_candidate(
             )
     except Exception:
         page_text = ""
+    if use_query_aligned_fetch and not page_text.strip():
+        try:
+            page_text = await fetch_page_text(
+                url=url,
+                browser_enabled=config.browser_enabled,
+                browser_headless=config.browser_headless,
+                timeout_seconds=max(0.8, _PAGE_FETCH_TIMEOUT_SECONDS),
+                max_chars=1200,
+            )
+        except Exception:
+            page_text = ""
     if engine == "google_news_rss" and force_fetch and not page_text.strip():
         return None
     page_focus_overlap = _focus_term_overlap_count(
@@ -2345,9 +2366,12 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
 
     should_query_sec = _should_query_sec(query)
     known_company_submission_target = (
+        should_query_sec and has_known_company_submission_target(query)
+    )
+    company_submission_target = (
         should_query_sec
         and (
-            has_known_company_submission_target(query)
+            known_company_submission_target
             or await has_company_submission_target(query)
         )
     )
@@ -2368,6 +2392,11 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
                 query=query,
                 max_results=3,
             )
+        elif company_submission_target:
+            sec_records = await _search_fastest_sec_records(
+                query=query,
+                max_results=3,
+            )
         else:
             sec_records = await _search_fastest_sec_records(
                 query=query,
@@ -2375,7 +2404,7 @@ async def search_official_or_filings_live(query: str) -> list[RetrievalHit]:
             )
 
     if sec_records and (
-        known_company_submission_target
+        company_submission_target
         or _sec_record_matches_query_company(query, sec_records[0])
     ):
         top_record = sec_records[0]
@@ -2466,9 +2495,12 @@ async def search_live(query: str) -> list[RetrievalHit]:
 
     should_query_sec = _should_query_sec(query)
     known_company_submission_target = (
+        should_query_sec and has_known_company_submission_target(query)
+    )
+    company_submission_target = (
         should_query_sec
         and (
-            has_known_company_submission_target(query)
+            known_company_submission_target
             or await has_company_submission_target(query)
         )
     )
@@ -2505,6 +2537,11 @@ async def search_live(query: str) -> list[RetrievalHit]:
     if should_query_sec:
         if known_company_submission_target:
             sec_records = await _search_prioritized_sec_records(
+                query=query,
+                max_results=3,
+            )
+        elif company_submission_target:
+            sec_records = await _search_fastest_sec_records(
                 query=query,
                 max_results=3,
             )

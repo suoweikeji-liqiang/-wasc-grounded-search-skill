@@ -186,6 +186,82 @@ _INDUSTRY_LOOKUP_PHRASES = frozenset(
 _INDUSTRY_EXPLANATORY_MARKERS = frozenset(
     {"what", "how", "why", "impact", "effect", "summary", "summarize"}
 )
+_INDUSTRY_DIRECT_TEXT_QUERY_MARKERS = frozenset(
+    {
+        "definition",
+        "definitions",
+        "defined",
+        "status",
+        "statuses",
+        "meaning",
+        "means",
+        "wording",
+        "language",
+        "exact language",
+        "define",
+        "what is",
+        "what are",
+        "\u5b9a\u4e49",
+        "\u53e3\u5f84",
+        "\u63aa\u8f9e",
+    }
+)
+_INDUSTRY_DIRECT_TEXT_EVIDENCE_MARKERS = frozenset(
+    {
+        "definition",
+        "defined as",
+        "defined",
+        "means",
+        "refers to",
+        "consists of",
+        "represents",
+        "wording",
+        "language",
+        "\u5b9a\u4e49",
+        "\u53e3\u5f84",
+        "\u63aa\u8f9e",
+    }
+)
+_INDUSTRY_METADATA_ONLY_MARKERS = frozenset(
+    {
+        "official sec filing",
+        "form 10-k filing",
+        "form 10-q filing",
+        "form 20-f filing",
+        "form 6-k filing",
+        "annual report filing",
+        "quarterly report filing",
+        "filed",
+        "report period",
+    }
+)
+_INDUSTRY_DIRECT_TEXT_BOILERPLATE_TERMS = frozenset(
+    {
+        "official",
+        "annual",
+        "form",
+        "filing",
+        "filed",
+        "official",
+        "period",
+        "quarterly",
+        "report",
+        "definitions",
+        "definition",
+        "language",
+        "meaning",
+        "official",
+        "what",
+        "wording",
+        "2024",
+        "2025",
+        "2026",
+        "10-k",
+        "10-q",
+        "20-f",
+        "6-k",
+    }
+)
 _POLICY_LOOKUP_MARKERS = frozenset(
     {
         "latest",
@@ -220,16 +296,20 @@ _POLICY_LOOKUP_MARKERS = frozenset(
         "nist",
         "fda",
         "fcc",
+        "doj",
         "epa",
         "ftc",
         "ofcom",
         "cisa",
         "circia",
+        "data security program",
         "pccp",
         "cgmp",
         "oai",
         "vai",
         "nai",
+        "sec",
+        "item 1.05",
         "\u6700\u65b0",
         "\u7248\u672c",
         "\u751f\u6548",
@@ -338,6 +418,17 @@ _CROSS_DOMAIN_EFFECT_MARKERS = frozenset(
 )
 _POLICY_EXEMPTION_MARKERS = frozenset(
     {"exemption", "exemptions", "scenario", "scenarios", "\u8c41\u514d", "\u573a\u666f"}
+)
+_POLICY_EXEMPTION_RECORD_MARKERS = frozenset(
+    {
+        "exemption",
+        "exemptions",
+        "sme",
+        "smes",
+        "does not apply",
+        "eur 40 million",
+        "\u8c41\u514d",
+    }
 )
 _POLICY_CHANGE_MARKERS = frozenset(
     {
@@ -814,6 +905,22 @@ def _academic_fast_path_match_allowed(
     return alignment_score >= max(5, required_overlap * 3)
 
 
+def _academic_partial_match_allowed(
+    query: str,
+    *,
+    record: CanonicalEvidence,
+    matched_slice: EvidenceSlice,
+) -> bool:
+    query_terms = _academic_focus_terms(query)
+    if not query_terms:
+        return True
+
+    combined_terms = _academic_focus_terms(record.canonical_title)
+    combined_terms.update(_academic_focus_terms(matched_slice.text))
+    required_overlap = min(1, len(query_terms))
+    return len(query_terms & combined_terms) >= required_overlap
+
+
 def _academic_fast_path_runtime_ok(retrieval_response: RetrieveResponse) -> bool:
     if retrieval_response.status == "success":
         return True
@@ -895,6 +1002,67 @@ def _is_industry_lookup_query(query: str) -> bool:
     )
 
 
+def _industry_query_requires_direct_text_answer(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    return any(marker in normalized for marker in _INDUSTRY_DIRECT_TEXT_QUERY_MARKERS)
+
+
+def _industry_direct_text_terms(query: str) -> set[str]:
+    return {
+        token
+        for token in _content_terms(query)
+        if token not in _INDUSTRY_DIRECT_TEXT_BOILERPLATE_TERMS
+        and not (token.isdigit() and len(token) == 4)
+    }
+
+
+def _industry_match_supports_direct_text_answer(
+    query: str,
+    *,
+    record: CanonicalEvidence,
+    matched_slice: EvidenceSlice,
+) -> bool:
+    if not _industry_query_requires_direct_text_answer(query):
+        return True
+
+    normalized_text = normalize_query_text(
+        " ".join((record.canonical_title, matched_slice.text))
+    )
+    substantive_terms = _industry_direct_text_terms(query)
+    overlap = len(substantive_terms & _content_terms(normalized_text))
+    has_direct_text_marker = any(
+        marker in normalized_text for marker in _INDUSTRY_DIRECT_TEXT_EVIDENCE_MARKERS
+    )
+    has_metadata_only_marker = any(
+        marker in normalized_text for marker in _INDUSTRY_METADATA_ONLY_MARKERS
+    )
+
+    if has_metadata_only_marker and not has_direct_text_marker:
+        return False
+    if has_direct_text_marker:
+        return True
+    return overlap >= max(2, min(3, len(substantive_terms)))
+
+
+def _industry_canonical_evidence_supports_direct_text_answer(
+    query: str,
+    canonical_evidence: tuple[CanonicalEvidence, ...],
+) -> bool:
+    if not _industry_query_requires_direct_text_answer(query):
+        return True
+    for record in canonical_evidence:
+        if record.domain != "industry":
+            continue
+        for matched_slice in record.retained_slices:
+            if _industry_match_supports_direct_text_answer(
+                query,
+                record=record,
+                matched_slice=matched_slice,
+            ):
+                return True
+    return False
+
+
 def _is_cross_domain_effect_query(query: str) -> bool:
     normalized = normalize_query_text(query)
     return any(marker in normalized for marker in _CROSS_DOMAIN_EFFECT_MARKERS) or (
@@ -964,9 +1132,6 @@ def _select_academic_lookup_matches(
         *match_groups,
         limit=_academic_lookup_candidate_limit(query),
     )
-    if desired_limit <= 2 or len(combined_matches) <= 2:
-        return combined_matches[:desired_limit]
-
     best_alignment = _partial_match_alignment_score(query, combined_matches[0][0])
     selected = list(combined_matches[:2])
     for record, matched_slice, slice_overlap in combined_matches[2:]:
@@ -2007,9 +2172,10 @@ def _best_policy_lookup_record(
     needs_version = traits.has_version_intent
     needs_effective_date = traits.has_effective_date_intent
     needs_policy_change = traits.is_policy_change
+    needs_exemption = _query_contains_marker(query, _POLICY_EXEMPTION_MARKERS)
 
     best_record: CanonicalEvidence | None = None
-    best_candidate = (-1, -1, -1, -1, "", "", "")
+    best_candidate = (-1, -1, -1, -1, -1, "", "", "")
     for record in canonical_evidence:
         if record.domain != "policy" or not record.retained_slices:
             continue
@@ -2028,10 +2194,22 @@ def _best_policy_lookup_record(
             version=record.version,
             year=record.year,
         )
+        record_text = normalize_query_text(
+            " ".join(
+                (
+                    record.canonical_title,
+                    *[slice_.text for slice_ in record.retained_slices],
+                )
+            )
+        )
+        has_exemption_signal = int(
+            any(marker in record_text for marker in _POLICY_EXEMPTION_RECORD_MARKERS)
+        )
         candidate = (
             has_version if needs_version else 1,
             has_effective_date if needs_effective_date else 1,
             int(alignment_score > 0) if needs_policy_change else 1,
+            has_exemption_signal if needs_exemption else 1,
             alignment_score,
             record.publication_date or "",
             record.effective_date or "",
@@ -2065,6 +2243,23 @@ def _best_policy_lookup_record(
         if alignment_score <= 0:
             return None
     return best_record
+
+
+def _filter_supporting_policy_matches(
+    query: str,
+    supporting_matches: tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...],
+) -> tuple[tuple[CanonicalEvidence, EvidenceSlice, int], ...]:
+    if not _query_contains_marker(query, _POLICY_EXEMPTION_MARKERS):
+        return supporting_matches
+
+    filtered: list[tuple[CanonicalEvidence, EvidenceSlice, int]] = []
+    for record, record_slice, overlap in supporting_matches:
+        record_text = normalize_query_text(
+            " ".join((record.canonical_title, record_slice.text))
+        )
+        if any(marker in record_text for marker in _POLICY_EXEMPTION_RECORD_MARKERS):
+            filtered.append((record, record_slice, overlap))
+    return tuple(filtered)
 
 
 def _is_single_source_authoritative_policy_lookup(
@@ -2409,6 +2604,12 @@ def _select_partial_evidence_matches(
             return
         if _should_filter_low_value_industry_record(query, record):
             return
+        if record.domain == "academic" and not _academic_partial_match_allowed(
+            query,
+            record=record,
+            matched_slice=slice_,
+        ):
+            return
         if record.evidence_id in seen_evidence_ids:
             return
         seen_evidence_ids.add(record.evidence_id)
@@ -2543,6 +2744,18 @@ def _partial_query_requirements(
     has_policy = any(record.domain == "policy" for record in canonical_evidence)
 
     if retrieval_response.route_label == "mixed":
+        if retrieval_response.supplemental_route is not None:
+            mixed_variants = build_query_variants(
+                query=query,
+                route_label="mixed",
+                primary_route=retrieval_response.primary_route,  # type: ignore[arg-type]
+                supplemental_route=retrieval_response.supplemental_route,  # type: ignore[arg-type]
+                target_route=retrieval_response.supplemental_route,  # type: ignore[arg-type]
+                variant_limit=5,
+            )
+            for variant in mixed_variants:
+                if variant.reason_code == "cross_domain_fragment_focus":
+                    return (variant.query,)
         return (
             ("政策变化如何传导到供应链投资、支出类别或时间节奏",)
             if use_cjk
@@ -2562,6 +2775,18 @@ def _partial_query_requirements(
                 "player-level shares or scenarios",
                 "an aligned forecast horizon",
                 "segment or regional coverage",
+            )
+        )
+    if has_industry and _industry_query_requires_direct_text_answer(query):
+        return (
+            (
+                "the exact definition, wording, or disclosure text requested",
+                "the filing section, note, or risk-factor passage where it appears",
+            )
+            if not use_cjk
+            else (
+                "鐩存帴瀵瑰簲闂鐨勫畾涔夈€佸彛寰勬垨鍘熸枃鎻忚堪",
+                "瀵瑰簲鐨勬姭琛ㄦ钀芥垨娉ㄩ噴浣嶇疆",
             )
         )
     if has_industry and traits.has_trend_intent:
@@ -2681,6 +2906,36 @@ def _build_mixed_partial_bridge_note(
     use_cjk: bool,
 ) -> str:
     domains = {record.domain for record in canonical_evidence}
+    if domains == {"policy"}:
+        if use_cjk:
+            return (
+                "\u5f53\u524d\u4fdd\u7559\u8bc1\u636e\u53ea\u80fd\u652f\u6301\u653f\u7b56\u4fa7\u90a3\u4e00\u534a\uff0c"
+                "\u8fd8\u6ca1\u6709\u4e0e\u4e4b\u5bf9\u5e94\u7684\u4ea7\u4e1a\u6216\u5e73\u53f0\u4fa7\u8bc1\u636e\u3002"
+            )
+        return (
+            "Current evidence only covers the policy side; no same-topic industry or platform "
+            "evidence was retained for the other half of the query."
+        )
+    if domains == {"industry"}:
+        if use_cjk:
+            return (
+                "\u5f53\u524d\u4fdd\u7559\u8bc1\u636e\u53ea\u80fd\u652f\u6301\u4ea7\u4e1a\u6216\u5e73\u53f0\u4fa7"
+                "\u90a3\u4e00\u534a\uff0c\u8fd8\u6ca1\u6709\u5bf9\u5e94\u7684\u5b98\u65b9\u653f\u7b56\u8bc1\u636e\u3002"
+            )
+        return (
+            "Current evidence only covers the industry or platform side; no official policy "
+            "evidence was retained for the other half of the query."
+        )
+    if domains == {"academic"}:
+        if use_cjk:
+            return (
+                "\u5f53\u524d\u4fdd\u7559\u8bc1\u636e\u53ea\u80fd\u652f\u6301\u7814\u7a76\u4fa7\u90a3\u4e00\u534a\uff0c"
+                "\u8fd8\u6ca1\u6709\u4e0e\u4e4b\u5bf9\u5e94\u7684\u653f\u7b56\u6216\u4ea7\u4e1a\u8bc1\u636e\u3002"
+            )
+        return (
+            "Current evidence only covers the research side; the paired policy or industry "
+            "evidence is still missing."
+        )
     if "policy" in domains and "industry" in domains:
         if use_cjk:
             return (
@@ -2882,6 +3137,12 @@ def _build_partial_conclusion(
                 f"这能支持一个部分答案，但完整回答这个问题仍需要{missing_summary}."
                 f"{requirement_note}{contextual_note}"
             )
+        if len({record.domain for record in canonical_evidence}) == 1:
+            return (
+                f"Current sources only cover one side of the query so far: {confirmed_summary}. "
+                f"{bridge_note} "
+                f"A complete answer would still need {missing_summary}.{requirement_note}{contextual_note}"
+            )
         return (
             f"Taken together, current sources show these parallel signals: {confirmed_summary}. "
             f"{bridge_note} "
@@ -3003,9 +3264,69 @@ def _build_partial_response_payload(
     return conclusion, key_points[:2], sources[:2]
 
 
+def _build_next_useful_evidence_note(
+    *,
+    query: str,
+    retrieval_response: RetrieveResponse,
+    use_cjk: bool,
+) -> str:
+    if retrieval_response.route_label == "mixed":
+        return (
+            "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細涓€浠藉畼鏂规斂绛栨潯鏂囷紝鍐嶅姞涓€鏉″悓涓婚鐨勫叕鍙搞€佸钩鍙版垨琛屼笟鏉ユ簮锛岀洿鎺ュ洖绛旈棶棰樼殑鍙︿竴鍗婂唴瀹广€?"
+            if use_cjk
+            else (
+                "Next useful evidence: one official policy source plus one same-topic company, "
+                "platform, or industry source that directly answers the other half of the query."
+            )
+        )
+    if retrieval_response.primary_route == "academic":
+        if _query_contains_marker(query, _ACADEMIC_BENCHMARK_MARKERS):
+            return (
+                "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細涓€绡囩洿鎺ョ浉鍏崇殑 benchmark 璁烘枃锛屽寘鍚换鍔°€佹暟鎹泦鎴栧熀绾挎寚鏍囥€?"
+                if use_cjk
+                else (
+                    "Next useful evidence: a directly relevant benchmark paper with task, "
+                    "dataset, or baseline details."
+                )
+            )
+        return (
+            "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細涓€绡囩洿鎺ョ浉鍏崇殑瀛︽湳璁烘枃鎴栧熀绾褰曘€?"
+            if use_cjk
+            else "Next useful evidence: a directly relevant scholarly paper or benchmark record."
+        )
+    if retrieval_response.primary_route == "policy":
+        return (
+            "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細鐩存帴鍐欏嚭鎵€闂姹傘€侀檺鏈熸垨鑼冨洿鐨勫畼鏂规潯鏂囥€佹寚鍗楁垨鏈烘瀯鏂囨湰銆?"
+            if use_cjk
+            else (
+                "Next useful evidence: the official rule, clause, guidance, or agency text "
+                "that directly states the requested requirement."
+            )
+        )
+    if _industry_query_requires_direct_text_answer(query):
+        return (
+            "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細鎶ヨ〃涓洿鎺ュ啓鍑烘墍闂畾涔夈€佸彛寰勬垨鍘熸枃鎻忚堪鐨勬钀斤紝涓嶆槸浠呬粎鎶ヨ〃鍏ュ彛淇℃伅銆?"
+            if use_cjk
+            else (
+                "Next useful evidence: the filing sentence or section that directly states the "
+                "requested definition or wording, not just filing metadata."
+            )
+        )
+    return (
+        "涓嬩竴鏉℃湁鐢ㄨ瘉鎹細涓€鏉＄洿鎺ュ啓鍑烘墍闂簨瀹炵殑鍘熷鏉ユ簮鏂囨銆?"
+        if use_cjk
+        else (
+            "Next useful evidence: a company filing, official disclosure, or standards passage "
+            "that directly states the requested fact."
+        )
+    )
+
+
 def _build_retrieval_failure_response(
     retrieval_response: RetrieveResponse,
     canonical_evidence: tuple[CanonicalEvidence, ...],
+    *,
+    query: str,
 ) -> AnswerResponse:
     uncertainty_notes = build_uncertainty_notes(
         retrieval_status=retrieval_response.status,
@@ -3015,6 +3336,7 @@ def _build_retrieval_failure_response(
         canonical_evidence=canonical_evidence,
         citation_issues=(),
     )
+    use_cjk = _query_uses_cjk(query)
     return AnswerResponse(
         answer_status="retrieval_failure",
         retrieval_status=retrieval_response.status,
@@ -3023,10 +3345,21 @@ def _build_retrieval_failure_response(
         primary_route=retrieval_response.primary_route,
         supplemental_route=retrieval_response.supplemental_route,
         browser_automation="disabled",
-        conclusion="Retrieval failed before a grounded answer could be produced.",
+        conclusion=(
+            "Retrieval ended before a grounded answer could be produced from primary sources."
+            if not use_cjk
+            else "鍦ㄤ富瑕佹潵婧愯繑鍥炲彲鐢ㄨ瘉鎹箣鍓嶏紝妫€绱㈠凡缁撴潫锛屽洜姝ゆ湭鑳界敓鎴愭湁鏉ユ簮鏍规嵁鐨勫洖绛斻€?"
+        ),
         key_points=[],
         sources=[],
-        uncertainty_notes=list(uncertainty_notes),
+        uncertainty_notes=[
+            _build_next_useful_evidence_note(
+                query=query,
+                retrieval_response=retrieval_response,
+                use_cjk=use_cjk,
+            ),
+            *list(uncertainty_notes),
+        ],
         gaps=list(retrieval_response.gaps),
     )
 
@@ -3102,7 +3435,15 @@ def _build_academic_no_support_response(
         conclusion=conclusion,
         key_points=[],
         sources=[],
-        uncertainty_notes=[lookup_note, *uncertainty_notes],
+        uncertainty_notes=[
+            lookup_note,
+            _build_next_useful_evidence_note(
+                query=query,
+                retrieval_response=retrieval_response,
+                use_cjk=_query_uses_cjk(query),
+            ),
+            *uncertainty_notes,
+        ],
         gaps=list(retrieval_response.gaps),
     )
 
@@ -3827,10 +4168,13 @@ def _build_local_answer_candidate(
     )
     supporting_policy_matches = ()
     if matched_policy_record is not None:
-        supporting_policy_matches = tuple(
-            match
-            for match in policy_matches
-            if match[0].evidence_id != matched_policy_record.evidence_id
+        supporting_policy_matches = _filter_supporting_policy_matches(
+            query,
+            tuple(
+                match
+                for match in policy_matches
+                if match[0].evidence_id != matched_policy_record.evidence_id
+            ),
         )
     primary_route_matches = _top_route_matches(
         query,
@@ -3966,6 +4310,11 @@ def _build_local_answer_candidate(
         and industry_matches[0][0] is not None
         and industry_matches[0][1] is not None
         and industry_matches[0][2] >= min(2, len(query_terms))
+        and _industry_match_supports_direct_text_answer(
+            query,
+            record=industry_matches[0][0],
+            matched_slice=industry_matches[0][1],
+        )
         and (
             not require_clean_runtime
             or not retrieval_response.gaps
@@ -4631,6 +4980,7 @@ async def _execute_answer_pipeline_body(
         response = _build_retrieval_failure_response(
             retrieval_response,
             canonical_evidence,
+            query=query,
         )
         answer_token_estimate = _estimate_response_tokens(response)
         return _build_answer_execution_result(
@@ -4849,6 +5199,37 @@ async def _execute_answer_pipeline_body(
         query,
         canonical_evidence,
         primary_route=retrieval_response.primary_route,
+    ):
+        response = _build_relevance_gated_response(
+            retrieval_response,
+            canonical_evidence,
+            query=query,
+        )
+        answer_token_estimate = _estimate_response_tokens(response)
+        return _build_answer_execution_result(
+            plan=retrieval_plan,
+            request_id=request_id,
+            response=response,
+            retrieval_response=retrieval_response,
+            canonical_evidence=canonical_evidence,
+            retrieval_elapsed_seconds=retrieval_elapsed_seconds,
+            synthesis_elapsed_seconds=0.0,
+            evidence_token_estimate=evidence_token_estimate,
+            answer_token_estimate=answer_token_estimate,
+            runtime_budget=budget,
+            budget_exhausted_phase=None,
+            retrieval_trace=retrieval_trace,
+        )
+
+    if (
+        retrieval_response.route_label != "mixed"
+        and retrieval_response.primary_route == "industry"
+        and canonical_evidence
+        and _industry_query_requires_direct_text_answer(query)
+        and not _industry_canonical_evidence_supports_direct_text_answer(
+            query,
+            canonical_evidence,
+        )
     ):
         response = _build_relevance_gated_response(
             retrieval_response,

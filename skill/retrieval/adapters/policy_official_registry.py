@@ -371,6 +371,12 @@ def _prefer_direct_policy_sources(query: str) -> bool:
         "business impersonation",
         "impersonation of government and businesses",
         "civil penalties",
+        "battery regulation",
+        "battery passport",
+        "recycled content",
+        "waste emissions charge",
+        "methane fee",
+        "methane emissions reduction program",
         "online safety act",
         "legislation.gov.uk",
         "ofcom",
@@ -392,6 +398,7 @@ async def _search_direct_policy_sources(
         asyncio.create_task(search_us_policy_agencies(query=query, max_results=5)),
         asyncio.create_task(search_uk_legislation(query=query, max_results=5)),
     )
+
     try:
         gathered = await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:

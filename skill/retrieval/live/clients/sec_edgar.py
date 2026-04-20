@@ -66,6 +66,10 @@ _TRAILING_DESCRIPTOR_TOKENS: frozenset[str] = frozenset(
 )
 _KNOWN_COMPANIES: tuple[dict[str, object], ...] = (
     {
+        "aliases": ("apple",),
+        "cik": "0000320193",
+    },
+    {
         "aliases": ("alphabet", "google"),
         "cik": "1652044",
     },
@@ -82,6 +86,18 @@ _KNOWN_COMPANIES: tuple[dict[str, object], ...] = (
         "cik": "1108524",
     },
     {
+        "aliases": ("tesla", "tesla inc"),
+        "cik": "0001318605",
+    },
+    {
+        "aliases": ("amd", "advanced micro devices"),
+        "cik": "0000002488",
+    },
+    {
+        "aliases": ("asml", "asml holding"),
+        "cik": "0000937966",
+    },
+    {
         "aliases": ("qualcomm",),
         "cik": "804328",
     },
@@ -90,8 +106,16 @@ _KNOWN_COMPANIES: tuple[dict[str, object], ...] = (
         "cik": "1141391",
     },
     {
+        "aliases": ("visa",),
+        "cik": "0001403161",
+    },
+    {
         "aliases": ("delta air lines",),
         "cik": "27904",
+    },
+    {
+        "aliases": ("united airlines", "united airlines holdings"),
+        "cik": "0000100517",
     },
     {
         "aliases": ("chevron",),

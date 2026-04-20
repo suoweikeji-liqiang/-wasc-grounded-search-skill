@@ -78,9 +78,12 @@ def test_fetch_json_reuses_persistent_academic_cache_across_module_reload(
     tmp_path,
 ) -> None:
     monkeypatch.setenv("WASC_LIVE_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("WASC_LIVE_DISK_CACHE_ENABLED", "1")
     monkeypatch.setenv("WASC_LIVE_ACADEMIC_CACHE_TTL_SECONDS", "600")
 
     from skill.retrieval.live.clients import http as http_client
+    http_client._MEMORY_CACHES["academic"]._entries.clear()
+    http_client._DISK_CACHES.clear()
 
     observed_calls = 0
 

@@ -18,9 +18,10 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "title": "Regulation (EU) 2024/1689 (AI Act / Reglement UE 2024 1689)",
         "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng",
         "snippet": (
-            "Official AI Act / Reglement UE 2024 1689 text in the Official "
-            "Journal, including the definition of an AI system (systeme d ia) "
-            "and phased obligation timelines."
+            "Official AI Act text: deployers of an AI system that generates or "
+            "manipulates image, audio or video content constituting a deep fake "
+            "shall disclose that the content has been artificially generated or "
+            "manipulated."
         ),
         "authority": "European Union",
         "jurisdiction": "EU",
@@ -37,21 +38,39 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "general purpose ai",
             "gpa i",
             "foundation model",
+            "deepfake",
+            "deep fake",
+            "disclosure",
+            "article 50",
+            "artificially generated",
+            "manipulated",
         ),
     },
     {
         "title": "Directive (EU) 2022/2555 (NIS2 Directive)",
         "url": "https://eur-lex.europa.eu/eli/dir/2022/2555/2022-12-27/eng",
         "snippet": (
-            "Official NIS2 directive text including Member State transposition "
-            "deadline requirements."
+            "Official NIS2 directive text: within 24 hours of becoming aware "
+            "of the significant incident, an early warning shall be submitted."
         ),
         "authority": "European Union",
         "jurisdiction": "EU",
         "publication_date": "2022-12-27",
         "effective_date": "2023-01-16",
         "version": "Official Journal text",
-        "markers": ("nis2", "2022/2555", "cybersecurity directive", "transposition deadline"),
+        "markers": (
+            "nis2",
+            "2022/2555",
+            "cybersecurity directive",
+            "transposition deadline",
+            "significant incident",
+            "early warning",
+            "24 hours",
+            "incident reporting",
+            "incident reporting deadlines",
+            "notification timeline",
+            "article 23",
+        ),
     },
     {
         "title": "Regulation (EU) 2022/2065 (Digital Services Act)",
@@ -63,6 +82,25 @@ _CATALOG: tuple[dict[str, object], ...] = (
         "effective_date": "2022-11-16",
         "version": "Official Journal text",
         "markers": ("dsa", "digital services act", "2022/2065", "very large online platforms"),
+        "snippet_variants": (
+            {
+                "snippet": (
+                    "Official Digital Services Act text: providers of online platforms "
+                    "shall ensure that traders can only use those platforms to promote "
+                    "messages on or to offer products or services to consumers located in "
+                    "the Union if, prior to the use of its services, the provider has "
+                    "obtained trader identity and contact information for the traceability "
+                    "of traders."
+                ),
+                "markers": (
+                    "trader traceability",
+                    "traceability of traders",
+                    "traders",
+                    "identity and contact information",
+                    "before allowing traders",
+                ),
+            },
+        ),
     },
     {
         "title": "Regulation (EU) 2022/1925 (Digital Markets Act)",
@@ -84,6 +122,51 @@ _CATALOG: tuple[dict[str, object], ...] = (
             "designated gatekeepers",
             "core platform services",
             "messaging interoperability",
+        ),
+    },
+    {
+        "title": "Regulation (EU) 2023/1542 (Battery Regulation)",
+        "url": "https://eur-lex.europa.eu/eli/reg/2023/1542/oj/eng",
+        "snippet": (
+            "Official Battery Regulation text covering recycled content "
+            "information, carbon footprint declarations, due diligence "
+            "obligations, and the battery passport for electric vehicle and "
+            "industrial batteries."
+        ),
+        "authority": "European Union",
+        "jurisdiction": "EU",
+        "publication_date": "2023-07-28",
+        "effective_date": "2023-08-17",
+        "version": "Official Journal text",
+        "markers": (
+            "battery regulation",
+            "2023/1542",
+            "2023 1542",
+            "recycled content",
+            "battery passport",
+            "carbon footprint",
+            "due diligence",
+            "ev batteries",
+            "waste batteries",
+        ),
+        "snippet_variants": (
+            {
+                "snippet": (
+                    "Official Battery Regulation text: this Chapter does not apply to "
+                    "economic operators that had a net turnover of less than EUR 40 "
+                    "million in the financial year preceding the last financial year, "
+                    "and that are not part of a group which exceeds the limit of EUR 40 "
+                    "million on a consolidated basis."
+                ),
+                "markers": (
+                    "sme",
+                    "smes",
+                    "exemption",
+                    "due diligence",
+                    "eur 40 million",
+                    "does not apply",
+                ),
+            },
         ),
     },
     {
@@ -207,8 +290,19 @@ def _cache_key(query: str, *, max_results: int) -> str:
 
 def _record_score(query: str, record: dict[str, object]) -> int:
     normalized = query.lower()
-    markers = tuple(str(item).lower() for item in record.get("markers", ()))
-    marker_hits = sum(1 for marker in markers if marker and marker in normalized)
+    marker_groups = [tuple(str(item).lower() for item in record.get("markers", ()))]
+    marker_groups.extend(
+        tuple(str(item).lower() for item in variant.get("markers", ()))
+        for variant in record.get("snippet_variants", ())
+        if isinstance(variant, dict)
+    )
+    marker_hits = max(
+        (
+            sum(1 for marker in markers if marker and marker in normalized)
+            for markers in marker_groups
+        ),
+        default=0,
+    )
     if marker_hits > 0:
         return marker_hits
     if any(marker in normalized for marker in _EU_MARKERS):
@@ -221,11 +315,38 @@ def _record_score(query: str, record: dict[str, object]) -> int:
     return 0
 
 
-def _materialize(record: dict[str, object]) -> dict[str, object]:
+def _selected_snippet(query: str, record: dict[str, object]) -> str:
+    normalized = query.lower()
+    selected_snippet = str(record["snippet"])
+    base_markers = tuple(str(item).lower() for item in record.get("markers", ()))
+    best_hits = sum(1 for marker in base_markers if marker and marker in normalized)
+    best_marker_length = max(
+        (len(marker) for marker in base_markers if marker and marker in normalized),
+        default=0,
+    )
+    for variant in record.get("snippet_variants", ()):
+        if not isinstance(variant, dict):
+            continue
+        markers = tuple(str(item).lower() for item in variant.get("markers", ()))
+        marker_hits = sum(1 for marker in markers if marker and marker in normalized)
+        marker_length = max(
+            (len(marker) for marker in markers if marker and marker in normalized),
+            default=0,
+        )
+        if marker_hits > best_hits or (
+            marker_hits == best_hits and marker_hits > 0 and marker_length > best_marker_length
+        ):
+            best_hits = marker_hits
+            best_marker_length = marker_length
+            selected_snippet = str(variant.get("snippet") or selected_snippet)
+    return selected_snippet
+
+
+def _materialize(record: dict[str, object], *, query: str) -> dict[str, object]:
     return {
         "title": str(record["title"]),
         "url": str(record["url"]),
-        "snippet": str(record["snippet"]),
+        "snippet": _selected_snippet(query, record),
         "authority": str(record["authority"]),
         "jurisdiction": str(record["jurisdiction"]),
         "publication_date": str(record["publication_date"]),
@@ -258,6 +379,9 @@ async def search_eur_lex(
         key=lambda item: (item[0], str(item[1]["publication_date"]), str(item[1]["url"])),
         reverse=True,
     )
-    results = [_materialize(record) for _, record in ranked[: max(1, max_results)]]
+    results = [
+        _materialize(record, query=normalized_query)
+        for _, record in ranked[: max(1, max_results)]
+    ]
     _CACHE.set(key, results, ttl_seconds=config.search_cache_ttl_seconds)
     return results

@@ -38,6 +38,24 @@ _FOCUS_TERM_STOPWORDS = frozenset(
     }
 )
 _SHORT_FOCUS_TOKENS = frozenset({"rfc", "cet1"})
+_CODE_LIKE_QUERY_MARKERS = (
+    "abnf",
+    "exact string",
+    "exact token",
+    "field line",
+    "grammar",
+    "syntax",
+    "token",
+)
+_FILING_METADATA_MARKERS = (
+    "official sec filing",
+    "report period",
+    "filed ",
+    "form 10-k filing",
+    "form 10-q filing",
+    "form 20-f filing",
+    "form 6-k filing",
+)
 
 
 def _clean_text(text: str) -> str:
@@ -103,6 +121,11 @@ def _page_segments(page_text: str) -> list[str]:
     if segments:
         return segments
     return [cleaned]
+
+
+def _query_prefers_code_like_excerpt(query: str) -> bool:
+    normalized = normalize_query_text(query)
+    return any(marker in normalized for marker in _CODE_LIKE_QUERY_MARKERS)
 
 
 def _windowed_excerpt(text: str, *, max_chars: int) -> str:
@@ -230,6 +253,11 @@ def _excerpt_rank(
     )
 
 
+def _looks_like_filing_metadata_snippet(text: str) -> bool:
+    normalized = normalize_query_text(text)
+    return any(marker in normalized for marker in _FILING_METADATA_MARKERS)
+
+
 def _best_fact_dense_page_excerpt(
     *,
     query: str,
@@ -305,6 +333,12 @@ def build_industry_snippet(
     if not page_excerpt:
         return candidate
 
+    if _looks_like_filing_metadata_snippet(candidate):
+        candidate_overlap = _overlap_score(query, candidate)
+        page_overlap = _overlap_score(query, page_excerpt)
+        if page_overlap > candidate_overlap:
+            return page_excerpt
+
     candidate_rank = _excerpt_rank(query=query, text=candidate, max_chars=max_chars)
     page_rank = _excerpt_rank(query=query, text=page_excerpt, max_chars=max_chars)
     if candidate_rank >= page_rank:
@@ -323,6 +357,9 @@ def extract_query_aligned_page_excerpt(
     soup = BeautifulSoup(html, "html.parser")
     for node in soup(["script", "style", "noscript"]):
         node.decompose()
+    if not _query_prefers_code_like_excerpt(query):
+        for node in soup(["pre", "code"]):
+            node.decompose()
 
     chunks: list[str] = []
     if soup.title:
@@ -354,20 +391,28 @@ def extract_query_aligned_page_excerpt(
         window_start = max(0, index - 8)
         window_end = min(len(chunks), index + 18)
         window_text = " ".join(chunks[window_start:window_end])
-        compact_window = _best_focus_word_window(
-            text=window_text,
-            focus_terms=focus_terms,
-            max_chars=max_chars,
+        excerpt_candidates = (
+            _best_focus_word_window(
+                text=chunk,
+                focus_terms=focus_terms,
+                max_chars=max_chars,
+            ),
+            _best_focus_word_window(
+                text=window_text,
+                focus_terms=focus_terms,
+                max_chars=max_chars,
+            ),
         )
-        candidate = (
-            _overlap_terms(focus_terms, compact_window),
-            _overlap_terms(query_terms, compact_window),
-            focus_overlap,
-            -abs(len(compact_window) - max_chars),
-        )
-        if candidate > best_candidate:
-            best_candidate = candidate
-            best_excerpt = compact_window
+        for excerpt in excerpt_candidates:
+            candidate = (
+                _overlap_terms(focus_terms, excerpt),
+                _overlap_terms(query_terms, excerpt),
+                focus_overlap,
+                -abs(len(excerpt) - max_chars),
+            )
+            if candidate > best_candidate:
+                best_candidate = candidate
+                best_excerpt = excerpt
 
     if best_excerpt:
         return best_excerpt
